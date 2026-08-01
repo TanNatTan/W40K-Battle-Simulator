@@ -51,9 +51,20 @@
           <i data-lucide="truck" aria-hidden="true"></i>
           Logistics
         </button>
-        <div class="viz-row" aria-label="Map zoom">
+        <div class="viz-row" aria-label="Camera zoom">
           <button type="button" class="btn" id="awt-zoom-out" aria-label="Zoom out">−</button>
-          <span class="viz-badge" id="awt-zoom-value">View 1×</span>
+          <label class="sr-only" for="awt-zoom-level">Camera zoom level</label>
+          <select class="form-select awt-zoom-select" id="awt-zoom-level" aria-label="Camera zoom level">
+            <option value="fit">Fit world</option>
+            <option value="0.1">10%</option>
+            <option value="0.25">25%</option>
+            <option value="0.5">50%</option>
+            <option value="1" selected>100%</option>
+            <option value="2">200%</option>
+            <option value="4">400%</option>
+            <option value="custom" hidden>Custom</option>
+          </select>
+          <span class="viz-badge" id="awt-zoom-value">100%</span>
           <button type="button" class="btn" id="awt-zoom-in" aria-label="Zoom in">+</button>
         </div>
         <button type="button" class="btn" id="awt-pause-button">
@@ -85,8 +96,8 @@
       </div>
       <div class="card viz-stat">
         <div class="awt-faction-line text-small">
-          <span>Emergent base</span>
-          <span id="awt-b-doctrine">1920 × 1080</span>
+          <span>World theater</span>
+          <span id="awt-b-doctrine">16384 × 16384</span>
         </div>
         <div class="viz-stat-value" id="awt-b-strength">0 buildings</div>
         <div class="awt-stat-context text-small" id="awt-b-context">0 squads · Fog enabled</div>
@@ -300,10 +311,15 @@
 
     <div class="awt-main-grid">
       <div class="awt-field">
-        <canvas id="awt-canvas" width="960" height="540" role="img" aria-label="Top-view autonomous battlefield showing two AI armies, terrain, projectiles, fortifications, and live unit movement.">
+        <canvas id="awt-canvas" width="1920" height="1080" role="img" aria-label="A 1920 by 1080 camera viewport looking into a large autonomous battlefield.">
           A live top-view simulation of two autonomous armies.
         </canvas>
         <div class="viz-badge awt-field-mode" id="awt-field-mode">Observer / Paused</div>
+        <div class="viz-badge awt-camera-status" id="awt-camera-status">Camera 8192, 8192 · 100%</div>
+        <div class="awt-minimap-shell" aria-label="Battlefield minimap">
+          <canvas id="awt-minimap" width="240" height="240" role="img" aria-label="Minimap showing the entire world and current camera rectangle."></canvas>
+          <span class="awt-minimap-label text-small">WORLD</span>
+        </div>
 
         <div class="awt-editor-tip text-small" id="awt-editor-tip" hidden>
           Pixel probe ready.
@@ -365,18 +381,18 @@
               <button type="button" class="btn btn-ghost btn-block" id="awt-sprite-back">Back</button>
             </div>
             <div id="awt-setup-panel" hidden>
-              <div class="awt-panel-title">Pixel map parameters</div>
-              <p class="awt-panel-copy text-small">Every pixel carries terrain, elevation, climate, movement, visibility, cover, and ownership data.</p>
+              <div class="awt-panel-title">World parameters</div>
+              <p class="awt-panel-copy text-small">The 1920 × 1080 camera moves independently across a chunked world. Terrain uses sparse 64 px tiles inside 256 px chunks.</p>
               <div class="awt-load-list">
                 <div class="viz-controls">
                   <label class="form-label" for="awt-map-resolution">
-                    Map resolution
+                    World size
                     <select class="form-select" id="awt-map-resolution">
-                      <option value="1280x720">1280 × 720 · Small</option>
-                      <option value="1920x1080" selected>1920 × 1080 · Medium</option>
-                      <option value="2560x1440">2560 × 1440 · Large</option>
-                      <option value="3840x2160">3840 × 2160 · 4K</option>
-                      <option value="custom">Custom resolution</option>
+                      <option value="4096x4096">Small · 4096 × 4096</option>
+                      <option value="8192x8192">Medium · 8192 × 8192</option>
+                      <option value="16384x16384" selected>Large · 16384 × 16384</option>
+                      <option value="32768x32768">Massive · 32768 × 32768</option>
+                      <option value="custom">Custom world</option>
                     </select>
                   </label>
                   <label class="form-label" for="awt-player-count">
@@ -399,11 +415,11 @@
                 <div class="viz-controls" id="awt-custom-resolution" hidden>
                   <label class="form-label" for="awt-custom-width">
                     Width
-                    <input class="form-control" id="awt-custom-width" type="number" min="640" max="4096" value="1920">
+                    <input class="form-control" id="awt-custom-width" type="number" min="2048" max="65536" step="256" value="16384">
                   </label>
                   <label class="form-label" for="awt-custom-height">
                     Height
-                    <input class="form-control" id="awt-custom-height" type="number" min="360" max="2160" value="1080">
+                    <input class="form-control" id="awt-custom-height" type="number" min="2048" max="65536" step="256" value="16384">
                   </label>
                 </div>
                 <button type="button" class="btn btn-primary btn-block" id="awt-configure-players">Configure players</button>
@@ -596,6 +612,9 @@
   <script src="js/modules/faction-config.js"></script>
   <script src="js/modules/economy-config.js"></script>
   <script src="js/modules/trade-routes.js"></script>
+  <script src="js/modules/ai-config.js"></script>
+  <script src="js/modules/environment-config.js"></script>
+  <script src="js/modules/unit-sprite-forge.js"></script>
   <script src="js/modules/storage-adapter.js"></script>
   <script src="js/app.js"></script>
 </body>

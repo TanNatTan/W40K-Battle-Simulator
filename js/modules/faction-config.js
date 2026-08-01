@@ -11,8 +11,8 @@
         scout: ["Scout Marine", "Eliminator", "Infiltrator"],
         medic: ["Apothecary"], engineer: ["Techmarine"],
         commander: ["Sergeant", "Lieutenant", "Captain", "Chapter Master", "Chaplain", "Librarian", "Judiciar"],
-        standard: ["Ancient", "Company Champion", "Bladeguard Veteran"],
-        vehicle: ["Rhino", "Razorback", "Impulsor", "Repulsor", "Land Raider", "Predator", "Gladiator", "Vindicator", "Whirlwind", "Dreadnought", "Redemptor Dreadnought"]
+        standard: ["Ancient", "Company Champion", "Bladeguard Veteran", "Sternguard", "Vanguard Veteran", "Terminator", "Assault Terminator"],
+        vehicle: ["Rhino", "Razorback", "Impulsor", "Repulsor", "Land Raider", "Predator", "Gladiator", "Vindicator", "Whirlwind", "Hunter", "Stalker", "Storm Speeder", "Invader ATV", "Dreadnought", "Redemptor Dreadnought", "Ballistus Dreadnought", "Brutalis Dreadnought", "Thunderhawk", "Stormraven", "Stormtalon", "Stormhawk"]
       }
     },
     guard: {
@@ -38,12 +38,12 @@
       }
     },
     ork: {
-      deployment: "Mobs, Trukks, scrap-built arrivals",
-      buildings: { outpost: "Boss Camp", barracks: "Boyz Hut", workshop: "Mek Workshop", researchcenter: "Big Mek Tinkerin' Yard", fieldhospital: "Painboy Hut", generator: "Waaagh! Generator", warehouse: "Ammo Dump", mine: "Scrap Yard", farm: "Squig Pen", refinery: "Fuel Still", observationtower: "Watch Tower", bunker: "Scrap Bunker", turret: "Big Gunz Platform" },
+      deployment: "Spore patches, ramshackle camps, mobs and Trukks",
+      buildings: { outpost: "Boss Hut", barracks: "Boyz Hut", workshop: "Mek Shop", researchcenter: "Big Mek's Workshop", fieldhospital: "Painboy Hut", generator: "Kustom Generator", warehouse: "Dakka Dump", fueldepot: "Fuel Gubbinz", ammodepot: "Dakka Dump", mine: "Scrap Pile", farm: "Squig Pen", refinery: "Lootin' Yard", dropbay: "Tellyporta Pad", observationtower: "Watcha Tower", bunker: "Waaagh! Banner", turret: "Big Gunz Nest" },
       roster: {
-        builder: ["Grot", "Mekboy"],
+        builder: ["Gretchin"],
         trooper: ["Gretchin", "Boy", "Shoota Boy", "Slugga Boy", "Burna Boy", "Tankbusta", "Loota", "Nob", "Flash Git", "Meganob"],
-        scout: ["Kommando"], medic: ["Painboy"], engineer: ["Big Mek"], commander: ["Warboss", "Weirdboy"], standard: ["Waaagh! Banner Nob"],
+        scout: ["Kommando"], medic: ["Painboy"], engineer: ["Mekboy", "Big Mek"], commander: ["Boss Nob", "Warboss", "Weirdboy"], standard: ["Waaagh! Banner Nob"],
         vehicle: ["Trukk", "Battlewagon", "Deff Dread", "Killa Kan", "Looted Wagon", "Scrapjet", "Rukkatrukk Squigbuggy", "Dakkajet"]
       }
     },
@@ -68,11 +68,11 @@
       }
     },
     tyranid: {
-      deployment: "Biological spawning, burrowing, Tyrannocytes",
-      buildings: { outpost: "Hive Node", barracks: "Spawning Pool", workshop: "Evolution Chamber", researchcenter: "Norn Adaptation Node", fieldhospital: "Synapse Nexus", generator: "Digestion Pool", warehouse: "Biomass Pit", mine: "Capillary Feeder", farm: "Biomass Garden", refinery: "Digestion Pool", dropbay: "Tyrannocyte Chimney", observationtower: "Capillary Tower", bunker: "Spore Chimney", turret: "Bio-plasma Spire" },
+      deployment: "Mycetic Spores, Tyrannocytes, brood nests, tunnels and infestation zones",
+      buildings: { outpost: "Synaptic Hive Node", barracks: "Brood Nest", workshop: "Norn Gestation Chamber", researchcenter: "Evolutionary Chamber", fieldhospital: "Synapse Spire", generator: "Digestion Pool", warehouse: "Feeder Organism Cluster", mine: "Infestation Node", farm: "Reclamation Pool", refinery: "Capillary Tower", dropbay: "Aerial Brood Sac", observationtower: "Sensory Tendril Cluster", bunker: "Spore Chimney", turret: "Biovore Nest" },
       roster: {
-        builder: ["Ripper Swarm", "Norn Drone"], trooper: ["Termagant", "Hormagaunt", "Genestealer", "Tyranid Warrior", "Venomthrope", "Zoanthrope"],
-        scout: ["Gargoyle", "Ravener"], medic: ["Venomthrope"], engineer: ["Norn Drone"],
+        builder: ["Ripper Tendril"], trooper: ["Termagant", "Hormagaunt", "Genestealer", "Tyranid Warrior", "Venomthrope", "Zoanthrope"],
+        scout: ["Gargoyle", "Ravener"], medic: ["Feeder Organism"], engineer: ["Ripper Tendril"],
         commander: ["Tyranid Prime", "Neurotyrant", "Broodlord", "Hive Tyrant", "Swarmlord"], standard: ["Synapse Organism"],
         vehicle: ["Carnifex", "Screamer-Killer", "Trygon", "Mawloc", "Haruspex", "Exocrine", "Tyrannofex", "Tyrannocyte"]
       }
