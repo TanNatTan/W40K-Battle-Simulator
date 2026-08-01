@@ -23,6 +23,8 @@
       const CHUNK_SIZE = 256;
       const TERRITORY_CELL_SIZE = 96;
       const FOG_CELL_SIZE = TILE_SIZE;
+      const UNIT_DEATH_ANIMATION_SECONDS = 1.35;
+      const STRUCTURE_DEATH_ANIMATION_SECONDS = 1.9;
       const DEFAULT_WORLD_SIZE = 16384;
       const ZOOM_STOPS = [0.1, 0.25, 0.5, 1, 2, 4];
       const ids = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l"];
@@ -908,6 +910,7 @@
         showSupplyRadii: true,
         showRoads: true,
         casualties: {},
+        deathRemovalStats: { units: 0, structures: 0 },
         adapted: {},
         nextUnitIndex: {},
         nextTrain: {},
@@ -2785,6 +2788,7 @@
         state.nextDropPodId = 1;
         state.nextLogisticsTick = 0;
         state.casualties = {};
+        state.deathRemovalStats = { units: 0, structures: 0 };
         state.adapted = {};
         state.nextUnitIndex = {};
         state.nextTrain = {};
@@ -4738,6 +4742,7 @@
         unit.incapacitated = false;
         unit.woundState = "Dead";
         unit.status = cause;
+        unit.deathStartedAt = state.time;
         const carrier = state.units.find(item => item.id === unit.carriedById);
         if (carrier) carrier.carryingPatientId = null;
         unit.carriedById = null;
@@ -4804,6 +4809,7 @@
           target.incapacitated = false;
           target.woundState = "Dead";
           target.status = "Killed";
+          target.deathStartedAt = state.time;
           if (shooter) {
             const endangeredAlly = target.targetId
               ? state.units.find(unit => unit.id === target.targetId && unit.alive && areAllies(unit.faction, shooter.faction))
@@ -4898,6 +4904,42 @@
         rebuildRoadNetwork();
         if (attacker) attacker.kills += 1;
         incident(`${unitLabel(structure)} destroyed · ${Math.round(lost)} stock lost, ${Math.round(salvaged)} salvaged.`, attacker?.id || structure.id, "critical");
+      }
+
+      function cleanupCompletedDeathAnimations() {
+        const expiredUnitIds = new Set(state.units
+          .filter(unit => !unit.alive && state.time - (unit.deathStartedAt ?? 0) >= UNIT_DEATH_ANIMATION_SECONDS)
+          .map(unit => unit.id));
+        const expiredStructureIds = new Set(state.structures
+          .filter(structure => structure.alive === false && state.time - (structure.destroyedAt ?? 0) >= STRUCTURE_DEATH_ANIMATION_SECONDS)
+          .map(structure => structure.id));
+        if (!expiredUnitIds.size && !expiredStructureIds.size) return;
+        state.deathRemovalStats.units += expiredUnitIds.size;
+        state.deathRemovalStats.structures += expiredStructureIds.size;
+        state.units = state.units.filter(unit => !expiredUnitIds.has(unit.id));
+        state.structures = state.structures.filter(structure => !expiredStructureIds.has(structure.id));
+        for (const unit of state.units) {
+          if (expiredUnitIds.has(unit.targetId)) unit.targetId = null;
+          if (expiredUnitIds.has(unit.cachedTargetId)) unit.cachedTargetId = null;
+          if (expiredUnitIds.has(unit.protectTargetId) || expiredStructureIds.has(unit.protectTargetId)) unit.protectTargetId = null;
+          if (expiredUnitIds.has(unit.carryingPatientId)) unit.carryingPatientId = null;
+          if (expiredUnitIds.has(unit.carriedById)) unit.carriedById = null;
+          if (expiredStructureIds.has(unit.buildProject)) unit.buildProject = null;
+          let relationshipsChanged = false;
+          for (const expiredId of expiredUnitIds) {
+            if (!unit.relationships?.[expiredId]) continue;
+            delete unit.relationships[expiredId];
+            relationshipsChanged = true;
+          }
+          if (relationshipsChanged) refreshRelationshipLists(unit);
+        }
+        if (expiredUnitIds.has(state.selectedId)) state.selectedId = state.units.find(unit => unit.alive)?.id || null;
+        if (expiredStructureIds.has(state.selectedStructureId)) state.selectedStructureId = null;
+        state.spatialGrid = new Map();
+        state.spatialMembership = new WeakMap();
+        rebuildSpatialGrid();
+        rebuildUnitSelect();
+        state.minimapMarkerDirty = true;
       }
 
       function updateMedic(unit, dt) {
@@ -7362,6 +7404,7 @@
           state.separationAccumulator = 0;
         }
         updateProjectiles(dt);
+        cleanupCompletedDeathAnimations();
         updateExploration(dt);
         if (state.time >= state.nextSnapshot) {
           captureSnapshot();
@@ -7381,8 +7424,10 @@
           t: state.time,
           resources: { ...state.resources },
           units: state.units.map(unit => ({
-            id: unit.id, x: unit.x, y: unit.y, hp: unit.hp, morale: unit.morale,
+            id: unit.id, faction: unit.faction, name: unit.name, role: unit.role, index: unit.index,
+            x: unit.x, y: unit.y, hp: unit.hp, maxHp: unit.maxHp, morale: unit.morale,
             fatigue: unit.fatigue, alive: unit.alive, status: unit.status, squadId: unit.squadId,
+            range: unit.range, spriteScale: unit.spriteScale, deathStartedAt: unit.deathStartedAt,
             combatIntent: unit.combatIntent, killConfidence: unit.killConfidence
           })),
           structures: state.structures.map(item => ({ ...item })),
@@ -8291,9 +8336,14 @@
           const height = item.hitbox?.h || (item.type === "outpost" ? 28 : item.type === "bunker" ? 18 : 24);
           const progress = clamp(item.progress, 0, 1);
           if (item.alive === false) {
+            const renderTime = snapshot?.t ?? state.time;
+            const deathProgress = clamp((renderTime - (item.destroyedAt ?? renderTime)) / STRUCTURE_DEATH_ANIMATION_SECONDS, 0, 1);
+            const fade = 1 - deathProgress;
+            ctx.rotate(Math.sin(item.x * 0.17 + item.y * 0.11) * 0.08 * deathProgress);
+            ctx.scale(1 + deathProgress * 0.18, 1 - deathProgress * 0.38);
             ctx.fillStyle = colors.mutedForeground;
             ctx.strokeStyle = colors.foreground;
-            ctx.globalAlpha = 0.34;
+            ctx.globalAlpha = 0.58 * fade;
             ctx.fillRect(-width / 2, -height / 3, width, height * 0.66);
             ctx.beginPath();
             ctx.moveTo(-width / 2, -height / 2);
@@ -8301,6 +8351,13 @@
             ctx.moveTo(width / 2, -height / 2);
             ctx.lineTo(-width / 2, height / 2);
             ctx.stroke();
+            ctx.fillStyle = colors.danger;
+            for (let spark = 0; spark < 8; spark += 1) {
+              const angle = spark * Math.PI / 4 + item.x * 0.01;
+              const radius = (width * 0.18 + deathProgress * width * 0.72) * (0.72 + spark % 3 * 0.12);
+              ctx.globalAlpha = fade * (0.7 - spark * 0.045);
+              ctx.fillRect(Math.cos(angle) * radius - 1, Math.sin(angle) * radius - 1, 2.5, 2.5);
+            }
             ctx.restore();
             continue;
           }
@@ -8479,13 +8536,26 @@
           return;
         }
         if (!view.alive) {
+          const renderTime = currentSnapshot()?.t ?? state.time;
+          const deathProgress = clamp((renderTime - (view.deathStartedAt ?? unit.deathStartedAt ?? renderTime)) / UNIT_DEATH_ANIMATION_SECONDS, 0, 1);
+          const fade = 1 - deathProgress;
+          ctx.globalAlpha = fade;
+          ctx.rotate((unit.index % 2 ? 1 : -1) * deathProgress * 0.42);
+          ctx.scale(1 + deathProgress * 0.18, 1 - deathProgress * 0.3);
           const forgedBody = window.AWTModules?.unitSpriteForge?.draw(ctx, { ...unit, alive: false }, { primary: color, secondary, accent: colors.foreground }, currentSnapshot()?.t ?? state.time);
           if (forgedBody) {
+            ctx.fillStyle = colors.danger;
+            ctx.globalAlpha = fade * 0.55;
+            ctx.beginPath();
+            ctx.arc(0, 0, 4 + deathProgress * 10, 0, Math.PI * 2);
+            ctx.strokeStyle = colors.danger;
+            ctx.lineWidth = 1;
+            ctx.stroke();
             ctx.restore();
             return;
           }
           ctx.strokeStyle = color;
-          ctx.globalAlpha = 0.34;
+          ctx.globalAlpha = 0.5 * fade;
           ctx.lineWidth = 2;
           ctx.beginPath();
           ctx.moveTo(-5, -5);
@@ -9258,6 +9328,9 @@
         root.dataset.depletedNodes = String(state.features.filter(feature => feature.resourceNode && feature.reserve <= 0).length);
         root.dataset.incapacitated = String(state.units.filter(unit => unit.alive && unit.incapacitated).length);
         root.dataset.casualtyStates = [...new Set(state.units.map(unit => unit.woundState || "Healthy"))].join(",");
+        root.dataset.deathAnimations = String(state.units.filter(unit => !unit.alive).length + state.structures.filter(structure => structure.alive === false).length);
+        root.dataset.deathRemovals = `${state.deathRemovalStats.units},${state.deathRemovalStats.structures}`;
+        root.dataset.simulationPaused = String(state.paused);
         root.dataset.productionGroups = [...new Set(state.squads.map(squad => squad.templateId).filter(Boolean))].join(",");
         root.dataset.territoryPressure = state.players.map(player => `${player.id}:${Math.round((economyFor(player.id).territoryPressure || 0) * 100)}`).join(",");
         root.dataset.strategicOutcomes = state.players.map(player => `${player.id}:${state.strategicOutcomes[player.id]?.status || "forming"}`).join("|");
