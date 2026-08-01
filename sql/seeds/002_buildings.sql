@@ -1,0 +1,23 @@
+INSERT OR REPLACE INTO building_resource_flows(building_type, resource_code, direction, amount_per_tick) VALUES
+  ('outpost', 'requisition', 'produce', 2.4),
+  ('outpost', 'energy', 'consume', 0.8),
+  ('warehouse', 'materials', 'store', 160),
+  ('warehouse', 'parts', 'store', 100),
+  ('mine', 'materials', 'produce', 4.2),
+  ('mine', 'energy', 'consume', 1.0),
+  ('refinery', 'fuel', 'produce', 3.4),
+  ('refinery', 'energy', 'consume', 1.2),
+  ('generator', 'energy', 'produce', 5.0),
+  ('generator', 'fuel', 'consume', 0.9),
+  ('workshop', 'ammunition', 'produce', 3.0),
+  ('workshop', 'parts', 'produce', 1.5),
+  ('workshop', 'materials', 'consume', 1.4),
+  ('farm', 'food', 'produce', 4.0),
+  ('farm', 'energy', 'consume', 0.4),
+  ('barracks', 'food', 'consume', 0.8),
+  ('barracks', 'ammunition', 'consume', 0.6),
+  ('medical-depot', 'medical', 'store', 120),
+  ('fuel-depot', 'fuel', 'store', 180),
+  ('ammo-depot', 'ammunition', 'store', 220),
+  ('supply-silo', 'food', 'store', 200);
+

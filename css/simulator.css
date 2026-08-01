@@ -1,0 +1,578 @@
+
+    #autonomous-war-theater {
+      color: var(--foreground);
+      width: 100%;
+      position: relative;
+    }
+
+    #autonomous-war-theater * {
+      box-sizing: border-box;
+    }
+
+    #autonomous-war-theater .awt-shell {
+      display: grid;
+      gap: 12px;
+      width: 100%;
+    }
+
+    #autonomous-war-theater .awt-header,
+    #autonomous-war-theater .awt-header-copy,
+    #autonomous-war-theater .awt-header-actions,
+    #autonomous-war-theater .awt-timeline-head,
+    #autonomous-war-theater .awt-faction-line,
+    #autonomous-war-theater .awt-unit-heading,
+    #autonomous-war-theater .awt-detail-line,
+    #autonomous-war-theater .awt-legend {
+      display: flex;
+      align-items: center;
+    }
+
+    #autonomous-war-theater .awt-header {
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    #autonomous-war-theater .awt-header-copy {
+      gap: 10px;
+      min-width: 0;
+    }
+
+    #autonomous-war-theater .awt-header-actions {
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    #autonomous-war-theater .awt-signal {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--viz-series-1);
+      box-shadow: 0 0 0 4px color-mix(in srgb, var(--viz-series-1) 18%, transparent);
+      flex: 0 0 auto;
+    }
+
+    #autonomous-war-theater .awt-kicker {
+      color: var(--muted-foreground);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    #autonomous-war-theater .awt-name {
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    #autonomous-war-theater .awt-main-grid {
+      position: relative;
+      min-width: 0;
+    }
+
+    #autonomous-war-theater .awt-field {
+      position: relative;
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    #autonomous-war-theater canvas {
+      display: block;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--muted);
+      image-rendering: pixelated;
+      cursor: crosshair;
+      object-fit: contain;
+      object-position: center;
+      touch-action: none;
+    }
+
+    #autonomous-war-theater .awt-overlay {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      padding: 18px;
+      background: color-mix(in srgb, var(--background) 66%, transparent);
+      backdrop-filter: blur(7px);
+      z-index: 5;
+    }
+
+    #autonomous-war-theater .awt-overlay[hidden],
+    #autonomous-war-theater .awt-editor-bar[hidden],
+    #autonomous-war-theater .awt-editor-tip[hidden],
+    #autonomous-war-theater .awt-menu-actions[hidden],
+    #autonomous-war-theater #awt-sprite-panel[hidden],
+    #autonomous-war-theater #awt-setup-panel[hidden],
+    #autonomous-war-theater #awt-player-panel[hidden],
+    #autonomous-war-theater #awt-load-panel[hidden],
+    #autonomous-war-theater #awt-quit-panel[hidden],
+    #autonomous-war-theater #awt-custom-resolution[hidden],
+    #autonomous-war-theater #awt-clear-zone[hidden],
+    #autonomous-war-theater #awt-paint-controls[hidden],
+    #autonomous-war-theater #awt-territory-controls[hidden],
+    #autonomous-war-theater #awt-lighting-controls[hidden],
+    #autonomous-war-theater #awt-logistics-panel[hidden],
+    #autonomous-war-theater [data-player-tab][hidden] {
+      display: none;
+    }
+
+    #autonomous-war-theater .awt-logistics-panel {
+      display: grid;
+      gap: 10px;
+    }
+
+    #autonomous-war-theater .awt-logistics-head,
+    #autonomous-war-theater .awt-logistics-resources,
+    #autonomous-war-theater .awt-logistics-columns,
+    #autonomous-war-theater .awt-logistics-switches {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    #autonomous-war-theater .awt-logistics-head {
+      align-items: end;
+      justify-content: space-between;
+    }
+
+    #autonomous-war-theater .awt-logistics-resources {
+      align-items: center;
+    }
+
+    #autonomous-war-theater .awt-logistics-columns {
+      align-items: start;
+    }
+
+    #autonomous-war-theater .awt-logistics-column {
+      display: grid;
+      gap: 6px;
+      flex: 1 1 210px;
+      min-width: 0;
+    }
+
+    #autonomous-war-theater .awt-logistics-list {
+      display: grid;
+      gap: 3px;
+      margin: 0;
+      padding-left: 18px;
+    }
+
+    #autonomous-war-theater .awt-logistics-list li::marker {
+      color: var(--viz-series-1);
+    }
+
+    #autonomous-war-theater .awt-logistics-switches {
+      align-items: center;
+    }
+
+    #autonomous-war-theater .awt-menu {
+      width: min(620px, 100%);
+    }
+
+    #autonomous-war-theater .awt-menu-copy {
+      display: grid;
+      gap: 6px;
+      margin-bottom: 16px;
+    }
+
+    #autonomous-war-theater .awt-menu-copy h2,
+    #autonomous-war-theater .awt-menu-copy p,
+    #autonomous-war-theater .awt-panel-title,
+    #autonomous-war-theater .awt-panel-copy {
+      margin: 0;
+    }
+
+    #autonomous-war-theater .awt-menu-actions,
+    #autonomous-war-theater .awt-load-list,
+    #autonomous-war-theater .awt-event-list,
+    #autonomous-war-theater .awt-log-list,
+    #autonomous-war-theater .awt-inspector,
+    #autonomous-war-theater .awt-unit-card,
+    #autonomous-war-theater .awt-unit-body,
+    #autonomous-war-theater .awt-bars,
+    #autonomous-war-theater .awt-timeline {
+      display: grid;
+      gap: 8px;
+    }
+
+    #autonomous-war-theater .awt-inspector {
+      position: static;
+      width: 100%;
+      margin-top: 10px;
+      grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+    }
+
+    #autonomous-war-theater .awt-inspector[hidden] {
+      display: none;
+    }
+
+    #autonomous-war-theater .awt-inspector-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    #autonomous-war-theater .awt-field-mode {
+      position: absolute;
+      left: 10px;
+      bottom: 10px;
+      z-index: 2;
+      pointer-events: none;
+    }
+
+    #autonomous-war-theater .awt-load-list {
+      margin-top: 12px;
+    }
+
+    #autonomous-war-theater .awt-editor-bar {
+      position: static;
+      display: grid;
+      gap: 8px;
+    }
+
+    #autonomous-war-theater .awt-editor-tools {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    #autonomous-war-theater .awt-editor-selects {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 8px;
+      width: min(100%, 720px);
+    }
+
+    #autonomous-war-theater .awt-brush-presets {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+      gap: 6px;
+    }
+
+    #autonomous-war-theater .awt-preset-content,
+    #autonomous-war-theater .awt-preset-icon {
+      display: flex;
+      align-items: center;
+    }
+
+    #autonomous-war-theater .awt-preset-content {
+      gap: 5px;
+      min-width: 0;
+    }
+
+    #autonomous-war-theater .awt-preset-icon {
+      justify-content: center;
+      width: 24px;
+      height: 24px;
+      flex: 0 0 auto;
+    }
+
+    #autonomous-war-theater .awt-water-icon {
+      color: #BAE6FD;
+      background: #60A5FA;
+      box-shadow: inset 0 -3px #2563EB;
+      border-radius: 4px;
+    }
+
+    #autonomous-war-theater .awt-paint-settings,
+    #autonomous-war-theater .awt-territory-properties {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      gap: 8px;
+    }
+
+    #autonomous-war-theater #awt-paint-controls,
+    #autonomous-war-theater #awt-territory-controls {
+      display: grid;
+      gap: 8px;
+    }
+
+    #autonomous-war-theater .awt-player-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    #autonomous-war-theater .awt-sprite-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    #autonomous-war-theater .awt-sprite-preview {
+      margin: 10px 0;
+    }
+
+    #autonomous-war-theater #awt-sprite-canvas {
+      cursor: default;
+      background: color-mix(in srgb, var(--muted) 55%, transparent);
+      image-rendering: pixelated;
+    }
+
+    #autonomous-war-theater.is-configuring .awt-field,
+    #autonomous-war-theater.is-configuring #awt-canvas {
+      min-height: 700px;
+      aspect-ratio: auto;
+    }
+
+    #autonomous-war-theater.is-configuring .awt-menu-copy {
+      display: none;
+    }
+
+    #autonomous-war-theater .awt-player-config {
+      display: grid;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    #autonomous-war-theater .awt-color-line {
+      display: flex;
+      align-items: end;
+      gap: 8px;
+    }
+
+    #autonomous-war-theater .awt-color-line .form-label {
+      flex: 1 1 auto;
+    }
+
+    #autonomous-war-theater .awt-squad-tools {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: end;
+    }
+
+    #autonomous-war-theater .awt-editor-tip {
+      position: absolute;
+      left: 12px;
+      bottom: 42px;
+      max-width: calc(100% - 24px);
+      padding: 6px 8px;
+      color: var(--foreground);
+      background: color-mix(in srgb, var(--background) 78%, transparent);
+      border-radius: 6px;
+      pointer-events: none;
+    }
+
+    #autonomous-war-theater .awt-faction-line,
+    #autonomous-war-theater .awt-unit-heading,
+    #autonomous-war-theater .awt-detail-line,
+    #autonomous-war-theater .awt-timeline-head {
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    #autonomous-war-theater .awt-swatch {
+      width: 9px;
+      height: 9px;
+      border-radius: 2px;
+      display: inline-block;
+      margin-right: 6px;
+      vertical-align: middle;
+      background: var(--viz-series-1);
+    }
+
+    #autonomous-war-theater .awt-swatch.is-opposition {
+      background: var(--viz-series-4);
+    }
+
+    #autonomous-war-theater .awt-stat-context,
+    #autonomous-war-theater .awt-panel-copy,
+    #autonomous-war-theater .awt-unit-sub,
+    #autonomous-war-theater .awt-unit-action,
+    #autonomous-war-theater .awt-log-list,
+    #autonomous-war-theater .awt-timeline-head,
+    #autonomous-war-theater .awt-legend,
+    #autonomous-war-theater .awt-editor-tip {
+      color: var(--muted-foreground);
+    }
+
+    #autonomous-war-theater .awt-unit-card {
+      min-height: 0;
+    }
+
+    #autonomous-war-theater .awt-unit-title {
+      font-weight: 500;
+    }
+
+    #autonomous-war-theater .awt-unit-sub {
+      margin-top: 2px;
+    }
+
+    #autonomous-war-theater .awt-bar-row {
+      display: grid;
+      grid-template-columns: 58px 1fr 34px;
+      gap: 7px;
+      align-items: center;
+    }
+
+    #autonomous-war-theater .awt-bar-track {
+      height: 5px;
+      background: var(--muted);
+      overflow: hidden;
+      border-radius: 999px;
+    }
+
+    #autonomous-war-theater .awt-bar-fill {
+      height: 100%;
+      background: var(--viz-series-1);
+      transform-origin: left center;
+      border-radius: inherit;
+    }
+
+    #autonomous-war-theater .awt-bar-fill.is-morale {
+      background: var(--viz-series-2);
+    }
+
+    #autonomous-war-theater .awt-bar-fill.is-fatigue {
+      background: var(--viz-series-5);
+    }
+
+    #autonomous-war-theater .awt-section {
+      display: grid;
+      gap: 7px;
+      align-content: start;
+    }
+
+    #autonomous-war-theater .awt-section-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    #autonomous-war-theater .awt-event-list {
+      min-height: 34px;
+      align-content: start;
+    }
+
+    #autonomous-war-theater .awt-log-list {
+      margin: 0;
+      padding-left: 17px;
+      max-height: 92px;
+      overflow: hidden;
+    }
+
+    #autonomous-war-theater .awt-log-list li::marker {
+      color: var(--viz-series-1);
+    }
+
+    #autonomous-war-theater .awt-timeline {
+      padding-top: 2px;
+    }
+
+    #autonomous-war-theater .awt-timeline input {
+      width: 100%;
+    }
+
+    #autonomous-war-theater .awt-legend {
+      justify-content: center;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+
+    #autonomous-war-theater .awt-legend-item {
+      white-space: nowrap;
+    }
+
+    #autonomous-war-theater .awt-glyph {
+      display: inline-flex;
+      width: 15px;
+      justify-content: center;
+      color: var(--foreground);
+      margin-right: 3px;
+    }
+
+    #autonomous-war-theater.is-expanded .awt-inspector,
+    #autonomous-war-theater.is-expanded > .awt-shell > .viz-grid,
+    #autonomous-war-theater.is-expanded .awt-legend {
+      display: none;
+    }
+
+    #autonomous-war-theater:fullscreen {
+      width: 100%;
+      height: 100%;
+      padding: 12px;
+      overflow: hidden;
+      background: var(--background);
+    }
+
+    #autonomous-war-theater:fullscreen .awt-shell {
+      height: 100%;
+      grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+    }
+
+    #autonomous-war-theater:fullscreen .awt-shell:has(#awt-logistics-panel:not([hidden])) {
+      grid-template-rows: auto auto auto minmax(0, 1fr) auto auto;
+    }
+
+    #autonomous-war-theater:fullscreen .awt-main-grid,
+    #autonomous-war-theater:fullscreen .awt-field {
+      min-height: 0;
+      height: 100%;
+    }
+
+    #autonomous-war-theater:fullscreen canvas {
+      width: 100%;
+      height: 100%;
+      aspect-ratio: auto;
+    }
+
+    #autonomous-war-theater:fullscreen .awt-inspector {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      width: min(292px, calc(100% - 24px));
+      margin-top: 0;
+      grid-template-columns: 1fr;
+      z-index: 3;
+    }
+
+    @media (max-width: 680px) {
+      #autonomous-war-theater.is-configuring .awt-field,
+      #autonomous-war-theater.is-configuring #awt-canvas {
+        min-height: 740px;
+        aspect-ratio: auto;
+      }
+
+      #autonomous-war-theater .awt-inspector {
+        grid-template-columns: 1fr;
+      }
+
+      #autonomous-war-theater .awt-sprite-grid {
+        grid-template-columns: 1fr;
+      }
+
+      #autonomous-war-theater .awt-field-mode {
+        bottom: 8px;
+        left: 8px;
+      }
+    }
+
+    @media (max-width: 470px) {
+      #autonomous-war-theater .awt-inspector {
+        grid-template-columns: 1fr;
+      }
+
+      #autonomous-war-theater .awt-header-actions {
+        width: 100%;
+      }
+
+      #autonomous-war-theater .awt-header-actions .viz-row {
+        flex: 1 1 auto;
+      }
+
+      #autonomous-war-theater .awt-editor-bar {
+        position: static;
+      }
+
+      #autonomous-war-theater .awt-editor-selects,
+      #autonomous-war-theater .awt-squad-tools {
+        grid-template-columns: 1fr;
+      }
+    }
+  

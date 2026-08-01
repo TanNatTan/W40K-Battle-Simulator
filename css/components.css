@@ -1,0 +1,151 @@
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 7px 11px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--secondary);
+  color: var(--secondary-foreground);
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.btn:hover {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.btn:focus-visible,
+.form-control:focus-visible,
+.form-select:focus-visible,
+.form-range:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.btn-primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.btn-ghost {
+  background: transparent;
+}
+
+.btn-block {
+  width: 100%;
+}
+
+.btn[aria-pressed="true"],
+.btn.is-selected {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.card {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+  color: var(--card-foreground);
+}
+
+.viz-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.viz-row,
+.viz-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.viz-stat-value {
+  margin-top: 4px;
+  font-size: 1.35rem;
+  font-weight: 500;
+}
+
+.viz-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--muted);
+  color: var(--foreground);
+}
+
+.text-small {
+  font-size: 0.82rem;
+}
+
+.text-muted {
+  color: var(--muted-foreground);
+}
+
+.text-destructive {
+  color: #ef8e95;
+}
+
+.form-label {
+  display: grid;
+  gap: 5px;
+  color: var(--foreground);
+}
+
+.form-control,
+.form-select {
+  min-height: 34px;
+  padding: 6px 9px;
+  border: 1px solid var(--input);
+  border-radius: 7px;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.form-control-color {
+  width: 44px;
+  padding: 3px;
+}
+
+.form-range {
+  accent-color: var(--primary);
+}
+
+.form-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.form-check-input {
+  accent-color: var(--primary);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+svg[data-lucide] {
+  width: 16px;
+  height: 16px;
+}
+

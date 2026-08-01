@@ -1,0 +1,602 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>Autonomous War Theater</title>
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/simulator.css">
+</head>
+<body>
+  <main class="app-stage"><div id="autonomous-war-theater">
+  
+
+  <div class="awt-shell">
+    <div class="awt-header">
+      <div class="awt-header-copy">
+        <span class="awt-signal" aria-hidden="true"></span>
+        <div>
+          <div class="awt-kicker text-small">Observation channel 04</div>
+          <div class="awt-name" id="awt-battle-name">Iron Pass / Initial deployment</div>
+        </div>
+      </div>
+      <div class="awt-header-actions">
+        <button type="button" class="btn btn-ghost" id="awt-menu-button">
+          <i data-lucide="menu" aria-hidden="true"></i>
+          Menu
+        </button>
+        <button type="button" class="btn btn-ghost" id="awt-inspector-button" aria-pressed="true">
+          <i data-lucide="scan-search" aria-hidden="true"></i>
+          Intel
+        </button>
+        <button type="button" class="btn btn-ghost" id="awt-fullscreen-button">
+          <i data-lucide="maximize-2" aria-hidden="true"></i>
+          Full screen
+        </button>
+        <button type="button" class="btn btn-ghost" id="awt-fog-button">
+          <i data-lucide="cloud-fog" aria-hidden="true"></i>
+          Observer
+        </button>
+        <button type="button" class="btn btn-ghost" id="awt-territory-toggle" aria-pressed="true">
+          <i data-lucide="map-pinned" aria-hidden="true"></i>
+          Territory on
+        </button>
+        <button type="button" class="btn btn-ghost" id="awt-lighting-toggle" aria-pressed="false">
+          <i data-lucide="sun-medium" aria-hidden="true"></i>
+          Lighting map
+        </button>
+        <button type="button" class="btn btn-ghost" id="awt-logistics-button" aria-pressed="false">
+          <i data-lucide="truck" aria-hidden="true"></i>
+          Logistics
+        </button>
+        <div class="viz-row" aria-label="Map zoom">
+          <button type="button" class="btn" id="awt-zoom-out" aria-label="Zoom out">−</button>
+          <span class="viz-badge" id="awt-zoom-value">View 1×</span>
+          <button type="button" class="btn" id="awt-zoom-in" aria-label="Zoom in">+</button>
+        </div>
+        <button type="button" class="btn" id="awt-pause-button">
+          <i data-lucide="pause" aria-hidden="true"></i>
+          Pause
+        </button>
+        <div class="viz-row" aria-label="Simulation speed">
+          <button type="button" class="btn btn-primary" data-speed="1" aria-pressed="true">1×</button>
+          <button type="button" class="btn" data-speed="2" aria-pressed="false">2×</button>
+          <button type="button" class="btn" data-speed="4" aria-pressed="false">4×</button>
+          <button type="button" class="btn" data-speed="8" aria-pressed="false">8×</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="viz-grid" aria-label="Simulation status">
+      <div class="card viz-stat">
+        <div class="awt-faction-line text-small">
+          <span>Active forces</span>
+          <span id="awt-a-doctrine">2 players</span>
+        </div>
+        <div class="viz-stat-value" id="awt-a-strength">2 builders</div>
+        <div class="awt-stat-context text-small" id="awt-a-context">P1 1 · P2 1</div>
+      </div>
+      <div class="card viz-stat">
+        <div class="text-small text-muted">Theater clock</div>
+        <div class="viz-stat-value" id="awt-clock">07:00</div>
+        <div class="awt-stat-context text-small" id="awt-weather">Rain · Visibility 76%</div>
+      </div>
+      <div class="card viz-stat">
+        <div class="awt-faction-line text-small">
+          <span>Emergent base</span>
+          <span id="awt-b-doctrine">1920 × 1080</span>
+        </div>
+        <div class="viz-stat-value" id="awt-b-strength">0 buildings</div>
+        <div class="awt-stat-context text-small" id="awt-b-context">0 squads · Fog enabled</div>
+      </div>
+    </div>
+
+    <div class="card awt-logistics-panel" id="awt-logistics-panel" hidden>
+      <div class="awt-logistics-head">
+        <div>
+          <div class="awt-panel-title">Four-layer economy command</div>
+          <div class="awt-panel-copy text-small" id="awt-logistics-personality">Balanced commander · physical supply only</div>
+        </div>
+        <div class="viz-controls">
+          <label class="form-label text-small" for="awt-logistics-player">Player<select class="form-select" id="awt-logistics-player"></select></label>
+          <button type="button" class="btn btn-ghost" id="awt-logistics-close"><i data-lucide="x" aria-hidden="true"></i>Close</button>
+        </div>
+      </div>
+      <div class="awt-logistics-resources" id="awt-logistics-resources" aria-label="Stored economy resources"></div>
+      <div class="awt-logistics-columns">
+        <section class="awt-logistics-column" aria-label="Production and storage">
+          <div class="awt-panel-title">Production · storage</div>
+          <ul class="awt-logistics-list text-small" id="awt-logistics-production"></ul>
+          <ul class="awt-logistics-list text-small" id="awt-logistics-storage"></ul>
+        </section>
+        <section class="awt-logistics-column" aria-label="AI priority queue">
+          <div class="awt-panel-title">AI request queue</div>
+          <ol class="awt-logistics-list text-small" id="awt-logistics-queue"></ol>
+        </section>
+        <section class="awt-logistics-column" aria-label="Physical transportation">
+          <div class="awt-panel-title">Convoys · trade · drop pods</div>
+          <ul class="awt-logistics-list text-small" id="awt-logistics-convoys"></ul>
+        </section>
+        <section class="awt-logistics-column" aria-label="Logistics staff and emergencies">
+          <div class="awt-panel-title">Officers · emergency response</div>
+          <ul class="awt-logistics-list text-small" id="awt-logistics-officers"></ul>
+        </section>
+      </div>
+      <div class="awt-logistics-switches">
+        <label class="form-check form-switch"><input class="form-check-input" id="awt-supply-radius-toggle" type="checkbox" checked><span class="form-check-label">Supply radii</span></label>
+        <label class="form-check form-switch"><input class="form-check-input" id="awt-roads-toggle" type="checkbox" checked><span class="form-check-label">Dynamic roads</span></label>
+        <span class="text-small text-muted">Routes reroute around destruction; no resource teleports.</span>
+      </div>
+    </div>
+
+    <div class="card awt-editor-bar" id="awt-editor-bar" hidden>
+      <div class="viz-controls">
+        <label class="form-label text-small" for="awt-editor-tool">
+          Editor tool
+          <select class="form-select" id="awt-editor-tool">
+            <option value="terrain">Paint terrain</option>
+            <option value="spawn">Move spawn</option>
+            <option value="zone">Custom spawn zone</option>
+            <option value="territory">Territory anchors</option>
+            <option value="lighting">Lighting &amp; shadows</option>
+          </select>
+        </label>
+        <label class="form-label text-small" for="awt-spawn-player">
+          Spawn player
+          <select class="form-select" id="awt-spawn-player"></select>
+        </label>
+        <label class="form-label text-small" for="awt-zone-shape">
+          Spawn zone
+          <select class="form-select" id="awt-zone-shape">
+            <option value="circle">Radius</option>
+            <option value="square">Square</option>
+            <option value="custom">Custom</option>
+          </select>
+        </label>
+        <label class="form-label text-small" for="awt-zone-size">
+          Zone size <span id="awt-zone-size-value">84</span> px
+          <input class="form-range" id="awt-zone-size" type="range" min="36" max="180" value="84" step="4">
+        </label>
+      </div>
+
+      <div id="awt-paint-controls">
+        <div class="awt-panel-title">Terrain paint toolbar</div>
+        <div class="awt-editor-selects">
+          <label class="form-label text-small" for="awt-random-biome">Map generator<select class="form-select" id="awt-random-biome"><option value="balanced">Balanced frontier</option><option value="forest">Dense forest</option><option value="archipelago">Archipelago</option><option value="desert">Desert badlands</option><option value="frozen">Frozen basin</option><option value="volcanic">Volcanic wastes</option><option value="urban">Urban ruins</option></select></label>
+          <label class="form-label text-small" for="awt-random-seed">Seed<input class="form-control" id="awt-random-seed" value="FRONTIER-01" maxlength="24"></label>
+          <button type="button" class="btn" id="awt-randomize-map"><i data-lucide="shuffle" aria-hidden="true"></i>Randomize map</button>
+        </div>
+        <div class="awt-brush-presets" id="awt-brush-presets" aria-label="Terrain brush presets">
+          <button type="button" class="btn btn-primary" data-brush-preset="grass" data-shortcut="g" aria-pressed="true"><span class="awt-preset-content"><span class="awt-preset-icon"><i data-lucide="sprout" aria-hidden="true"></i></span><span>Grass <span class="text-small">G</span></span></span></button>
+          <button type="button" class="btn" data-brush-preset="dirt" data-shortcut="d" aria-pressed="false"><span class="awt-preset-content"><span class="awt-preset-icon"><i data-lucide="circle-dot-dashed" aria-hidden="true"></i></span><span>Dirt <span class="text-small">D</span></span></span></button>
+          <button type="button" class="btn" data-brush-preset="sand" data-shortcut="s" aria-pressed="false"><span class="awt-preset-content"><span class="awt-preset-icon"><i data-lucide="sun" aria-hidden="true"></i></span><span>Sand <span class="text-small">S</span></span></span></button>
+          <button type="button" class="btn" data-brush-preset="mud" data-shortcut="m" aria-pressed="false"><span class="awt-preset-content"><span class="awt-preset-icon"><i data-lucide="footprints" aria-hidden="true"></i></span><span>Mud <span class="text-small">M</span></span></span></button>
+          <button type="button" class="btn" data-brush-preset="rock" data-shortcut="r" aria-pressed="false"><span class="awt-preset-content"><span class="awt-preset-icon"><i data-lucide="mountain" aria-hidden="true"></i></span><span>Rock <span class="text-small">R</span></span></span></button>
+          <button type="button" class="btn" data-brush-preset="snow" data-shortcut="n" aria-pressed="false"><span class="awt-preset-content"><span class="awt-preset-icon"><i data-lucide="snowflake" aria-hidden="true"></i></span><span>Snow <span class="text-small">N</span></span></span></button>
+          <button type="button" class="btn" data-brush-preset="water" data-shortcut="w" aria-pressed="false"><span class="awt-preset-content"><span class="awt-preset-icon awt-water-icon"><i data-lucide="waves" aria-hidden="true"></i></span><span>Water <span class="text-small">W</span></span></span></button>
+          <button type="button" class="btn" data-brush-preset="deepwater" aria-pressed="false"><span class="awt-preset-content"><span class="awt-preset-icon awt-water-icon"><i data-lucide="chevrons-down" aria-hidden="true"></i></span><span>Deep water</span></span></button>
+          <button type="button" class="btn" data-brush-preset="shallowwater" aria-pressed="false"><span class="awt-preset-content"><span class="awt-preset-icon awt-water-icon"><i data-lucide="waves" aria-hidden="true"></i></span><span>Shallow water</span></span></button>
+          <button type="button" class="btn" data-brush-preset="tallgrass" data-shortcut="t" aria-pressed="false"><span class="awt-preset-content"><span class="awt-preset-icon"><i data-lucide="wheat" aria-hidden="true"></i></span><span>Tall grass <span class="text-small">T</span></span></span></button>
+          <button type="button" class="btn" data-brush-preset="denseforest" data-shortcut="f" aria-pressed="false"><span class="awt-preset-content"><span class="awt-preset-icon"><i data-lucide="trees" aria-hidden="true"></i></span><span>Forest <span class="text-small">F</span></span></span></button>
+          <button type="button" class="btn" data-brush-preset="pavement" data-shortcut="p" aria-pressed="false"><span class="awt-preset-content"><span class="awt-preset-icon"><i data-lucide="brick-wall" aria-hidden="true"></i></span><span>Pavement <span class="text-small">P</span></span></span></button>
+          <button type="button" class="btn" data-brush-preset="ash" data-shortcut="a" aria-pressed="false"><span class="awt-preset-content"><span class="awt-preset-icon"><i data-lucide="cloud" aria-hidden="true"></i></span><span>Ash <span class="text-small">A</span></span></span></button>
+          <button type="button" class="btn" id="awt-erase-brush" data-brush-preset="erase" data-shortcut="e" aria-pressed="false"><span class="awt-preset-content"><span class="awt-preset-icon"><i data-lucide="eraser" aria-hidden="true"></i></span><span>Erase terrain <span class="text-small">E</span></span></span></button>
+          <button type="button" class="btn" data-brush-preset="smooth" aria-pressed="false"><span class="awt-preset-content"><span class="awt-preset-icon"><i data-lucide="blend" aria-hidden="true"></i></span><span>Smooth terrain</span></span></button>
+          <button type="button" class="btn" data-brush-preset="raise" aria-pressed="false"><span class="awt-preset-content"><span class="awt-preset-icon"><i data-lucide="move-up" aria-hidden="true"></i></span><span>Raise elevation</span></span></button>
+          <button type="button" class="btn" data-brush-preset="lower" aria-pressed="false"><span class="awt-preset-content"><span class="awt-preset-icon"><i data-lucide="move-down" aria-hidden="true"></i></span><span>Lower elevation</span></span></button>
+        </div>
+        <div class="awt-paint-settings">
+          <label class="form-label text-small" for="awt-brush-size">
+            Size <span id="awt-brush-size-value">48</span> px
+            <input class="form-range" id="awt-brush-size" type="range" min="8" max="140" value="48" step="2">
+          </label>
+          <label class="form-label text-small" for="awt-brush-opacity">
+            Opacity <span id="awt-brush-opacity-value">100</span>%
+            <input class="form-range" id="awt-brush-opacity" type="range" min="0" max="100" value="100" step="1">
+          </label>
+          <label class="form-label text-small" for="awt-brush-opacity-number">
+            Opacity value
+            <input class="form-control" id="awt-brush-opacity-number" type="number" min="0" max="100" value="100">
+          </label>
+          <label class="form-label text-small" for="awt-brush-hardness">
+            Hardness <span id="awt-brush-hardness-value">100</span>%
+            <input class="form-range" id="awt-brush-hardness" type="range" min="0" max="100" value="100" step="1">
+          </label>
+          <label class="form-label text-small" for="awt-brush-falloff">
+            Falloff <span id="awt-brush-falloff-value">0</span>%
+            <input class="form-range" id="awt-brush-falloff" type="range" min="0" max="100" value="0" step="1">
+          </label>
+          <label class="form-label text-small" for="awt-brush-shape">
+            Shape
+            <select class="form-select" id="awt-brush-shape">
+              <option value="circle">Circle</option>
+              <option value="square">Square</option>
+              <option value="softcircle">Soft circle</option>
+              <option value="freeform">Freeform</option>
+              <option value="line">Line</option>
+            </select>
+          </label>
+          <label class="form-label text-small" for="awt-paint-mode">
+            Paint mode
+            <select class="form-select" id="awt-paint-mode">
+              <option value="replace">Replace</option>
+              <option value="blend">Blend</option>
+              <option value="add">Add</option>
+              <option value="remove">Remove</option>
+              <option value="sample">Sample terrain</option>
+            </select>
+          </label>
+          <label class="form-label text-small" for="awt-brush-category">
+            Advanced layer
+            <select class="form-select" id="awt-brush-category"></select>
+          </label>
+          <label class="form-label text-small" for="awt-brush-type">
+            Advanced brush
+            <select class="form-select" id="awt-brush-type"></select>
+          </label>
+        </div>
+      </div>
+
+      <div id="awt-territory-controls" hidden>
+        <div class="awt-panel-title">Territory editor</div>
+        <div class="awt-territory-properties">
+          <label class="form-label text-small" for="awt-territory-select">Territory<select class="form-select" id="awt-territory-select"></select></label>
+          <label class="form-label text-small" for="awt-territory-edit-mode">Territory tool<select class="form-select" id="awt-territory-edit-mode"><option value="translate">Move territory</option><option value="move">Move anchor</option><option value="pen">Pen tool</option><option value="add">Add anchor</option><option value="delete">Delete anchor</option><option value="bend">Bend edge</option></select></label>
+          <label class="form-label text-small" for="awt-territory-name">Territory name<input class="form-control" id="awt-territory-name" type="text" value="New territory"></label>
+          <label class="form-label text-small" for="awt-territory-owner">Starting owner<select class="form-select" id="awt-territory-owner"><option value="">Neutral</option></select></label>
+          <label class="form-label text-small" for="awt-territory-resource">Resource value<input class="form-control" id="awt-territory-resource" type="number" min="0" max="100" value="40"></label>
+          <label class="form-label text-small" for="awt-territory-strategic">Strategic value<input class="form-control" id="awt-territory-strategic" type="number" min="0" max="100" value="50"></label>
+          <label class="form-label text-small" for="awt-territory-defense">Defensibility<input class="form-control" id="awt-territory-defense" type="number" min="0" max="100" value="50"></label>
+          <label class="form-label text-small" for="awt-territory-capture">Capture difficulty<input class="form-control" id="awt-territory-capture" type="number" min="0" max="100" value="50"></label>
+          <label class="form-label text-small" for="awt-territory-structures">Allowed structures<select class="form-select" id="awt-territory-structures"><option value="any">Any</option><option value="military">Military only</option><option value="economic">Economic only</option><option value="none">None</option></select></label>
+          <label class="form-label text-small" for="awt-territory-max-structures">Maximum structures<input class="form-control" id="awt-territory-max-structures" type="number" min="0" max="24" value="8"></label>
+        </div>
+        <div class="viz-row">
+          <label class="form-check"><input class="form-check-input" id="awt-territory-supply" type="checkbox" checked><span class="form-check-label">Supply required</span></label>
+          <label class="form-check"><input class="form-check-input" id="awt-territory-abandon" type="checkbox" checked><span class="form-check-label">Can be abandoned</span></label>
+          <label class="form-check"><input class="form-check-input" id="awt-territory-share" type="checkbox"><span class="form-check-label">Share with allies</span></label>
+          <label class="form-check"><input class="form-check-input" id="awt-territory-unclaimable" type="checkbox"><span class="form-check-label">Unclaimable</span></label>
+          <label class="form-check"><input class="form-check-input" id="awt-territory-locked" type="checkbox"><span class="form-check-label">Locked</span></label>
+        </div>
+        <div class="viz-row">
+          <button type="button" class="btn btn-primary" id="awt-new-territory">New territory</button>
+          <button type="button" class="btn" id="awt-close-territory">Close shape</button>
+          <button type="button" class="btn" id="awt-duplicate-territory">Duplicate</button>
+          <button type="button" class="btn btn-ghost" id="awt-delete-territory">Delete</button>
+        </div>
+      </div>
+
+      <div id="awt-lighting-controls" hidden>
+        <div class="awt-panel-title">Dynamic lighting, shadows &amp; faction materials</div>
+        <div class="awt-paint-settings">
+          <label class="form-label text-small" for="awt-time-mode">Sun behavior<select class="form-select" id="awt-time-mode"><option value="dynamic">Dynamic cycle</option><option value="fixed">Fixed time</option></select></label>
+          <label class="form-label text-small" for="awt-time-of-day">Time <span id="awt-time-of-day-value">07:00</span><input class="form-range" id="awt-time-of-day" type="range" min="0" max="23.75" value="7" step="0.25"></label>
+          <label class="form-label text-small" for="awt-day-length">Day length <span id="awt-day-length-value">12</span> min<input class="form-range" id="awt-day-length" type="range" min="2" max="60" value="12" step="1"></label>
+          <label class="form-label text-small" for="awt-latitude">Latitude <span id="awt-latitude-value">35</span>°<input class="form-range" id="awt-latitude" type="range" min="-60" max="60" value="35" step="5"></label>
+          <label class="form-label text-small" for="awt-season">Season<select class="form-select" id="awt-season"><option value="spring">Spring</option><option value="summer">Summer</option><option value="autumn">Autumn</option><option value="winter">Winter</option></select></label>
+          <label class="form-label text-small" for="awt-lighting-weather">Lighting weather<select class="form-select" id="awt-lighting-weather"><option value="clear">Clear</option><option value="fog">Fog</option><option value="rain">Rain</option><option value="snow">Snow</option><option value="dust">Dust storm</option></select></label>
+          <label class="form-label text-small" for="awt-color-intensity">Color intensity <span id="awt-color-intensity-value">85</span>%<input class="form-range" id="awt-color-intensity" type="range" min="0" max="100" value="85" step="5"></label>
+          <label class="form-label text-small" for="awt-faction-preservation">Faction color preservation<select class="form-select" id="awt-faction-preservation"><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select></label>
+        </div>
+        <div class="viz-row">
+          <label class="form-check form-switch"><input class="form-check-input" id="awt-enable-lighting" type="checkbox" checked><span class="form-check-label">Enable lighting</span></label>
+          <label class="form-check form-switch"><input class="form-check-input" id="awt-cast-shadows" type="checkbox" checked><span class="form-check-label">Cast shadows</span></label>
+          <label class="form-check form-switch"><input class="form-check-input" id="awt-lighting-overlay" type="checkbox"><span class="form-check-label">Lighting overlay</span></label>
+          <label class="form-check form-switch"><input class="form-check-input" id="awt-artificial-lights" type="checkbox" checked><span class="form-check-label">Artificial lights</span></label>
+          <label class="form-check form-switch"><input class="form-check-input" id="awt-building-colors" type="checkbox" checked><span class="form-check-label">Building player colors</span></label>
+          <label class="form-check form-switch"><input class="form-check-input" id="awt-team-emblems" type="checkbox" checked><span class="form-check-label">Team emblems</span></label>
+          <label class="form-check form-switch"><input class="form-check-input" id="awt-accessibility-patterns" type="checkbox" checked><span class="form-check-label">Accessibility patterns</span></label>
+        </div>
+      </div>
+
+      <div class="viz-row">
+        <button type="button" class="btn btn-ghost" id="awt-clear-zone" hidden>Clear zone</button>
+        <button type="button" class="btn" id="awt-clear-map">Clear terrain</button>
+        <button type="button" class="btn btn-primary" id="awt-deploy-map">Deploy &amp; observe</button>
+      </div>
+    </div>
+
+    <div class="awt-main-grid">
+      <div class="awt-field">
+        <canvas id="awt-canvas" width="960" height="540" role="img" aria-label="Top-view autonomous battlefield showing two AI armies, terrain, projectiles, fortifications, and live unit movement.">
+          A live top-view simulation of two autonomous armies.
+        </canvas>
+        <div class="viz-badge awt-field-mode" id="awt-field-mode">Observer / Paused</div>
+
+        <div class="awt-editor-tip text-small" id="awt-editor-tip" hidden>
+          Pixel probe ready.
+        </div>
+
+        <div class="awt-overlay" id="awt-overlay">
+          <div class="card awt-menu" id="awt-menu-panel">
+            <div class="awt-menu-copy">
+              <div class="awt-kicker text-small">Autonomous war ecology</div>
+              <h2>Build the conditions. Watch the history.</h2>
+              <p class="awt-panel-copy">Armies interpret doctrine, remember losses, adapt to terrain, and act without battlefield orders.</p>
+            </div>
+            <div class="awt-menu-actions" id="awt-main-actions">
+              <button type="button" class="btn btn-primary btn-block" id="awt-create-map">
+                <i data-lucide="map" aria-hidden="true"></i>
+                Create map
+              </button>
+              <button type="button" class="btn btn-block" id="awt-load-map">
+                <i data-lucide="folder-open" aria-hidden="true"></i>
+                Load map
+              </button>
+              <button type="button" class="btn btn-block" id="awt-open-sprite-lab">
+                <i data-lucide="palette" aria-hidden="true"></i>
+                Sprite lab
+              </button>
+              <button type="button" class="btn btn-ghost btn-block" id="awt-quit">
+                <i data-lucide="log-out" aria-hidden="true"></i>
+                Quit
+              </button>
+            </div>
+            <div id="awt-sprite-panel" hidden>
+              <div class="awt-panel-title">Modular sprite lab</div>
+              <p class="awt-panel-copy text-small">Top-down 75° · transparent background · hard pixel edges · fixed frame grid</p>
+              <div class="awt-sprite-grid">
+                <label class="form-label" for="awt-sprite-family">
+                  Asset family
+                  <select class="form-select" id="awt-sprite-family"></select>
+                </label>
+                <label class="form-label" for="awt-sprite-variant">
+                  Variant or state
+                  <select class="form-select" id="awt-sprite-variant"></select>
+                </label>
+                <label class="form-label" for="awt-sprite-mode">
+                  Team mask preview
+                  <select class="form-select" id="awt-sprite-mode">
+                    <option value="recolor">Runtime recolor</option>
+                    <option value="mask">Source mask</option>
+                  </select>
+                </label>
+                <label class="form-label" for="awt-sprite-player">
+                  Player palette
+                  <select class="form-select" id="awt-sprite-player"></select>
+                </label>
+              </div>
+              <div class="awt-sprite-preview">
+                <canvas id="awt-sprite-canvas" width="320" height="180" role="img" aria-label="Pixel sprite sheet preview with team recolor masks"></canvas>
+              </div>
+              <div class="text-small" id="awt-sprite-mask-line">Primary #FF00FF · secondary #00FFFF · three-shade ramps</div>
+              <button type="button" class="btn btn-ghost btn-block" id="awt-sprite-back">Back</button>
+            </div>
+            <div id="awt-setup-panel" hidden>
+              <div class="awt-panel-title">Pixel map parameters</div>
+              <p class="awt-panel-copy text-small">Every pixel carries terrain, elevation, climate, movement, visibility, cover, and ownership data.</p>
+              <div class="awt-load-list">
+                <div class="viz-controls">
+                  <label class="form-label" for="awt-map-resolution">
+                    Map resolution
+                    <select class="form-select" id="awt-map-resolution">
+                      <option value="1280x720">1280 × 720 · Small</option>
+                      <option value="1920x1080" selected>1920 × 1080 · Medium</option>
+                      <option value="2560x1440">2560 × 1440 · Large</option>
+                      <option value="3840x2160">3840 × 2160 · 4K</option>
+                      <option value="custom">Custom resolution</option>
+                    </select>
+                  </label>
+                  <label class="form-label" for="awt-player-count">
+                    Players
+                    <select class="form-select" id="awt-player-count">
+                      <option value="2">2 players</option>
+                      <option value="3">3 players</option>
+                      <option value="4">4 players</option>
+                      <option value="5">5 players</option>
+                      <option value="6">6 players</option>
+                      <option value="7">7 players</option>
+                      <option value="8">8 players</option>
+                      <option value="9">9 players</option>
+                      <option value="10">10 players</option>
+                      <option value="11">11 players</option>
+                      <option value="12">12 players</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="viz-controls" id="awt-custom-resolution" hidden>
+                  <label class="form-label" for="awt-custom-width">
+                    Width
+                    <input class="form-control" id="awt-custom-width" type="number" min="640" max="4096" value="1920">
+                  </label>
+                  <label class="form-label" for="awt-custom-height">
+                    Height
+                    <input class="form-control" id="awt-custom-height" type="number" min="360" max="2160" value="1080">
+                  </label>
+                </div>
+                <button type="button" class="btn btn-primary btn-block" id="awt-configure-players">Configure players</button>
+                <button type="button" class="btn btn-ghost btn-block" id="awt-setup-back">Back</button>
+              </div>
+            </div>
+            <div id="awt-player-panel" hidden>
+              <div class="awt-panel-title" id="awt-player-panel-title">Player 1 configuration</div>
+              <p class="awt-panel-copy text-small">Race, faction, team, doctrine, and color influence every autonomous decision.</p>
+              <div class="awt-player-config">
+                <div class="awt-player-tabs" id="awt-player-tabs">
+                  <button type="button" class="btn btn-primary" data-player-tab="0" aria-pressed="true">P1</button>
+                  <button type="button" class="btn" data-player-tab="1" aria-pressed="false">P2</button>
+                  <button type="button" class="btn" data-player-tab="2" aria-pressed="false">P3</button>
+                  <button type="button" class="btn" data-player-tab="3" aria-pressed="false">P4</button>
+                  <button type="button" class="btn" data-player-tab="4" aria-pressed="false" hidden>P5</button>
+                  <button type="button" class="btn" data-player-tab="5" aria-pressed="false" hidden>P6</button>
+                  <button type="button" class="btn" data-player-tab="6" aria-pressed="false" hidden>P7</button>
+                  <button type="button" class="btn" data-player-tab="7" aria-pressed="false" hidden>P8</button>
+                  <button type="button" class="btn" data-player-tab="8" aria-pressed="false" hidden>P9</button>
+                  <button type="button" class="btn" data-player-tab="9" aria-pressed="false" hidden>P10</button>
+                  <button type="button" class="btn" data-player-tab="10" aria-pressed="false" hidden>P11</button>
+                  <button type="button" class="btn" data-player-tab="11" aria-pressed="false" hidden>P12</button>
+                </div>
+                <div class="viz-controls">
+                  <label class="form-label" for="awt-player-race">
+                    Race
+                    <select class="form-select" id="awt-player-race"></select>
+                  </label>
+                  <label class="form-label" for="awt-player-name">
+                    Player name
+                    <input class="form-control" id="awt-player-name" type="text" value="Player 1" maxlength="20">
+                  </label>
+                  <label class="form-label" for="awt-player-faction">
+                    Army / faction
+                    <select class="form-select" id="awt-player-faction"></select>
+                  </label>
+                  <label class="form-label" for="awt-player-subfaction">
+                    Subfaction
+                    <select class="form-select" id="awt-player-subfaction"></select>
+                  </label>
+                  <label class="form-label" for="awt-player-team">
+                    Team
+                    <select class="form-select" id="awt-player-team">
+                      <option value="1">Team 1</option>
+                      <option value="2">Team 2</option>
+                      <option value="3">Team 3</option>
+                      <option value="4">Team 4</option>
+                    </select>
+                  </label>
+                  <label class="form-label" for="awt-player-doctrine">
+                    AI doctrine
+                    <select class="form-select" id="awt-player-doctrine">
+                      <option>Balanced</option>
+                      <option>Fortress</option>
+                      <option>Expansion</option>
+                      <option>Rush tech</option>
+                      <option>Repair first</option>
+                      <option>Aggressive</option>
+                    </select>
+                  </label>
+                  <label class="form-label" for="awt-player-color">
+                    Primary color <span id="awt-player-color-value">#3B82F6</span>
+                    <input class="form-control form-control-color" id="awt-player-color" type="color" value="#3b82f6">
+                  </label>
+                  <label class="form-label" for="awt-player-secondary-color">
+                    Secondary color <span id="awt-player-secondary-color-value">#BAE6FD</span>
+                    <input class="form-control form-control-color" id="awt-player-secondary-color" type="color" value="#bae6fd">
+                  </label>
+                  <label class="form-label" for="awt-player-pattern">
+                    Identification pattern
+                    <select class="form-select" id="awt-player-pattern"><option value="solid">Solid</option><option value="vertical">Vertical stripe</option><option value="diagonal">Diagonal stripe</option><option value="split">Split color</option><option value="checker">Checker</option><option value="border">Border trim</option><option value="quartered">Quartered</option></select>
+                  </label>
+                </div>
+                <button type="button" class="btn btn-primary btn-block" id="awt-shape-map">Shape terrain</button>
+                <button type="button" class="btn btn-ghost btn-block" id="awt-player-back">Back</button>
+              </div>
+            </div>
+            <div id="awt-load-panel" hidden>
+              <div class="awt-panel-title">Saved theaters</div>
+              <p class="awt-panel-copy text-small">Each scenario preserves terrain, weather, doctrine, and starting logistics.</p>
+              <div class="awt-load-list">
+                <button type="button" class="btn btn-block" data-scenario="iron">Iron Pass · Rain · Fortress vs Raiding</button>
+                <button type="button" class="btn btn-block" data-scenario="verdant">Verdant Delta · Dawn fog · Balanced</button>
+                <button type="button" class="btn btn-block" data-scenario="ash">Ash Meridian · Night · Mechanized</button>
+                <button type="button" class="btn btn-ghost btn-block" id="awt-load-back">Back</button>
+              </div>
+            </div>
+            <div id="awt-quit-panel" hidden>
+              <div class="awt-panel-title">Observer session closed.</div>
+              <p class="awt-panel-copy text-small">The theater remains frozen at the last recorded moment.</p>
+              <div class="awt-load-list">
+                <button type="button" class="btn btn-primary btn-block" id="awt-return">Return to theater</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <aside class="awt-inspector card" id="awt-inspector" aria-label="Unit intelligence and incidents">
+        <div class="awt-unit-card">
+          <div class="awt-inspector-top">
+            <div>
+              <div class="awt-unit-title" id="awt-unit-name">Brother Cassian</div>
+              <div class="awt-unit-sub text-small" id="awt-unit-role">Vanguard · 9th Squad</div>
+            </div>
+            <div class="viz-row">
+              <span class="viz-badge" id="awt-unit-state">Holding</span>
+              <button type="button" class="btn btn-ghost" id="awt-inspector-close" aria-label="Close unit intelligence">
+                <i data-lucide="x" aria-hidden="true"></i>
+              </button>
+            </div>
+          </div>
+          <label class="form-label text-small" for="awt-unit-select">
+            Follow unit
+            <select class="form-select" id="awt-unit-select"></select>
+          </label>
+          <div class="awt-squad-tools">
+            <label class="form-label text-small" for="awt-attach-select">
+              Attach to allied unit
+              <select class="form-select" id="awt-attach-select"></select>
+            </label>
+            <button type="button" class="btn" id="awt-attach-button">Form squad</button>
+          </div>
+          <div class="awt-unit-body">
+            <div class="awt-bars" aria-label="Selected unit condition">
+              <div class="awt-bar-row text-small">
+                <span>Condition</span>
+                <span class="awt-bar-track"><span class="awt-bar-fill" id="awt-health-bar"></span></span>
+                <span id="awt-health-value">100</span>
+              </div>
+              <div class="awt-bar-row text-small">
+                <span>Morale</span>
+                <span class="awt-bar-track"><span class="awt-bar-fill is-morale" id="awt-morale-bar"></span></span>
+                <span id="awt-morale-value">84</span>
+              </div>
+              <div class="awt-bar-row text-small">
+                <span>Fatigue</span>
+                <span class="awt-bar-track"><span class="awt-bar-fill is-fatigue" id="awt-fatigue-bar"></span></span>
+                <span id="awt-fatigue-value">8</span>
+              </div>
+            </div>
+            <div class="awt-detail-line text-small">
+              <span id="awt-unit-stats">Accuracy 85.2 · Precision 84.7</span>
+              <span id="awt-unit-kills">0 confirmed</span>
+            </div>
+            <div class="awt-unit-action text-small" id="awt-unit-depth">Courage 52 · Reflexes 51 · Discipline 54</div>
+            <div class="awt-unit-action text-small" id="awt-squad-summary">Independent unit · No squad attachment</div>
+            <div class="awt-unit-action text-small" id="awt-unit-action">Awaiting company signal.</div>
+            <ul class="awt-log-list text-small" id="awt-unit-log">
+              <li>Assigned to the east approach.</li>
+              <li>Maintaining formation with 9th Squad.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="awt-section">
+          <div class="awt-section-head">
+            <span>Battle incidents</span>
+            <span class="text-small" id="awt-event-count">0 recorded</span>
+          </div>
+          <div class="awt-event-list" id="awt-event-list" aria-live="polite"></div>
+        </div>
+      </aside>
+    </div>
+
+    <div class="awt-timeline">
+      <div class="awt-timeline-head text-small">
+        <span id="awt-timeline-mode">LIVE RECORD</span>
+        <span id="awt-timeline-time">00:00 / 00:00</span>
+      </div>
+      <label class="sr-only" for="awt-timeline">Battle replay timeline</label>
+      <input class="form-range" id="awt-timeline" type="range" min="0" max="0" value="0" step="1">
+    </div>
+
+    <div class="awt-legend text-small" aria-label="Battlefield legend">
+      <span class="awt-legend-item"><span class="awt-glyph">✦</span>Builder</span>
+      <span class="awt-legend-item"><span class="awt-glyph">◆</span>Individual</span>
+      <span class="awt-legend-item"><span class="awt-glyph">⟐</span>Attached squad</span>
+      <span class="awt-legend-item"><span class="awt-glyph">⌂</span>AI building</span>
+      <span class="awt-legend-item"><span class="awt-glyph">◫</span>Fog layer</span>
+    </div>
+  </div>
+
+  
+  
+</div>
+
+  </main>
+  <script src="js/modules/faction-config.js"></script>
+  <script src="js/modules/economy-config.js"></script>
+  <script src="js/modules/trade-routes.js"></script>
+  <script src="js/modules/storage-adapter.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
