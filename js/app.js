@@ -8339,6 +8339,13 @@
             const renderTime = snapshot?.t ?? state.time;
             const deathProgress = clamp((renderTime - (item.destroyedAt ?? renderTime)) / STRUCTURE_DEATH_ANIMATION_SECONDS, 0, 1);
             const fade = 1 - deathProgress;
+            if (player.race === "Orks" && window.AWTModules?.orkSpriteForge?.drawStructure) {
+              ctx.globalAlpha = fade;
+              if (window.AWTModules.orkSpriteForge.drawStructure(ctx, item, renderTime)) {
+                ctx.restore();
+                continue;
+              }
+            }
             ctx.rotate(Math.sin(item.x * 0.17 + item.y * 0.11) * 0.08 * deathProgress);
             ctx.scale(1 + deathProgress * 0.18, 1 - deathProgress * 0.38);
             ctx.fillStyle = colors.mutedForeground;
@@ -8361,6 +8368,9 @@
             ctx.restore();
             continue;
           }
+          const orkStructureDrawn = player.race === "Orks"
+            && Boolean(window.AWTModules?.orkSpriteForge?.drawStructure?.(ctx, item, snapshot?.t ?? state.time));
+          if (!orkStructureDrawn) {
           ctx.fillStyle = colors.mutedForeground;
           ctx.globalAlpha = 0.52 * (item.condition ?? 1);
           ctx.strokeStyle = colors.foreground;
@@ -8434,6 +8444,7 @@
             ctx.fillText(`T${player.team}`, 0, 3);
           }
           drawBuildingAnimation(item, width, height, primary, secondary);
+          }
           if (item.progress < 1) {
             ctx.globalAlpha = 0.28;
             ctx.fillStyle = colors.background;
@@ -8540,6 +8551,13 @@
           const deathProgress = clamp((renderTime - (view.deathStartedAt ?? unit.deathStartedAt ?? renderTime)) / UNIT_DEATH_ANIMATION_SECONDS, 0, 1);
           const fade = 1 - deathProgress;
           ctx.globalAlpha = fade;
+          if (playerFor(unit.faction).race === "Orks" && window.AWTModules?.orkSpriteForge?.hasUnit(unit.name)) {
+            const exactOrkBody = window.AWTModules.unitSpriteForge?.draw(ctx, { ...unit, ...view, alive: false }, { primary: color, secondary, accent: colors.foreground }, renderTime);
+            if (exactOrkBody) {
+              ctx.restore();
+              return;
+            }
+          }
           ctx.rotate((unit.index % 2 ? 1 : -1) * deathProgress * 0.42);
           ctx.scale(1 + deathProgress * 0.18, 1 - deathProgress * 0.3);
           const forgedBody = window.AWTModules?.unitSpriteForge?.draw(ctx, { ...unit, alive: false }, { primary: color, secondary, accent: colors.foreground }, currentSnapshot()?.t ?? state.time);

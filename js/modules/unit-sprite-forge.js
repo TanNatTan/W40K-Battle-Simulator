@@ -163,6 +163,7 @@
     sourceMappings: Object.freeze({ marine: marineProfiles, guard: guardProfiles }),
     draw(ctx, unit, colors, time = 0) {
       const name = stripSerial(unit.name);
+      if (modules.orkSpriteForge?.hasUnit(name)) return modules.orkSpriteForge.drawUnit(ctx, unit, time);
       const palette = {
         primary: colors.primary, secondary: colors.secondary, accent: colors.accent || "#7ee5ff",
         trim: colorMix(colors.primary, "#ffffff", 0.42), dark: colorMix(colors.primary, "#101218", 0.72), metal: "#abb4bc"
