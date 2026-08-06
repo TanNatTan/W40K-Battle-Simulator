@@ -1,7 +1,13 @@
-(() => {
-  const modules = window.AWTModules ||= {};
+const modules = globalThis.AWTModules ||= {};
 
-  modules.ai = Object.freeze({
+export const aiConfig = Object.freeze({
+    behaviorPresets: Object.freeze({
+      balanced: Object.freeze({ aggression: 50, caution: 50, expansion: 50, economy: 50 }),
+      offensive: Object.freeze({ aggression: 85, caution: 25, expansion: 60, economy: 35 }),
+      defensive: Object.freeze({ aggression: 25, caution: 85, expansion: 25, economy: 55 }),
+      expansion: Object.freeze({ aggression: 55, caution: 40, expansion: 90, economy: 65 }),
+      economic: Object.freeze({ aggression: 30, caution: 65, expansion: 55, economy: 90 })
+    }),
     relationshipBands: [
       { min: 70, label: "Strong bond" },
       { min: 30, label: "Friendly" },
@@ -80,5 +86,7 @@
         ]
       }
     })
-  });
-})();
+});
+
+modules.ai = aiConfig;
+export default aiConfig;

@@ -1,0 +1,13 @@
+export const VIEWPORT_WIDTH = 1920;
+export const VIEWPORT_HEIGHT = 1080;
+export const TILE_SIZE = 64;
+export const CHUNK_SIZE = 256;
+export const TERRITORY_CELL_SIZE = 96;
+export const FOG_CELL_SIZE = TILE_SIZE;
+export const UNIT_DEATH_ANIMATION_SECONDS = 1.35;
+export const STRUCTURE_DEATH_ANIMATION_SECONDS = 1.9;
+export const TEST_MAP_WIDTH = 1920;
+export const TEST_MAP_HEIGHT = 1080;
+export const TEST_MAP_SLOT = "local-test-map";
+export const ZOOM_STOPS = Object.freeze([0.1, 0.25, 0.5, 1, 2, 4]);
+export const PLAYER_IDS = Object.freeze(["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l"]);

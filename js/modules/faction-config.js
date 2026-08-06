@@ -1,7 +1,6 @@
-(() => {
-  const modules = window.AWTModules ||= {};
+const modules = globalThis.AWTModules ||= {};
 
-  modules.factions = Object.freeze({
+export const factionConfig = Object.freeze({
     astartes: {
       deployment: "Drop Pods, Thunderhawks, teleportation",
       buildings: { outpost: "Fortress Monastery", barracks: "Chapter Barracks", workshop: "Armoury", researchcenter: "Librarius", fieldhospital: "Apothecarion", generator: "Plasma Reactor", warehouse: "Supply Depot", refinery: "Manufactorum", dropbay: "Landing Pad", observationtower: "Listening Post", bunker: "Fortress Wall", turret: "Heavy Bolter Turret" },
@@ -77,5 +76,7 @@
         vehicle: ["Carnifex", "Screamer-Killer", "Trygon", "Mawloc", "Haruspex", "Exocrine", "Tyrannofex", "Tyrannocyte"]
       }
     }
-  });
-})();
+});
+
+modules.factions = factionConfig;
+export default factionConfig;

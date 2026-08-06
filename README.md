@@ -24,20 +24,42 @@ css/
   simulator.css          Map, editor, logistics, and responsive layout
 js/
   modules/
-    faction-config.js    Faction buildings, builders, units, and deployment identities
-    environment-config.js Collision layers and shapes for trees, rocks, ruins, and debris
-    economy-config.js    Resource list, starting stockpiles, capacities
-    trade-routes.js      Establishment rules; routes begin unlinked
-    ai-config.js         Relationships, formations, route orders, and Guard squad templates
-    storage-adapter.js   Local scenario save/load helper
-  app.js                 Simulation, rendering, AI, editor, and input
+    *.js                 Exportable compatibility modules being migrated into src/
+  app.js                 Legacy compatibility runtime; systems leave this file incrementally
+src/
+  main.js                ES-module application entry point
+  config/                Application constants and explicit runtime configuration exports
+  utilities/             Shared math, formatting, and deterministic random helpers
+test/
+  foundation.test.js     Module-boundary and utility regression checks
 sql/
   migrations/            Core, economy/logistics, and indexes
   seeds/                 Resource, building, and starting-stock data
   views/                 Economy, trade, and AI queue queries
 scripts/
   start.ps1              Local web server helper
+  check.mjs              JavaScript syntax and foundation test runner
 ```
+
+## JavaScript foundation
+
+The browser now starts from `src/main.js` as a native ES module. Existing configuration files expose named exports while retaining a temporary `AWTModules` bridge for compatibility with the current runtime. New systems should import dependencies explicitly and live under `src/`; do not add new simulation responsibilities to `js/app.js`.
+
+Run the foundation checks with:
+
+```powershell
+node scripts/check.mjs
+```
+
+Run the headless browser and interactive-minimap smoke test with:
+
+```powershell
+npm.cmd run smoke
+```
+
+The migration is intentionally incremental: `js/app.js` remains operational while engine, simulation, rendering, AI, and UI systems are extracted behind stable module APIs.
+
+The current Phase 0-13 implementation matrix is maintained in [`docs/phase-audit.md`](docs/phase-audit.md).
 
 ## Economy rules in this build
 
@@ -49,12 +71,16 @@ scripts/
 - Builders continuously choose economy, research, army, gathering, storage, and defense projects while funding and valid collision-free sites remain.
 - Faction-specific research centers consume physically delivered energy, materials, influence, and parts; completed research levels improve newly deployed units.
 - Buildings reserve collision boxes from the foundation stage, block movement and projectiles, retain HP and armor, and can be selected as combat targets.
-- Combat uses traveled projectiles, hit probability, penetration, body zones, bleeding, suppression, fire discipline, vehicle subsystem damage, and a deterministic battle seed.
+- Combat is data-driven through `data/weapons.json`: magazines, reloads, heat, target restrictions, traveled projectiles, misses, cover interception, splash damage, tracer trails, projectile pooling, armor facing, ricochets, critical subsystem damage, and distinct melee wind-up/recovery/block/parry/cleave/charge behavior all run in the live simulation.
 - The simulation advances at a fixed 20 Hz timestep and uses a spatial combat index plus slower economy and strategic update rates.
 
 ## Four-level AI and route warfare
 
 The AI resolves decisions through a hierarchy: army goal → commander order → squad order and formation → individual choice. Emergency retreat and immediate survival remain individual overrides.
+
+- Player setup includes editable aggression, caution, expansion, and economy behavior values plus balanced, offensive, defensive, expansion, and economic presets. These values affect construction scoring, army goals, route orders, fire discipline, and territory expansion/capture.
+- The theater clock runs independently from battle pause at 1×, 4×, 12×, or 24×. Dynamic lighting, shadows, detection, and saved snapshots read the clock state.
+- Built-in scenarios and the local test-map save/load slot use an exact 1920 × 1080 world for repeatable testing. Larger custom worlds can still be authored, and saving scales them into the 1920 × 1080 test slot.
 
 - Individuals keep sparse, directed relationships from -100 to 100. Fighting together, protection, battlefield rescue, repairs, shared supplies, successful orders, abandonment, ignored escort requests, exposure, rivalry, and kills can move another unit through strong bond, friendly, familiar, neutral, not close, disliked, and hated-but-tolerated bands.
 - Builders can join allied construction, repair allied assets and roads, share field supplies, and request squad protection when local danger exceeds their personal risk tolerance. Escort selection uses trust as a bounded preference, while dislike can slow cooperation without overriding military orders.
@@ -76,9 +102,9 @@ The AI resolves decisions through a hierarchy: army goal → commander order →
 
 ## Casualties, army depth, and faction formations
 
-- Personnel move through Healthy, Injured, Gravely Injured, Incapacitated, and Dead states. Wounds reduce accuracy and movement; incapacitated units stop fighting, may crawl, can be stabilized under safe conditions, and are carried to an aid station only after the local fight permits it.
+- Personnel move through Healthy, Injured, Gravely Injured, Knocked Down, Incapacitated, and Dead states. Force-level triage creates casualty collection points; medics stop bleeding, stabilize, drag under fire, carry after danger, and restore limited duty. Apothecary, Imperial medic, Painboy, Tau drone, Necron reanimation, Tyranid regeneration, and Chaos ritual policies remain faction-specific.
 - Dead troops leave faction-aware battlefield value: recoverable equipment, Space Marine gene-seed, Ork loot and spores, or Tyranid biomass.
-- Extractors now depend on visible materials, fuel, food, or energy deposits. Deposits yield less at 75%, 45%, and 20% reserve, eventually empty, and reward armies willing to secure distant high-richness nodes.
+- Extractors now depend on visible or map-authored resource zones. The editor supports polygon pen/add/delete/move/bend/close tools plus type, capacity, gather rate, regeneration, owner, building requirement, and allowed collectors. AI territory scoring recognizes these zones, constructs extractors or sends physical collectors, and depleting deposits still force outward expansion.
 - Army food, fuel, ammunition, morale, and logistics pressure scale above the support capacity of controlled territory and completed infrastructure. The logistics panel reports operational forces, production, reinforcement routes, and territory pressure.
 - Barracks deploy atomic faction formations: five- or ten-member Space Marine combat squads, Ork mobs, Tyranid broods, Necron phalanxes, Tau Fire Warrior teams, and the existing detailed Imperial Guard squad manifests. Faction specialists still deploy individually.
 - Victory follows military capability rather than painted map area. The evaluator checks combat-capable units, rebuilding production, reinforcement routes, commanders with forces, and allied rescue capacity; faction temperament determines withdrawal, surrender, or a last stand.

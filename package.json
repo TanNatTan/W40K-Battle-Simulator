@@ -1,0 +1,13 @@
+{
+  "name": "autonomous-war-theater",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A modular browser-based autonomous battle and map simulator.",
+  "scripts": {
+    "start": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start.ps1",
+    "check": "node scripts/check.mjs",
+    "smoke": "node scripts/browser-smoke.mjs",
+    "test": "node --test"
+  }
+}

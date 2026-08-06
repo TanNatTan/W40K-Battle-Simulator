@@ -1,4 +1,64 @@
 
+import {
+  VIEWPORT_WIDTH,
+  VIEWPORT_HEIGHT,
+  TILE_SIZE,
+  CHUNK_SIZE,
+  TERRITORY_CELL_SIZE,
+  FOG_CELL_SIZE,
+  UNIT_DEATH_ANIMATION_SECONDS,
+  STRUCTURE_DEATH_ANIMATION_SECONDS,
+  TEST_MAP_WIDTH,
+  TEST_MAP_HEIGHT,
+  TEST_MAP_SLOT,
+  ZOOM_STOPS,
+  PLAYER_IDS
+} from "../src/config/application.js";
+import {
+  aiConfig,
+  economyConfig,
+  environmentConfig,
+  factionConfig,
+  orkSpriteForge,
+  storageAdapter,
+  tradeRouteConfig,
+  unitSpriteForge
+} from "../src/config/runtime-config.js";
+import { clamp, distance } from "../src/utilities/math.js";
+import { formatElapsed, pad2 } from "../src/utilities/format.js";
+import { seededRandom } from "../src/utilities/random.js";
+import { NavigationPlanner } from "../src/map/NavigationPlanner.js";
+import { TerrainTextureLibrary } from "../src/rendering/TerrainTextureLibrary.js";
+import {
+  armorFacingFor,
+  beginMeleeAttack,
+  ensureWeaponState,
+  moraleAuraFor,
+  requestRangedShot,
+  resolveArmorHit,
+  resolveMeleeStrike,
+  updateCombatState,
+  weaponProfileFor
+} from "../src/combat/CombatSystem.js";
+import {
+  forceTreatmentThreshold,
+  injuryStateFor,
+  medicalProfileFor,
+  shouldEvacuate,
+  tickFactionRecovery,
+  triageScore
+} from "../src/medical/MedicalSystem.js";
+import {
+  RESOURCE_TYPES,
+  createResourceZone,
+  drainResourceZone,
+  pointInResourceZone,
+  regenerateResourceZone,
+  resourceZoneCenter,
+  serializeResourceZone,
+  syncResourceZone
+} from "../src/economy/ResourceZones.js";
+
     (() => {
       const root = document.getElementById("autonomous-war-theater");
       if (!root || root.dataset.foundryReady === "true") return;
@@ -12,26 +72,15 @@
 
       const canvas = root.querySelector("#awt-canvas");
       const ctx = canvas.getContext("2d");
-      const economyConfig = window.AWTModules?.economy || {};
-      const tradeRouteRules = window.AWTModules?.tradeRoutes || {};
-      const aiConfig = window.AWTModules?.ai || {};
-      const environmentConfig = window.AWTModules?.environment || { profiles: {}, coverValues: { none: 0, light: 0.12, medium: 0.24, heavy: 0.42 } };
-      root.dataset.spriteForge = window.AWTModules?.unitSpriteForge ? "marine-guard-ork" : "fallback";
-      const VW = 1920;
-      const VH = 1080;
-      const TILE_SIZE = 64;
-      const CHUNK_SIZE = 256;
-      const TERRITORY_CELL_SIZE = 96;
-      const FOG_CELL_SIZE = TILE_SIZE;
-      const UNIT_DEATH_ANIMATION_SECONDS = 1.35;
-      const STRUCTURE_DEATH_ANIMATION_SECONDS = 1.9;
-      const DEFAULT_WORLD_SIZE = 16384;
-      const ZOOM_STOPS = [0.1, 0.25, 0.5, 1, 2, 4];
-      const ids = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l"];
-      function deploymentPosition(index, count = ids.length, world = { width: DEFAULT_WORLD_SIZE, height: DEFAULT_WORLD_SIZE }) {
+      const tradeRouteRules = tradeRouteConfig;
+      root.dataset.spriteForge = unitSpriteForge ? "marine-guard-ork" : "fallback";
+      const VW = VIEWPORT_WIDTH;
+      const VH = VIEWPORT_HEIGHT;
+      const ids = PLAYER_IDS;
+      function deploymentPosition(index, count = ids.length, world = { width: TEST_MAP_WIDTH, height: TEST_MAP_HEIGHT }) {
         const angle = -Math.PI / 2 + index * Math.PI * 2 / Math.max(1, count);
-        const radiusX = Math.max(640, Math.min(world.width * 0.3, world.width / 2 - 320));
-        const radiusY = Math.max(640, Math.min(world.height * 0.3, world.height / 2 - 320));
+        const radiusX = Math.max(120, Math.min(world.width * 0.32, world.width / 2 - 180));
+        const radiusY = Math.max(120, Math.min(world.height * 0.32, world.height / 2 - 180));
         return {
           x: clamp(world.width / 2 + Math.cos(angle) * radiusX, 160, world.width - 160),
           y: clamp(world.height / 2 + Math.sin(angle) * radiusY, 160, world.height - 160)
@@ -44,10 +93,6 @@
       ];
       let battleRandom = seededRandom("AWT-742918");
       const rand = (min, max) => min + battleRandom() * (max - min);
-      const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
-      const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
-      const pad2 = value => String(value).padStart(2, "0");
-      const formatElapsed = seconds => `${pad2(Math.floor(seconds / 60))}:${pad2(Math.floor(seconds % 60))}`;
       const colorProbe = document.createElement("span");
       colorProbe.setAttribute("aria-hidden", "true");
       colorProbe.style.position = "absolute";
@@ -95,6 +140,8 @@
         zoomValue: root.querySelector("#awt-zoom-value"),
         cameraStatus: root.querySelector("#awt-camera-status"),
         minimap: root.querySelector("#awt-minimap"),
+        minimapCoordinates: root.querySelector("#awt-minimap-coordinates"),
+        minimapHint: root.querySelector("#awt-minimap-hint"),
         fieldMode: root.querySelector("#awt-field-mode"),
         clock: root.querySelector("#awt-clock"),
         weather: root.querySelector("#awt-weather"),
@@ -140,6 +187,15 @@
         playerSubfaction: root.querySelector("#awt-player-subfaction"),
         playerTeam: root.querySelector("#awt-player-team"),
         playerDoctrine: root.querySelector("#awt-player-doctrine"),
+        playerAiPreset: root.querySelector("#awt-player-ai-preset"),
+        aiAggression: root.querySelector("#awt-ai-aggression"),
+        aiAggressionValue: root.querySelector("#awt-ai-aggression-value"),
+        aiCaution: root.querySelector("#awt-ai-caution"),
+        aiCautionValue: root.querySelector("#awt-ai-caution-value"),
+        aiExpansion: root.querySelector("#awt-ai-expansion"),
+        aiExpansionValue: root.querySelector("#awt-ai-expansion-value"),
+        aiEconomy: root.querySelector("#awt-ai-economy"),
+        aiEconomyValue: root.querySelector("#awt-ai-economy-value"),
         playerColor: root.querySelector("#awt-player-color"),
         playerColorValue: root.querySelector("#awt-player-color-value"),
         playerSecondaryColor: root.querySelector("#awt-player-secondary-color"),
@@ -153,6 +209,13 @@
         spriteCanvas: root.querySelector("#awt-sprite-canvas"),
         spriteMaskLine: root.querySelector("#awt-sprite-mask-line"),
         editorTool: root.querySelector("#awt-editor-tool"),
+        editorMapDims: root.querySelector("#awt-editor-map-dims"),
+        editorInspector: root.querySelector("#awt-editor-inspector"),
+        editorCursor: root.querySelector("#awt-editor-cursor"),
+        editorTerrain: root.querySelector("#awt-editor-terrain"),
+        editorElevation: root.querySelector("#awt-editor-elevation"),
+        editorCover: root.querySelector("#awt-editor-cover"),
+        editorMovement: root.querySelector("#awt-editor-movement"),
         spawnPlayer: root.querySelector("#awt-spawn-player"),
         zoneShape: root.querySelector("#awt-zone-shape"),
         zoneSize: root.querySelector("#awt-zone-size"),
@@ -192,8 +255,22 @@
         territoryShare: root.querySelector("#awt-territory-share"),
         territoryUnclaimable: root.querySelector("#awt-territory-unclaimable"),
         territoryLocked: root.querySelector("#awt-territory-locked"),
+        resourceControls: root.querySelector("#awt-resource-controls"),
+        resourceSelect: root.querySelector("#awt-resource-select"),
+        resourceEditMode: root.querySelector("#awt-resource-edit-mode"),
+        resourceName: root.querySelector("#awt-resource-name"),
+        resourceType: root.querySelector("#awt-resource-type"),
+        resourceCapacity: root.querySelector("#awt-resource-capacity"),
+        resourceGather: root.querySelector("#awt-resource-gather"),
+        resourceRegeneration: root.querySelector("#awt-resource-regeneration"),
+        resourceOwner: root.querySelector("#awt-resource-owner"),
+        resourceCollectors: root.querySelector("#awt-resource-collectors"),
+        resourceRequiresBuilding: root.querySelector("#awt-resource-requires-building"),
+        resourceStrategic: root.querySelector("#awt-resource-strategic"),
         lightingControls: root.querySelector("#awt-lighting-controls"),
         timeMode: root.querySelector("#awt-time-mode"),
+        clockRunning: root.querySelector("#awt-clock-running"),
+        clockRate: root.querySelector("#awt-clock-rate"),
         timeOfDay: root.querySelector("#awt-time-of-day"),
         timeOfDayValue: root.querySelector("#awt-time-of-day-value"),
         dayLength: root.querySelector("#awt-day-length"),
@@ -212,7 +289,10 @@
         factionPreservation: root.querySelector("#awt-faction-preservation"),
         teamEmblems: root.querySelector("#awt-team-emblems"),
         accessibilityPatterns: root.querySelector("#awt-accessibility-patterns"),
-        eraseBrush: root.querySelector("#awt-erase-brush")
+        eraseBrush: root.querySelector("#awt-erase-brush"),
+        saveMap: root.querySelector("#awt-save-map"),
+        loadSavedMap: root.querySelector("#awt-load-saved-map"),
+        savedMapStatus: root.querySelector("#awt-saved-map-status")
       };
       const minimapCtx = els.minimap.getContext("2d");
       const minimapTerrainLayer = document.createElement("canvas");
@@ -289,7 +369,7 @@
       };
 
       const brushLayers = {
-        "Ground": ["ground", "grass", "darkgrass", "tallgrass", "dirt", "mud", "sand", "gravel", "rock", "snow", "ice", "swamp", "pavement", "ash", "lava", "water", "shallowwater", "deepwater", "river", "beach", "forestfloor"],
+        "Ground": ["ground", "grass", "drygrass", "darksoil", "darkgrass", "tallgrass", "dirt", "drydirt", "mud", "sand", "gravel", "rockysoil", "rock", "snow", "ice", "swamp", "pavement", "ash", "lava", "water", "shallowwater", "deepwater", "river", "beach", "forestfloor"],
         "Elevation": ["raise", "lower", "smooth", "flatten", "noise", "terrace", "hill", "mountain", "cliff"],
         "Vegetation": ["shortgrass", "tallgrass", "bushes", "largebush", "flowers", "crops", "sapling", "smalltree", "mediumtree", "largetree", "pinetree", "palmtree", "deadforest", "jungle", "stump", "fallenlog", "vines", "reeds", "lilypads", "trees", "denseforest"],
         "Natural objects": ["pebbles", "smallrocks", "boulders", "crystal", "cave", "cliffwall", "riverbank", "waterfall", "snowdrift"],
@@ -304,8 +384,8 @@
       };
 
       const brushNames = {
-        ground: "Ground", dirt: "Dirt", grass: "Grass", darkgrass: "Dark grass", mud: "Mud", sand: "Sand", gravel: "Gravel", snow: "Snow",
-        rock: "Rock", pavement: "Pavement", ash: "Ash", swamp: "Swamp", water: "Water", tallgrass: "Tall grass",
+        ground: "Ground", dirt: "Dirt", drydirt: "Dry dirt", grass: "Grass", drygrass: "Dry grass", darksoil: "Dark battlefield soil", darkgrass: "Dark grass", mud: "Mud", sand: "Sand", gravel: "Gravel", snow: "Snow",
+        rock: "Rock", rockysoil: "Rocky soil", pavement: "Pavement", ash: "Ash-covered ground", swamp: "Swamp", water: "Water", tallgrass: "Tall grass",
         ice: "Ice", lava: "Lava", shallowwater: "Shallow water", deepwater: "Deep water", river: "River", beach: "Beach", forestfloor: "Forest floor",
         raise: "Raise terrain", lower: "Lower terrain", smooth: "Smooth", flatten: "Flatten",
         noise: "Noise brush", terrace: "Terrace brush", hill: "Hill", mountain: "Mountain", cliff: "Cliff brush",
@@ -330,13 +410,12 @@
         dirtroad: "Dirt road", stoneroad: "Stone road", asphalt: "Asphalt", trail: "Trail", railway: "Railway",
         woodenbridge: "Wooden bridge", pontoonbridge: "Pontoon bridge", headquarters: "Headquarters",
         resourcecollector: "Resource collector", mine: "Mine", refinery: "Refinery", generator: "Generator",
-        farm: "PHN2ZyB3aWR0aD0iNjgwIiBoZWlnaHQ9IjM4MCIgdmlld0JveD0iMCAwIDY4MCAzODAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CgoKPHJlY3QgeD0iMTgwIiB5PSI3MCIgd2lkdGg9IjMyMCIgaGVpZ2h0PSIyNDAiIHJ4PSI0IiBmaWxsPSIjNWE2MTQ0IiBzdHJva2U9IiMyYTJkMjQiIHN0cm9rZS13aWR0aD0iMyIvPgo8cmVjdCB4PSIxODAiIHk9IjcwIiB3aWR0aD0iMzIwIiBoZWlnaHQ9IjI0MCIgcng9IjQiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2E4OTk2OCIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtZGFzaGFycmF5PSI0IDQiLz4KPGcgZmlsbD0iIzRhN2EzYSIgc3Ryb2tlPSIjMmE1YTI0IiBzdHJva2Utd2lkdGg9IjIiPgo8cmVjdCB4PSIyMDAiIHk9IjkwIiB3aWR0aD0iODAiIGhlaWdodD0iNzAiIHJ4PSIzIi8+CjxyZWN0IHg9IjI5MCIgeT0iOTAiIHdpZHRoPSI4MCIgaGVpZ2h0PSI3MCIgcng9IjMiLz4KPHJlY3QgeD0iMjAwIiB5PSIxNzAiIHdpZHRoPSI4MCIgaGVpZ2h0PSI3MCIgcng9IjMiLz4KPHJlY3QgeD0iMjkwIiB5PSIxNzAiIHdpZHRoPSI4MCIgaGVpZ2h0PSI3MCIgcng9IjMiLz4KPC9nPgo8ZyBzdHJva2U9IiMzYTZhMmMiIHN0cm9rZS13aWR0aD0iMSI+CjxsaW5lIHgxPSIyMTAiIHkxPSIxMDUiIHgyPSIyNzAiIHkyPSIxMDUiLz4KPGxpbmUgeDE9IjIxMCIgeTE9IjEyMCIgeDI9IjI3MCIgeTI9IjEyMCIvPgo8bGluZSB4MT0iMjEwIiB5MT0iMTM1IiB4Mj0iMjcwIiB5Mj0iMTM1Ii8+CjxsaW5lIHgxPSIyMTAiIHkxPSIxNTAiIHgyPSIyNzAiIHkyPSIxNTAiLz4KPGxpbmUgeDE9IjMwMCIgeTE9IjEwNSIgeDI9IjM2MCIgeTI9IjEwNSIvPgo8bGluZSB4MT0iMzAwIiB5MT0iMTIwIiB4Mj0iMzYwIiB5Mj0iMTIwIi8+CjxsaW5lIHgxPSIzMDAiIHkxPSIxMzUiIHgyPSIzNjAiIHkyPSIxMzUiLz4KPGxpbmUgeDE9IjMwMCIgeTE9IjE1MCIgeDI9IjM2MCIgeTI9IjE1MCIvPgo8bGluZSB4MT0iMjEwIiB5MT0iMTg1IiB4Mj0iMjcwIiB5Mj0iMTg1Ii8+CjxsaW5lIHgxPSIyMTAiIHkxPSIyMDAiIHgyPSIyNzAiIHkyPSIyMDAiLz4KPGxpbmUgeDE9IjIxMCIgeTE9IjIxNSIgeDI9IjI3MCIgeTI9IjIxNSIvPgo8bGluZSB4MT0iMjEwIiB5MT0iMjMwIiB4Mj0iMjcwIiB5Mj0iMjMwIi8+CjxsaW5lIHgxPSIzMDAiIHkxPSIxODUiIHgyPSIzNjAiIHkyPSIxODUiLz4KPGxpbmUgeDE9IjMwMCIgeTE9IjIwMCIgeDI9IjM2MCIgeTI9IjIwMCIvPgo8bGluZSB4MT0iMzAwIiB5MT0iMjE1IiB4Mj0iMzYwIiB5Mj0iMjE1Ii8+CjxsaW5lIHgxPSIzMDAiIHkxPSIyMzAiIHgyPSIzNjAiIHkyPSIyMzAiLz4KPC9nPgo8cmVjdCB4PSI0MDAiIHk9Ijk1IiB3aWR0aD0iODAiIGhlaWdodD0iNjAiIHJ4PSI0IiBmaWxsPSIjNmIzYTJjIiBzdHJva2U9IiMzYTFlMTYiIHN0cm9rZS13aWR0aD0iMyIvPgo8cmVjdCB4PSI0MTUiIHk9IjExMiIgd2lkdGg9IjUwIiBoZWlnaHQ9IjI1IiBmaWxsPSIjNGEyYTIwIi8+CjxsaW5lIHgxPSI0MDAiIHkxPSIyNTUiIHgyPSI0ODAiIHkyPSIyNTUiIHN0cm9rZT0iIzNhM2UyYyIgc3Ryb2tlLXdpZHRoPSI0Ii8+CjxjaXJjbGUgY3g9IjQwMCIgY3k9IjI1NSIgcj0iNyIgZmlsbD0iIzNhM2UyYyIvPgo8Y2lyY2xlIGN4PSI0NDAiIGN5PSIyNTUiIHI9IjciIGZpbGw9IiM0YTkwZDQiLz4KPGNpcmNsZSBjeD0iNDgwIiBjeT0iMjU1IiByPSI3IiBmaWxsPSIjM2EzZTJjIi8+Cjwvc3ZnPg==", storage: "Storage", warehouse: "Warehouse", vehiclefactory: "Vehicle factory",
+        farm: "Farm", storage: "Storage", warehouse: "Warehouse", vehiclefactory: "Vehicle factory",
         airfield: "Airfield", navalyard: "Naval yard", armory: "Armory", researchcenter: "Research center",
         medicalcenter: "Medical center", repairbay: "Repair bay", pillbox: "Pillbox", watchtower: "Watchtower",
         radar: "Radar", shieldgenerator: "Shield generator", supplydepot: "Supply depot", fueldepot: "Fuel depot",
         ammodepot: "Ammunition depot", communicationscenter: "Communications center"
       });
-
       const vegetationTypes = new Set(brushLayers["Vegetation"]);
       const urbanTypes = new Set([
         ...brushLayers["Roads"], ...brushLayers["Economy structures"], ...brushLayers["Logistics structures"],
@@ -365,7 +444,7 @@
         dropbay: { label: "Orbital Launch Bay", cost: 58, purpose: "Reinforcement", military: 4, economic: 3, risk: 3, requires: "generator", height: 17, light: 90, maxHp: 620, hitbox: { w: 42, h: 34 }, supplyRadius: 95, spriteIndex: 1, consumes: { energy: 4, fuel: 2 } }
       };
 
-      const factionProfiles = window.AWTModules?.factions || {
+      const factionProfiles = factionConfig || {
         astartes: {
           deployment: "Drop Pods, Thunderhawks, teleportation",
           buildings: { outpost: "Fortress Monastery", barracks: "Chapter Barracks", workshop: "Armoury", researchcenter: "Librarius", fieldhospital: "Apothecarion", generator: "Plasma Reactor", warehouse: "Supply Depot", refinery: "Manufactorum", dropbay: "Landing Pad", observationtower: "Listening Post", bunker: "Fortress Wall", turret: "Heavy Bolter Turret" },
@@ -422,8 +501,8 @@
         return roster[index % roster.length];
       }
 
-      const economyResourceKeys = ["requisition", "materials", "fuel", "energy", "ammunition", "medical", "food", "influence", "parts"];
-      const economyResourceLabels = { requisition: "Req", materials: "Mat", fuel: "Fuel", energy: "Power", ammunition: "Ammo", medical: "Med", food: "Food", influence: "Influence", parts: "Parts" };
+      const economyResourceKeys = [...economyConfig.resources];
+      const economyResourceLabels = { requisition: "Req", materials: "Mat", fuel: "Fuel", energy: "Power", ammunition: "Ammo", medical: "Med", food: "Food", faith: "Faith", influence: "Influence", scrap: "Scrap", biomass: "Biomass", parts: "Parts" };
       const economySpriteSourceData = {
         ork: "assets/buildings/ork.svg",
         marine: "assets/buildings/marine.svg",
@@ -521,7 +600,7 @@
         iron: {
           name: "Iron Pass",
           startMinute: 420,
-          world: { width: 16384, height: 16384 },
+          world: { width: TEST_MAP_WIDTH, height: TEST_MAP_HEIGHT },
           features: [
             { type: "raise", x: 278, y: 162, r: 68, visual: "elevation" },
             { type: "terrace", x: 666, y: 378, r: 76, visual: "elevation" },
@@ -537,7 +616,7 @@
         verdant: {
           name: "Verdant Delta",
           startMinute: 330,
-          world: { width: 32768, height: 32768 },
+          world: { width: TEST_MAP_WIDTH, height: TEST_MAP_HEIGHT },
           features: [
             { type: "water", x: 475, y: 150, r: 78, visual: "water" },
             { type: "water", x: 510, y: 340, r: 94, visual: "water" },
@@ -551,7 +630,7 @@
         ash: {
           name: "Ash Meridian",
           startMinute: 1240,
-          world: { width: 8192, height: 8192 },
+          world: { width: TEST_MAP_WIDTH, height: TEST_MAP_HEIGHT },
           features: [
             { type: "raise", x: 350, y: 150, r: 84, visual: "elevation" },
             { type: "cliff", x: 625, y: 390, r: 86, visual: "elevation" },
@@ -578,11 +657,35 @@
         { id: "l", index: 11, race: "T'au", faction: "Frontier Cadre", subfaction: "Vior'la Sept", team: "4", color: defaultColors[11], doctrine: "Balanced" }
       ];
       const identificationPatterns = ["solid", "vertical", "diagonal", "split", "checker", "border", "quartered"];
+      const fallbackBehaviorPresets = {
+        balanced: { aggression: 50, caution: 50, expansion: 50, economy: 50 },
+        offensive: { aggression: 85, caution: 25, expansion: 60, economy: 35 },
+        defensive: { aggression: 25, caution: 85, expansion: 25, economy: 55 },
+        expansion: { aggression: 55, caution: 40, expansion: 90, economy: 65 },
+        economic: { aggression: 30, caution: 65, expansion: 55, economy: 90 }
+      };
+      const behaviorPresets = aiConfig.behaviorPresets || fallbackBehaviorPresets;
+      const behaviorPresetForDoctrine = doctrine => ({ Fortress: "defensive", Aggressive: "offensive", Expansion: "expansion", "Rush tech": "economic", "Repair first": "defensive" }[doctrine] || "balanced");
+      const behaviorFromPreset = preset => ({ ...(behaviorPresets[preset] || behaviorPresets.balanced || fallbackBehaviorPresets.balanced) });
       setupPlayers.forEach((player, index) => {
         player.name = `Player ${index + 1}`;
         player.secondaryColor = defaultColors[(index + 5) % defaultColors.length];
         player.pattern = identificationPatterns[index % identificationPatterns.length];
+        player.aiPreset = behaviorPresetForDoctrine(player.doctrine);
+        player.aiBehavior = behaviorFromPreset(player.aiPreset);
       });
+
+      function aiBehaviorFor(playerOrFaction) {
+        const player = typeof playerOrFaction === "string" ? playerFor(playerOrFaction) : playerOrFaction;
+        const fallback = behaviorFromPreset(player?.aiPreset || behaviorPresetForDoctrine(player?.doctrine));
+        const configured = player?.aiBehavior || fallback;
+        return {
+          aggression: clamp(Number(configured.aggression ?? fallback.aggression), 0, 100),
+          caution: clamp(Number(configured.caution ?? fallback.caution), 0, 100),
+          expansion: clamp(Number(configured.expansion ?? fallback.expansion), 0, 100),
+          economy: clamp(Number(configured.economy ?? fallback.economy), 0, 100)
+        };
+      }
 
       const spriteCatalog = {
         "Terrain sheet": ["Grass", "Dark grass", "Tall grass", "Dirt", "Mud", "Sand", "Rock", "Snow", "Ice", "Swamp", "Pavement", "Ash", "Lava", "Water", "Deep water", "River", "Beach", "Cliff edge", "Hill", "Mountain", "Forest floor", "All terrain transitions"],
@@ -627,6 +730,14 @@
         draw();
       });
       spriteAtlas.src = "assets/terrain/sprite-atlas.webp";
+      const terrainTextures = new TerrainTextureLibrary({
+        onReady: () => {
+          for (const chunk of state.terrainChunks.values()) chunk.dirty = true;
+          draw();
+        },
+        onError: path => console.warn(`[terrain] Using fallback for ${path}`)
+      });
+      void terrainTextures.load();
       const atlasCells = {
         grass: [0, 0, 128, 128],
         dirt: [128, 0, 128, 128],
@@ -653,10 +764,10 @@
       };
 
       const atlasTypeMap = {
-        grass: "grass", darkgrass: "grass", forestfloor: "grass", swamp: "grass",
-        dirt: "dirt", mud: "dirt", ash: "dirt", sand: "sand", beach: "sand",
+        grass: "grass", drygrass: "grass", darksoil: "dirt", darkgrass: "grass", forestfloor: "grass", swamp: "grass",
+        dirt: "dirt", drydirt: "dirt", mud: "dirt", ash: "dirt", sand: "sand", beach: "sand",
         water: "water", shallowwater: "water", deepwater: "water", river: "water",
-        rock: "rock", smallrocks: "boulder", boulders: "boulder", cliff: "boulder",
+        rock: "rock", rockysoil: "rock", smallrocks: "boulder", boulders: "boulder", cliff: "boulder",
         pavement: "pavement", asphaltroad: "pavement", concreteroad: "pavement",
         trees: "tree", mediumtree: "tree", largetree: "tree", denseforest: "tree", jungle: "tree",
         pinetree: "pine", palmtree: "palm", bushes: "bush", smallbush: "bush", largebush: "bush",
@@ -822,8 +933,8 @@
         visibility: 82,
         weather: "Localized weather",
         world: {
-          width: DEFAULT_WORLD_SIZE,
-          height: DEFAULT_WORLD_SIZE,
+          width: TEST_MAP_WIDTH,
+          height: TEST_MAP_HEIGHT,
           tileSize: TILE_SIZE,
           chunkSize: CHUNK_SIZE,
           baseTerrain: "grass"
@@ -845,13 +956,16 @@
         structures: [],
         squads: [],
         projectiles: [],
+        projectilePool: [],
         features: [],
+        resourceZones: [],
+        casualtyPoints: [],
         incidents: [],
         snapshots: [],
         selectedId: null,
         hover: null,
-        camera: { x: DEFAULT_WORLD_SIZE / 2, y: DEFAULT_WORLD_SIZE / 2, zoom: 1, rotation: 0 },
-        cameraFocus: { x: DEFAULT_WORLD_SIZE / 2, y: DEFAULT_WORLD_SIZE / 2 },
+        camera: { x: TEST_MAP_WIDTH / 2, y: TEST_MAP_HEIGHT / 2, zoom: 1, rotation: 0 },
+        cameraFocus: { x: TEST_MAP_WIDTH / 2, y: TEST_MAP_HEIGHT / 2 },
         panning: false,
         panPointerId: null,
         panStart: null,
@@ -888,11 +1002,17 @@
           teamEmblems: true,
           accessibilityPatterns: true
         },
+        clock: { running: true, rate: 1, elapsedSeconds: 0 },
         selectedTerritoryId: null,
         territoryEditMode: "translate",
         territoryDragIndex: -1,
         territoryDragStart: null,
         nextTerritoryId: 1,
+        selectedResourceZoneId: null,
+        resourceZoneEditMode: "pen",
+        resourceZoneDragIndex: -1,
+        resourceZoneDragStart: null,
+        nextResourceZoneId: 1,
         nextTerritoryTick: 0,
         resources: {},
         economies: {},
@@ -942,6 +1062,9 @@
         environmentAccumulator: 0,
         separationAccumulator: 0,
         explorationAccumulator: 0,
+        navigationRevision: 0,
+        navigationPlans: 0,
+        navigationCacheHits: 0,
         ended: false,
         fogPlayer: "observer",
         explored: {},
@@ -951,6 +1074,7 @@
         teamFogVisibility: new Map(),
         activeSetupPlayer: 0
       };
+      const navigationPlanner = new NavigationPlanner({ cellSize: 32, maxVisited: 5200, maxCacheEntries: 256 });
       root.awtDebugState = state;
       window.awtDebugState = state;
 
@@ -1075,8 +1199,8 @@
       }
 
       function setWorldSize(width, height) {
-        const safeWidth = clamp(Math.round((Number(width) || DEFAULT_WORLD_SIZE) / TILE_SIZE) * TILE_SIZE, 2048, 65536);
-        const safeHeight = clamp(Math.round((Number(height) || DEFAULT_WORLD_SIZE) / TILE_SIZE) * TILE_SIZE, 2048, 65536);
+        const safeWidth = clamp(Math.round(Number(width) || TEST_MAP_WIDTH), 640, 65536);
+        const safeHeight = clamp(Math.round(Number(height) || TEST_MAP_HEIGHT), 360, 65536);
         state.world.width = safeWidth;
         state.world.height = safeHeight;
         state.terrainChunks = new Map();
@@ -1091,6 +1215,7 @@
         canvas.width = VW;
         canvas.height = VH;
         canvas.style.aspectRatio = `${VW} / ${VH}`;
+        if (els.editorMapDims) els.editorMapDims.textContent = `${safeWidth} × ${safeHeight}`;
         canvas.setAttribute("aria-label", `A ${VW} by ${VH} camera viewport looking into a ${safeWidth} by ${safeHeight} chunked battlefield.`);
       }
 
@@ -1119,6 +1244,7 @@
         else chunk.tiles.set(key, value);
         chunk.dirty = true;
         state.minimapTerrainDirty = true;
+        state.navigationRevision += 1;
         if (!chunk.tiles.size) state.terrainChunks.delete(chunkKey(chunk.x, chunk.y));
       }
 
@@ -1202,6 +1328,8 @@
       function markFeatureIndexDirty() {
         state.featureIndexDirty = true;
         state.minimapTerrainDirty = true;
+        state.navigationRevision += 1;
+        navigationPlanner.clear();
       }
 
       function indexFeature(feature) {
@@ -1563,6 +1691,9 @@
       }
 
       function economicPersonality(player) {
+        const behavior = aiBehaviorFor(player);
+        if (behavior.economy >= 72 || behavior.caution >= 76) return "Frugal";
+        if (behavior.aggression >= 72 && behavior.economy <= 55) return "Aggressive";
         if (["Fortress", "Repair first"].includes(player.doctrine)) return "Frugal";
         if (["Aggressive", "Rush tech"].includes(player.doctrine)) return "Aggressive";
         return "Balanced";
@@ -1668,13 +1799,13 @@
         return `${pad2(Math.floor(totalMinutes / 60))}:${pad2(totalMinutes % 60)}`;
       }
 
-      function lightingHour(time = state.time) {
+      function lightingHour(time = state.clock.elapsedSeconds) {
         if (state.lighting.mode === "fixed") return state.lighting.fixedHour;
         const daySeconds = Math.max(120, state.lighting.dayLengthMinutes * 60);
         return (state.lighting.startHour + time / daySeconds * 24) % 24;
       }
 
-      function sunState(time = state.time) {
+      function sunState(time = state.clock.elapsedSeconds) {
         const hour = lightingHour(time);
         const latitude = Math.abs(state.lighting.latitude) / 60;
         const seasonShift = { spring: 0, summer: 1, autumn: 0, winter: -1 }[state.lighting.season] || 0;
@@ -1730,7 +1861,7 @@
         return 0;
       }
 
-      function shadowVector(height, time = state.time) {
+      function shadowVector(height, time = state.clock.elapsedSeconds) {
         const sun = sunState(time);
         if (!sun.daylight || sun.altitude <= 0.015 || height <= 0) return { x: 0, y: 0, length: 0, strength: 0 };
         const length = clamp(height * 2.8 / Math.tan(Math.max(0.055, sun.altitude)), height * 0.45, height * 18);
@@ -1746,7 +1877,7 @@
       let lightSourceCacheKey = "";
       let lightSourceCache = [];
       let lightSourceChunks = new Map();
-      function activeLightSources(time = state.time) {
+      function activeLightSources(time = state.clock.elapsedSeconds) {
         if (!state.lighting.enabled || !state.lighting.artificial) {
           lightSourceCacheKey = "";
           lightSourceCache = [];
@@ -1808,7 +1939,7 @@
         return lightSourceCache;
       }
 
-      function lightSourcesInBounds(bounds, time = state.time) {
+      function lightSourcesInBounds(bounds, time = state.clock.elapsedSeconds) {
         activeLightSources(time);
         const found = new Set();
         const range = chunkRangeForBounds(bounds);
@@ -1820,7 +1951,7 @@
         return [...found].filter(source => circleVisible(source, source.radius, bounds));
       }
 
-      function lightSourcesAt(point, time = state.time) {
+      function lightSourcesAt(point, time = state.clock.elapsedSeconds) {
         activeLightSources(time);
         return lightSourceChunks.get(chunkKey(
           clamp(Math.floor(point.x / CHUNK_SIZE), 0, Math.ceil(worldWidth() / CHUNK_SIZE) - 1),
@@ -1838,7 +1969,7 @@
 
       let shadowCacheBucket = "";
       const shadowSampleCache = new Map();
-      function pointInShadow(point, time = state.time) {
+      function pointInShadow(point, time = state.clock.elapsedSeconds) {
         if (!state.lighting.enabled || !state.lighting.shadows) return false;
         const sun = sunState(time);
         if (!sun.daylight || sun.shadowStrength < 0.08) return false;
@@ -1897,7 +2028,7 @@
 
       let lightingSampleCacheKey = "";
       const lightingSampleCache = new Map();
-      function lightingAt(point, observerFaction = null, time = state.time) {
+      function lightingAt(point, observerFaction = null, time = state.clock.elapsedSeconds) {
         if (!state.lighting.enabled) return { brightness: 1, shadowed: false, artificial: 0, searchlight: 0, period: "Neutral" };
         const sun = sunState(time);
         const temporalKey = state.replay
@@ -2232,6 +2363,16 @@
         unit.lastAllyKillerAt ??= null;
         unit.rations ??= 6;
         unit.medicalReserve ??= 2;
+        unit.knockedDownRemaining ??= 0;
+        unit.stagger ??= 0;
+        unit.facing ??= 0;
+        unit.medicalPolicy ||= medicalProfileFor(playerFor(unit.faction)).id;
+        const { profile } = ensureWeaponState(unit);
+        if (!unit.combatProfileApplied) {
+          unit.range = profile.range;
+          unit.damage = profile.damage * (1 + Math.min(5, unit.researchLevel || 0) * 0.04);
+          unit.combatProfileApplied = true;
+        }
       }
 
       function relationshipBand(score) {
@@ -2318,7 +2459,16 @@
           snow: { speed: 0.72, cover: 0.04, detection: 0.9, moisture: 48, elevation: 0, name: "Snow" },
           ice: { speed: 0.56, cover: 0, detection: 1, moisture: 54, elevation: 0, name: "Ice" },
           lava: { speed: 0.18, cover: 0, detection: 1.08, moisture: 0, elevation: -1, name: "Lava" },
+          grass: { speed: 1, cover: 0.04, detection: 0.96, moisture: 52, elevation: 0, name: "Grass" },
+          drygrass: { speed: 0.94, cover: 0.07, detection: 0.92, moisture: 20, elevation: 0, name: "Dry grass" },
+          darksoil: { speed: 0.9, cover: 0.05, detection: 0.9, moisture: 34, elevation: 0, name: "Dark battlefield soil" },
           darkgrass: { speed: 0.95, cover: 0.06, detection: 0.92, moisture: 66, elevation: 0, name: "Dark grass" },
+          dirt: { speed: 0.94, cover: 0.03, detection: 0.98, moisture: 34, elevation: 0, name: "Dirt" },
+          drydirt: { speed: 0.88, cover: 0.04, detection: 1.02, moisture: 10, elevation: 0, name: "Dry dirt" },
+          gravel: { speed: 1.02, cover: 0.03, detection: 1, moisture: 20, elevation: 0, name: "Gravel" },
+          rockysoil: { speed: 0.72, cover: 0.14, detection: 0.92, moisture: 24, elevation: 1, name: "Rocky soil" },
+          rock: { speed: 0.68, cover: 0.16, detection: 0.92, moisture: 22, elevation: 1, name: "Rock" },
+          ash: { speed: 0.86, cover: 0.05, detection: 0.88, moisture: 8, elevation: 0, name: "Ash-covered ground" },
           forestfloor: { speed: 0.88, cover: 0.08, detection: 0.86, moisture: 70, elevation: 0, name: "Forest floor" },
           tallgrass: { speed: 0.82, cover: 0.12, detection: 0.78, moisture: 64, elevation: 0, name: "Tall grass" },
           bushes: { speed: 0.72, cover: 0.2, detection: 0.67, moisture: 70, elevation: 0, name: "Bushes" },
@@ -2459,6 +2609,7 @@
           retreating: false,
           wounds: 0,
           woundState: "Healthy",
+          knockedDownRemaining: 0,
           bleeding: 0,
           incapacitated: false,
           stabilized: false,
@@ -2472,6 +2623,7 @@
           suppression: 0,
           aimTime: 0,
           armorProtection: role === "vehicle" ? 16 : role === "commander" ? 12 : role === "scout" ? 6 : 9,
+          facing: 0,
           bodyZones: { head: 1, chest: 1, leftArm: 1, rightArm: 1, leftLeg: 1, rightLeg: 1 },
           vehicleSystems: role === "vehicle" ? { tracks: 1, engine: 1, turret: 1, mainGun: 1, crew: 1, ammoStorage: 1, fuel: 1 } : null,
           deploymentSource,
@@ -2481,6 +2633,7 @@
           memories: [],
           armor: role === "vehicle" ? "Heavy armor" : role === "scout" ? "Light armor" : role === "commander" ? "Elite trim" : "Medium armor",
           weapon: role === "builder" ? "Engineer tools" : role === "vehicle" ? "Heavy gun" : role === "scout" ? "Carbine" : role === "medic" ? "Rifle" : "Rifle",
+          weaponId: role === "builder" ? "engineer-tools" : role === "vehicle" ? "heavy-gun" : role === "scout" ? "carbine" : player.faction === "Space Marines" ? "bolter" : "rifle",
           attachment: role === "medic" ? "Medic pack" : role === "engineer" || role === "builder" ? "Engineer tools" : role === "standard" ? "Standard bearer" : "None",
           commandRank: role === "commander" ? 4 : role === "standard" ? 3 : role === "medic" ? 2 : 1
         };
@@ -2677,14 +2830,15 @@
 
       function createTradePartners() {
         const types = ["Hive City", "Manufactorum", "Mechanicus Enclave", "Imperial Navy", "Orbital Station", "Neutral Settlement"];
+        const routeRadius = Math.max(180, Math.min(2600, Math.min(worldWidth(), worldHeight()) * 0.38));
         return state.players.map((player, index) => {
           const angle = index * Math.PI * 2 / Math.max(1, state.players.length) + Math.PI / 4;
           return {
             id: `trade-${player.id}`,
             faction: player.id,
             name: `${types[index % types.length]} ${index + 1}`,
-            x: clamp(worldWidth() / 2 + Math.cos(angle) * 2600, 35, worldWidth() - 35),
-            y: clamp(worldHeight() / 2 + Math.sin(angle) * 2600, 35, worldHeight() - 35),
+            x: clamp(worldWidth() / 2 + Math.cos(angle) * routeRadius, 35, worldWidth() - 35),
+            y: clamp(worldHeight() / 2 + Math.sin(angle) * routeRadius, 35, worldHeight() - 35),
             exports: index % 3 === 0 ? { food: 18, requisition: 8 } : index % 3 === 1 ? { ammunition: 13, materials: 9 } : { fuel: 12, parts: 8 },
             established: false,
             establishedAt: null,
@@ -2710,6 +2864,7 @@
         const preset = presets[presetKey] || presets.iron;
         state.scenario = presetKey;
         state.time = 0;
+        state.clock.elapsedSeconds = 0;
         state.startMinute = preset.startMinute;
         const nextWorld = presetKey === "custom" ? state.world : preset.world;
         setWorldSize(nextWorld.width, nextWorld.height);
@@ -2745,6 +2900,9 @@
         state.structures = [];
         state.squads = [];
         state.projectiles = [];
+        state.projectilePool = [];
+        state.resourceZones = [];
+        state.casualtyPoints = [];
         state.features = (customFeatures ?? preset.features).map(feature => {
           const scaled = presetKey === "custom" ? feature : {
             ...feature,
@@ -2797,6 +2955,10 @@
         state.factionEcology = {};
         state.strategicOutcomes = {};
         state.victoryEvaluationAccumulator = 0;
+        state.navigationRevision += 1;
+        state.navigationPlans = 0;
+        state.navigationCacheHits = 0;
+        navigationPlanner.clear();
         state.aiDiagnostics = { relationshipEdges: 0, killPursuits: 0, formationSquads: 0, routeOrders: 0, guardSquads: 0, securedRoads: 0, ambushRoads: 0, checkpoints: 0, environmentCollisions: 0, obstacleProjectileHits: 0 };
         state.explored = {};
         state.visibleFogChunks = {};
@@ -2871,21 +3033,6 @@
         updateLightingButton();
         if (window.lucide) lucide.createIcons({ attrs: { width: 16, height: 16 } });
         updateUI(true);
-      }
-
-      function seededRandom(seedText) {
-        let seed = 2166136261;
-        for (const character of String(seedText || "FRONTIER-01")) {
-          seed ^= character.charCodeAt(0);
-          seed = Math.imul(seed, 16777619);
-        }
-        return () => {
-          seed += 0x6D2B79F5;
-          let value = seed;
-          value = Math.imul(value ^ value >>> 15, value | 1);
-          value ^= value + Math.imul(value ^ value >>> 7, value | 61);
-          return ((value ^ value >>> 14) >>> 0) / 4294967296;
-        };
       }
 
       function randomizeMap() {
@@ -3023,6 +3170,7 @@
           "Repair first": { fieldhospital: 34, workshop: 16, bunker: 14 },
           Balanced: {}
         }[player.doctrine] || {};
+        const behavior = aiBehaviorFor(player);
         const scored = Object.keys(buildingCatalog)
           .filter(type => type !== "outpost")
           .map(type => {
@@ -3031,12 +3179,16 @@
             const missing = Math.max(0, (desired[type] || 0) - complete(type));
             const resources = clamp(Math.min((economy.inventory.requisition || 0) / Math.max(1, spec.cost), (economy.inventory.materials || 0) / Math.max(1, Math.ceil(spec.cost * 0.55))), 0, 1.4);
             const need = shortageNeed[type] || 0.1;
-            const score = (dependencyReady ? 0 : -1000) + missing * 38 + need * 55 + resources * 24 + (doctrineBonus[type] || 0) - spec.risk * (threat * 5 + 1);
+            const behaviorBias = (behavior.economy - 50) * spec.economic * 0.1
+              + (behavior.aggression - 50) * spec.military * 0.08
+              + (behavior.caution - 50) * (["bunker", "turret", "observationtower", "fieldhospital"].includes(type) ? 0.42 : 0)
+              + (behavior.expansion - 50) * (["mine", "farm", "refinery", "warehouse"].includes(type) ? 0.38 : 0);
+            const score = (dependencyReady ? 0 : -1000) + missing * 38 + need * 55 + resources * 24 + (doctrineBonus[type] || 0) + behaviorBias - spec.risk * (threat * 5 + 1);
             return { type, score };
           })
           .sort((a, b) => b.score - a.score);
         const strongest = scored.slice(0, 3);
-        const temperature = player.race === "Orks" ? 24 : player.doctrine === "Aggressive" ? 18 : 11;
+        const temperature = player.race === "Orks" ? 24 : behavior.aggression >= 70 ? 18 : 11;
         const maxScore = strongest[0]?.score || 0;
         const weights = strongest.map(item => Math.exp((item.score - maxScore) / temperature));
         let roll = battleRandom() * weights.reduce((sum, value) => sum + value, 0);
@@ -3075,14 +3227,15 @@
         if (type === "outpost") candidates.push({ x: Math.round(base.x / 16) * 16, y: Math.round(base.y / 16) * 16 });
         const desiredResource = extractorResourceType[type];
         if (desiredResource) {
-          for (const node of state.features.filter(feature => feature.resourceNode && feature.resourceType === desiredResource && feature.reserve > 0)) {
+          for (const node of strategicResourceNodes(desiredResource)) {
             const territory = territoryAt(node);
             if (!territory || territory.owner !== faction) continue;
+            const nodeRadius = node.r || Math.max(18, Math.sqrt(Math.max(1, node.capacity || node.maxReserve || 600)) * 0.9);
             for (let index = 0; index < 8; index += 1) {
               const angle = index * Math.PI / 4;
               candidates.push({
-                x: clamp(Math.round((node.x + Math.cos(angle) * (node.r + 28)) / 16) * 16, 34, worldWidth() - 34),
-                y: clamp(Math.round((node.y + Math.sin(angle) * (node.r + 28)) / 16) * 16, 34, worldHeight() - 34)
+                x: clamp(Math.round((node.x + Math.cos(angle) * (nodeRadius + 28)) / 16) * 16, 34, worldWidth() - 34),
+                y: clamp(Math.round((node.y + Math.sin(angle) * (nodeRadius + 28)) / 16) * 16, 34, worldHeight() - 34)
               });
             }
           }
@@ -3187,6 +3340,7 @@
             const cleared = damageEnvironmentFeature(removableObstacle, dt * (8 + unit.engineering * 12), unit);
             if (player.race === "Orks") {
               economyFor(unit.faction).inventory.materials += dt * 0.8;
+              economyFor(unit.faction).inventory.scrap = (economyFor(unit.faction).inventory.scrap || 0) + dt * 0.8;
               unit.status = "Lootin' scrap";
               unit.lastAction = `Dragging usable scrap out of ${brushNames[removableObstacle.type] || "wreckage"} for da Meks.`;
             } else if (player.race === "Tyranids") {
@@ -3409,6 +3563,8 @@
           completedAt: null
         };
         state.structures.push(structure);
+        state.navigationRevision += 1;
+        navigationPlanner.clear();
         unit.buildProject = structure.id;
         unit.status = builderPlayer.race === "Tyranids" ? "Growing bio-structure" : builderPlayer.race === "Orks" ? "Lashin' scrap together" : "Constructing";
         addUnitLog(unit, builderPlayer.race === "Tyranids"
@@ -3417,16 +3573,84 @@
         incident(`${playerFor(unit.faction).faction} ${builderPlayer.race === "Tyranids" ? "began growing" : "funded"} ${structure.displayName} (${spec.purpose}).`, unit.id, "info");
       }
 
+      function navigationProfileFor(unit) {
+        if (unit.role === "aircraft" || unit.movementType === "aircraft") return "aircraft";
+        if (unit.role === "vehicle") return "vehicle";
+        return "infantry";
+      }
+
+      function navigationPassableAt(point, unit, profile) {
+        const radius = unit.collisionRadius || (profile === "vehicle" ? 14 : 3);
+        if (point.x < radius + 8 || point.y < radius + 8 || point.x > worldWidth() - radius - 8 || point.y > worldHeight() - radius - 8) return false;
+        if (profile === "aircraft") return true;
+        const terrain = terrainAt(point);
+        const bridge = ["bridge", "stonebridge", "woodbridge", "woodenbridge", "pontoonbridge"].includes(terrain.type);
+        const groundBlocked = profile === "vehicle"
+          ? ["water", "deepwater", "river", "lava", "mountain", "cliff"].includes(terrain.type)
+          : ["water", "deepwater", "river", "lava"].includes(terrain.type);
+        if (groundBlocked && !bridge) return false;
+        const ignoreId = unit.buildProject || null;
+        return !structureCollisionAt(point, radius, ignoreId) && !environmentCollisionAt(point, unit, radius);
+      }
+
+      function navigationCostAt(point, unit, profile) {
+        if (profile === "aircraft") return 1;
+        const terrain = terrainAt(point);
+        const obstacleFactor = environmentalMovementFactor(point, unit);
+        let cost = 1 / Math.max(0.18, terrain.speed * obstacleFactor);
+        if (profile === "vehicle" && ["mud", "swamp", "snow", "ice", "denseforest", "jungle"].includes(terrain.type)) cost *= 1.65;
+        if (["road", "dirtroad", "stoneroad", "asphalt", "trail", "bridge", "stonebridge", "woodenbridge", "pontoonbridge"].includes(terrain.type)) cost *= profile === "vehicle" ? 0.58 : 0.78;
+        return clamp(cost, 0.35, 8);
+      }
+
+      function planAutonomousRoute(unit, destination) {
+        const totalDistance = distance(unit, destination);
+        if (totalDistance < 48) return false;
+        const localReach = Math.min(totalDistance, unit.role === "vehicle" ? 960 : 720);
+        const localGoal = totalDistance > localReach
+          ? {
+              x: unit.x + (destination.x - unit.x) / totalDistance * localReach,
+              y: unit.y + (destination.y - unit.y) / totalDistance * localReach
+            }
+          : destination;
+        const profile = navigationProfileFor(unit);
+        const cacheSize = navigationPlanner.cache.size;
+        const path = navigationPlanner.findPath({
+          start: unit,
+          goal: localGoal,
+          profile,
+          revision: state.navigationRevision,
+          isPassable: (point, movementProfile) => navigationPassableAt(point, unit, movementProfile),
+          costAt: (point, movementProfile) => navigationCostAt(point, unit, movementProfile)
+        });
+        if (!path.length) return false;
+        unit.navigationPath = path;
+        unit.navigationDestination = { ...destination };
+        unit.navigationRevision = state.navigationRevision;
+        unit.detour = null;
+        unit.nextNavigationPlanAt = state.time + 0.8;
+        state.navigationPlans += 1;
+        if (navigationPlanner.cache.size === cacheSize) state.navigationCacheHits += 1;
+        return true;
+      }
+
       function moveToward(unit, point, dt, speedFactor = 1) {
         const radius = unit.collisionRadius || (unit.role === "vehicle" ? 14 : 3);
         const ignoreId = unit.buildProject || null;
         const enclosingStructure = structureCollisionAt(unit, radius, ignoreId);
         if (enclosingStructure) moveUnitOutsideStructure(unit, enclosingStructure);
+        if (unit.navigationPath?.length && unit.navigationDestination && distance(unit.navigationDestination, point) > 128) {
+          unit.navigationPath = [];
+          unit.navigationDestination = null;
+        }
+        while (unit.navigationPath?.length && distance(unit, unit.navigationPath[0]) < Math.max(8, radius * 0.8)) unit.navigationPath.shift();
+        if (unit.navigationPath && !unit.navigationPath.length) unit.navigationDestination = null;
         if (unit.detour && distance(unit, unit.detour) < 5) unit.detour = null;
-        const movementTarget = unit.detour || point;
+        const movementTarget = unit.navigationPath?.[0] || unit.detour || point;
         const dx = movementTarget.x - unit.x;
         const dy = movementTarget.y - unit.y;
         const d = Math.hypot(dx, dy) || 1;
+        unit.facing = Math.atan2(dy, dx);
         const terrain = terrainAt(unit);
         if ((unit.nextRoadProbeAt || 0) <= state.time) {
           const localRoad = nearestRoadSegment(unit, 22);
@@ -3459,6 +3683,10 @@
         if (collision?.feature && unit.role === "vehicle" && collision.feature.crushable && (unit.maxHp >= 190 || unit.strength > 0.72)) {
           damageEnvironmentFeature(collision.feature, collision.feature.maxHp || 100, unit);
           collision = blockedAt(next);
+        }
+        if (collision && (unit.nextNavigationPlanAt || 0) <= state.time && planAutonomousRoute(unit, point)) {
+          unit.lastAction = `Navigation grid rerouted around ${collision.feature ? brushNames[collision.feature.type] || collision.feature.type : unitLabel(collision)}.`;
+          return;
         }
         if (!collision) {
           unit.x = next.x;
@@ -3498,6 +3726,7 @@
             if (unit.stuckTime > 1.5) {
               unit.cachedObjective = null;
               unit.objectiveCooldown = 0;
+              planAutonomousRoute(unit, point);
               unit.lastAction = `Repathing around ${brushNames[collision.feature.type] || collision.feature.type}.`;
               unit.stuckTime = 0;
             }
@@ -3561,17 +3790,20 @@
         }
         const enemy = enemyPlayerFor(unit.faction);
         if (!enemy) return worldCenter();
-        const doctrine = playerFor(unit.faction).doctrine;
+        const player = playerFor(unit.faction);
+        const doctrine = player.doctrine;
+        const behavior = aiBehaviorFor(player);
         const phase = clamp(state.time / 120, 0, 1);
-        let progress = 0.38 + phase * 0.3;
+        let progress = 0.38 + phase * 0.3 + (behavior.aggression - 50) * 0.003 - (behavior.caution - 50) * 0.002;
         if (doctrine === "Fortress" || doctrine === "Repair first") progress = 0.22 + phase * 0.22;
         if (doctrine === "Aggressive") progress = 0.58 + phase * 0.34;
+        progress = clamp(progress, 0.16, 0.94);
         const spread = ((unit.index % 5) - 2) * 18;
         const direct = {
           x: start.x + (enemy.base.x - start.x) * progress + spread,
           y: start.y + (enemy.base.y - start.y) * progress - spread
         };
-        if (doctrine === "Aggressive") return direct;
+        if (behavior.aggression >= 72 && behavior.caution <= 55) return direct;
         const dx = enemy.base.x - start.x;
         const dy = enemy.base.y - start.y;
         const length = Math.hypot(dx, dy) || 1;
@@ -3740,6 +3972,15 @@
       }
 
       const extractorResourceType = { mine: "materials", refinery: "fuel", farm: "food", generator: "energy" };
+      const resourceExtractorType = { materials: "mine", scrap: "mine", fuel: "refinery", food: "farm", biomass: "farm", energy: "generator", ammunition: "workshop", medical: "fieldhospital", faith: "outpost", influence: "outpost", requisition: "outpost" };
+
+      function strategicResourceNodes(resourceType = null) {
+        const generated = state.features.filter(feature => feature.resourceNode && feature.reserve > 0 && (!resourceType || feature.resourceType === resourceType));
+        const authored = state.resourceZones
+          .map(syncResourceZone)
+          .filter(zone => zone.reserve > 0 && (!resourceType || zone.resourceType === resourceType));
+        return [...generated, ...authored];
+      }
 
       function seedStrategicResourceNodes(random = battleRandom) {
         state.features = state.features.filter(feature => !feature.resourceNode);
@@ -3770,8 +4011,7 @@
       function resourceNodeForStructure(structure) {
         const category = extractorResourceType[structure.type];
         if (!category) return null;
-        return state.features
-          .filter(feature => feature.resourceNode && feature.resourceType === category && feature.reserve > 0)
+        return strategicResourceNodes(category)
           .sort((a, b) => distance(structure, a) - distance(structure, b))[0] || null;
       }
 
@@ -4243,6 +4483,7 @@
 
       function updateArmyAI() {
         for (const player of state.players) {
+          const behavior = aiBehaviorFor(player);
           const enemies = state.players.filter(other => !areAllies(other.id, player.id));
           const target = enemies.sort((a, b) => distance(player.base, a.base) - distance(player.base, b.base))[0] || null;
           const economy = economyFor(player.id);
@@ -4251,8 +4492,10 @@
           let goal = "Advance on enemy command";
           if (contestedRoad || economy.shortages?.length) goal = "Keep supply network open";
           else if (force < 5) goal = "Consolidate squads and hold routes";
-          else if (player.doctrine === "Fortress") goal = "Secure approaches and deny routes";
-          else if (player.doctrine === "Aggressive") goal = "Break enemy routes and eliminate resistance";
+          else if (behavior.economy >= 72 && economy.inventory.materials < economy.baseCapacity.materials * 0.55) goal = "Protect production and expand resource gathering";
+          else if (behavior.expansion >= 72) goal = "Secure connected territory and strategic resources";
+          else if (behavior.caution >= 72) goal = "Secure approaches and deny routes";
+          else if (behavior.aggression >= 72) goal = "Break enemy routes and eliminate resistance";
           state.armyPlans[player.id] = { goal, targetFaction: target?.id || null, issuedAt: state.time };
         }
       }
@@ -4306,6 +4549,7 @@
         const membersBySquad = livingSquadMemberMap();
         const unitById = new Map(state.units.map(unit => [unit.id, unit]));
         for (const player of state.players) {
+          const behavior = aiBehaviorFor(player);
           const squads = state.squads.filter(squad => squad.faction === player.id && membersBySquad.has(squad.id));
           if (!squads.length) continue;
           const protectionRequests = state.units.filter(unit => unit.alive && unit.role === "builder" && areAllies(unit.faction, player.id) && unit.protectionRequested);
@@ -4339,7 +4583,7 @@
             if (squad.orderCommitUntil > state.time) continue;
             const friendlyRoad = friendlyRoads[index % Math.max(1, friendlyRoads.length)];
             const enemyRoad = enemyRoads[index % Math.max(1, enemyRoads.length)];
-            if (player.doctrine === "Aggressive" && enemyRoad && index >= squads.length - 2) issueSquadOrder(squad, index % 2 ? "Ambush Route" : "Block Route", enemyRoad, null, membersBySquad.get(squad.id));
+            if (behavior.aggression >= 68 && enemyRoad && index >= squads.length - Math.max(1, Math.ceil(squads.length * behavior.aggression / 100 * 0.45))) issueSquadOrder(squad, index % 2 ? "Ambush Route" : "Block Route", enemyRoad, null, membersBySquad.get(squad.id));
             else if (friendlyRoad?.status === "Contested" || friendlyRoad?.status === "Enemy controlled") {
               const demolitionStand = (friendlyRoad.supplyImportance || 0) > 0.72 && friendlyRoad.segments?.some(segment => segment.bridge);
               issueSquadOrder(squad, demolitionStand && index % 3 === 0 ? "Destroy Route if Overrun" : index % 2 ? "Delay Enemy" : "Hold Route", friendlyRoad, null, membersBySquad.get(squad.id));
@@ -4584,6 +4828,7 @@
       }
 
       function hitChanceFor(unit, target) {
+        const weapon = weaponProfileFor(unit);
         const isStructure = Boolean(target.maxHp && buildingCatalog[target.type]);
         const cover = isStructure ? terrainAt(target).cover * 0.35 : terrainAt(target).cover;
         const light = lightingAt(target, unit.faction);
@@ -4595,15 +4840,24 @@
         const movementModifier = ["Closing", "Advancing", "Retreating"].includes(unit.status) ? 0.72 : 1;
         const fatigueModifier = clamp(1 - unit.fatigue * 0.42 - (unit.suppression || 0) * 0.58, 0.18, 1);
         const precisionModifier = clamp(0.72 + unit.precision * 0.32, 0.72, 1.05);
-        return clamp(unit.accuracy * rangeModifier * aimModifier * visibilityModifier * (1 - cover) * movementModifier * fatigueModifier * precisionModifier * (unit.conditionMultiplier || 1), 0.02, 0.98);
+        return clamp(unit.accuracy * weapon.accuracy * rangeModifier * aimModifier * visibilityModifier * (1 - cover) * movementModifier * fatigueModifier * precisionModifier * weapon.precision * (unit.conditionMultiplier || 1), 0.02, 0.98);
+      }
+
+      function acquireProjectile(data) {
+        const projectile = state.projectilePool.pop() || {};
+        for (const key of Object.keys(projectile)) delete projectile[key];
+        Object.assign(projectile, data, { active: true });
+        state.projectiles.push(projectile);
+        return projectile;
       }
 
       function fireAt(unit, target) {
         const chance = hitChanceFor(unit, target);
-        const doctrine = playerFor(unit.faction).doctrine;
-        let disciplineThreshold = doctrine === "Aggressive" || playerFor(unit.faction).race === "Orks"
+        const player = playerFor(unit.faction);
+        const behavior = aiBehaviorFor(player);
+        let disciplineThreshold = player.race === "Orks"
           ? 0.1
-          : clamp(0.16 + unit.discipline * 0.18, 0.16, 0.34);
+          : clamp(0.3 - behavior.aggression * 0.0018 + behavior.caution * 0.0008 + unit.discipline * 0.08, 0.1, 0.34);
         if (unit.combatIntent === "Eliminate") disciplineThreshold = Math.max(0.08, disciplineThreshold - unit.killConfidence / 500);
         if (unit.combatIntent === "Suppress") disciplineThreshold = Math.max(0.12, disciplineThreshold - 0.04);
         if (chance < disciplineThreshold) {
@@ -4612,6 +4866,25 @@
           unit.fireCd = 0.45;
           return false;
         }
+
+        const targetKind = buildingCatalog[target.type] ? "building" : target.role === "vehicle" ? "vehicle" : "unit";
+        const candidateWeapon = weaponProfileFor(unit);
+        if (!candidateWeapon.targetRestrictions.includes(targetKind)) {
+          unit.status = "Invalid weapon target";
+          unit.lastAction = `${candidateWeapon.label} cannot engage ${targetKind} targets.`;
+          unit.fireCd = 0.35;
+          return false;
+        }
+        const shot = requestRangedShot(unit);
+        if (!shot.allowed) {
+          unit.status = shot.reason === "overheated" ? "Weapon overheated" : shot.reason === "empty" ? "Out of ammunition" : "Reloading";
+          unit.lastAction = shot.reason === "overheated"
+            ? `${shot.profile.label} cooling at ${Math.round((unit.weaponState?.heat || 0) * 100)}% heat.`
+            : `${shot.profile.label} magazine change in progress.`;
+          unit.fireCd = Math.max(unit.fireCd, 0.18);
+          return false;
+        }
+        const weapon = shot.profile;
 
         const intendedHit = battleRandom() < chance;
         const dx = target.x - unit.x;
@@ -4624,8 +4897,8 @@
         const aimDx = aimPoint.x - unit.x;
         const aimDy = aimPoint.y - unit.y;
         const aimDistance = Math.hypot(aimDx, aimDy) || 1;
-        const projectileSpeed = unit.role === "vehicle" ? 300 : 220;
-        state.projectiles.push({
+        const projectileSpeed = weapon.projectileSpeed;
+        acquireProjectile({
           id: `projectile-${state.time.toFixed(2)}-${unit.id}-${unit.ammo}`,
           x: unit.x,
           y: unit.y,
@@ -4637,17 +4910,19 @@
           shooterId: unit.id,
           intendedTargetId: target.id,
           damage: unit.damage,
-          penetration: unit.role === "vehicle" ? 19 : unit.role === "scout" ? 9 : 12,
-          suppression: unit.role === "vehicle" ? 0.28 : 0.1,
+          penetration: weapon.penetration,
+          suppression: weapon.suppression,
+          splashRadius: weapon.splashRadius,
+          tracerColor: weapon.tracerColor,
+          weaponId: weapon.id,
           traveled: 0,
           maxTravel: Math.min(unit.range * 1.18, aimDistance + 20),
-          active: true,
           intendedHit
         });
         unit.ammo -= 1;
         unit.aimTime = 0;
         const rationing = economyFor(unit.faction).shortages.includes("ammunition");
-        unit.fireCd = ((unit.role === "vehicle" ? 2.7 : 1.22) + rand(0.15, 0.5)) * (rationing ? 1.75 : 1);
+        unit.fireCd = (weapon.rateOfFire + rand(0.04, Math.max(0.08, weapon.rateOfFire * 0.2))) * (rationing ? 1.75 : 1);
         unit.status = rationing ? "Rationing fire" : "Firing";
         addUnitLog(unit, `Firing on ${unitLabel(target)} at ${Math.round(chance * 100)}% estimated hit probability.`);
         return true;
@@ -4711,12 +4986,7 @@
       }
 
       function woundStateFor(unit) {
-        const ratio = unit.hp / Math.max(1, unit.maxHp);
-        if (!unit.alive) return "Dead";
-        if (unit.incapacitated || ratio <= 0.16) return "Incapacitated";
-        if (ratio < 0.48) return "Gravely Injured";
-        if (ratio < 0.78) return "Injured";
-        return "Healthy";
+        return injuryStateFor(unit);
       }
 
       function enterIncapacitated(unit, cause = "battlefield trauma") {
@@ -4775,22 +5045,28 @@
 
         const zones = ["head", "chest", "chest", "leftArm", "rightArm", "leftLeg", "rightLeg"];
         const zone = zones[Math.floor(battleRandom() * zones.length)];
-        const protection = target.armorProtection || 8;
-        const penetrationChance = clamp(0.3 + (projectile.penetration - protection) / 20, 0.04, 0.97);
-        const penetrated = battleRandom() < penetrationChance;
+        const armorHit = resolveArmorHit(target, projectile, battleRandom);
+        const penetrated = armorHit.result === "penetrated";
         const zoneMultiplier = zone === "head" ? 1.55 : zone === "chest" ? 1.15 : zone.includes("Leg") ? 0.82 : 0.72;
-        const damage = projectile.damage * zoneMultiplier * (penetrated ? rand(0.76, 1.18) : 0.14);
+        const damage = projectile.damage * zoneMultiplier * armorHit.multiplier;
         target.hp -= damage;
         target.bodyZones[zone] = clamp((target.bodyZones[zone] || 1) - damage / target.maxHp * 1.8, 0, 1);
         target.bleeding = clamp((target.bleeding || 0) + (penetrated ? damage / target.maxHp * 0.42 : 0.01), 0, 0.55);
         target.injuries += penetrated ? 1 : 0;
         target.morale = clamp(target.morale - 0.035 - (target.suppression || 0) * 0.04, 0, 1);
+        target.lastArmorFacing = armorHit.facing;
+        target.lastArmorResult = armorHit.result;
+        if (armorHit.result === "ricochet") target.status = `${armorHit.facing} armor ricochet`;
         if (target.vehicleSystems && penetrated) {
           const systems = Object.keys(target.vehicleSystems);
           const system = systems[Math.floor(battleRandom() * systems.length)];
-          target.vehicleSystems[system] = clamp(target.vehicleSystems[system] - damage / target.maxHp * 1.6, 0, 1);
+          target.vehicleSystems[system] = clamp(target.vehicleSystems[system] - damage / target.maxHp * (armorHit.critical ? 2.7 : 1.6), 0, 1);
           if (system === "tracks" && target.vehicleSystems[system] < 0.25) target.speed *= 0.45;
           if (system === "mainGun" && target.vehicleSystems[system] < 0.25) target.damage *= 0.45;
+        }
+        if (damage > target.maxHp * 0.18 || projectile.splashRadius >= 12) {
+          target.knockedDownRemaining = Math.max(target.knockedDownRemaining || 0, clamp(0.7 + damage / Math.max(1, target.maxHp) * 3, 0.7, 2.8));
+          target.woundState = "Knocked Down";
         }
         target.woundState = woundStateFor(target);
         const catastrophic = penetrated && (zone === "head" && damage > target.maxHp * 0.34 || target.hp < -target.maxHp * 0.18);
@@ -4843,6 +5119,25 @@
         }
       }
 
+      function applyExplosion(projectile, directTarget) {
+        const radius = Number(projectile.splashRadius) || 0;
+        if (radius <= 0) return;
+        const units = nearbyCombatObjects(projectile, radius).units
+          .filter(unit => unit.alive && unit.id !== directTarget?.id && !areAllies(unit.faction, projectile.faction));
+        for (const unit of units) {
+          const falloff = clamp(1 - distance(projectile, unit) / radius, 0.12, 0.82);
+          applyProjectileImpact({ ...projectile, damage: projectile.damage * falloff, penetration: projectile.penetration * 0.55, suppression: projectile.suppression * falloff, splashRadius: 0 }, unit);
+          unit.knockedDownRemaining = Math.max(unit.knockedDownRemaining || 0, 0.5 + falloff * 1.4);
+        }
+        const structures = nearbyCombatObjects(projectile, radius).structures
+          .filter(item => item.alive !== false && item.id !== directTarget?.id && !areAllies(item.faction, projectile.faction));
+        for (const structure of structures) {
+          const falloff = clamp(1 - distance(projectile, structure) / radius, 0.1, 0.65);
+          applyProjectileImpact({ ...projectile, damage: projectile.damage * falloff, penetration: projectile.penetration * 0.45, suppression: 0, splashRadius: 0 }, structure);
+        }
+        applySuppression(projectile, projectile.faction, projectile.suppression * 1.25);
+      }
+
       function updateProjectiles(dt) {
         for (const projectile of state.projectiles) {
           if (!projectile.active) continue;
@@ -4859,12 +5154,18 @@
             projectile.y = collision.y;
             projectile.active = false;
             applyProjectileImpact(projectile, collision);
+            applyExplosion(projectile, collision);
           } else if (projectile.traveled >= projectile.maxTravel || projectile.x < 0 || projectile.x > worldWidth() || projectile.y < 0 || projectile.y > worldHeight()) {
             projectile.active = false;
             applyProjectileImpact(projectile, null);
           }
         }
-        state.projectiles = state.projectiles.filter(projectile => projectile.active);
+        const active = [];
+        for (const projectile of state.projectiles) {
+          if (projectile.active) active.push(projectile);
+          else if (state.projectilePool.length < 512) state.projectilePool.push(projectile);
+        }
+        state.projectiles = active;
       }
 
       function destroyStructure(structure, attacker = null) {
@@ -4874,6 +5175,8 @@
         structure.condition = 0.04;
         structure.alive = false;
         structure.destroyedAt = state.time;
+        state.navigationRevision += 1;
+        navigationPlanner.clear();
         const economy = economyFor(structure.faction);
         const capacity = economyCapacity(structure.faction);
         let lost = 0;
@@ -4942,34 +5245,89 @@
         state.minimapMarkerDirty = true;
       }
 
+      function ensureCasualtyCollectionPoint(faction) {
+        const existing = state.casualtyPoints.find(point => point.active && point.faction === faction);
+        if (existing) return existing;
+        const threshold = forceTreatmentThreshold(state.units, faction);
+        if (!threshold.active || threshold.injured < 3) return null;
+        const casualties = state.units.filter(unit => unit.alive && unit.faction === faction && injuryStateFor(unit) !== "Healthy");
+        const center = {
+          x: casualties.reduce((sum, unit) => sum + unit.x, 0) / Math.max(1, casualties.length),
+          y: casualties.reduce((sum, unit) => sum + unit.y, 0) / Math.max(1, casualties.length)
+        };
+        const base = baseFor(faction);
+        const point = {
+          id: `ccp-${faction}-${Math.round(state.time)}`,
+          faction,
+          x: clamp(center.x + (base.x - center.x) * 0.32, 30, worldWidth() - 30),
+          y: clamp(center.y + (base.y - center.y) * 0.32, 30, worldHeight() - 30),
+          radius: 18,
+          active: true,
+          createdAt: state.time,
+          patients: 0
+        };
+        state.casualtyPoints.push(point);
+        incident(`${playerFor(faction).faction} established a casualty collection point after ${threshold.injured} battlefield injuries.`, null, "warning");
+        return point;
+      }
+
       function updateMedic(unit, dt) {
-        const patient = nearestAlly(unit, ally => ally.incapacitated || ally.hp < ally.maxHp * 0.78, 130);
-        if (!patient) return false;
+        const player = playerFor(unit.faction);
+        const profile = medicalProfileFor(player);
+        const threshold = forceTreatmentThreshold(state.units, unit.faction);
+        if (!threshold.active) return false;
+        ensureCasualtyCollectionPoint(unit.faction);
+        const candidates = state.units
+          .filter(ally => ally.alive && ally.id !== unit.id && areAllies(ally.faction, unit.faction) && (ally.incapacitated || ally.hp < ally.maxHp * 0.78 || (ally.bleeding || 0) > 0.02))
+          .map(patient => {
+            const hostiles = nearbyCombatObjects(patient, 75).units.filter(other => other.alive && !other.incapacitated && !areAllies(other.faction, unit.faction));
+            const danger = clamp(hostiles.length / 4, 0, 1);
+            return { patient, danger, score: triageScore(patient, unit, danger, profile) };
+          })
+          .filter(item => distance(unit, item.patient) <= profile.approachRange * 1.8)
+          .sort((a, b) => b.score - a.score);
+        const selected = candidates[0];
+        if (!selected) return false;
+        const { patient, danger } = selected;
         unit.medicalReserve ??= 2;
-        const hostiles = nearbyCombatObjects(patient, 75).units.filter(other => other.alive && !other.incapacitated && !areAllies(other.faction, unit.faction));
-        if (hostiles.length && distance(unit, patient) > 24) {
+        const treatmentRange = profile.treatmentRange || 14;
+        if (danger > 0.25 && distance(unit, patient) > Math.max(24, treatmentRange)) {
           unit.status = "Holding for safe treatment";
-          unit.lastAction = `Hostiles prevent a safe approach to ${unitLabel(patient)}.`;
+          unit.lastAction = `${profile.label} cannot safely approach ${unitLabel(patient)}.`;
           return false;
         }
-        if (distance(unit, patient) > 14) moveToward(unit, patient, dt, 1.05);
+        if (danger > 0.25 && patient.incapacitated && distance(unit, patient) <= Math.max(24, treatmentRange) && !unit.carryingPatientId) {
+          unit.carryingPatientId = patient.id;
+          unit.patientTransportMode = "drag";
+          patient.carriedById = unit.id;
+          patient.stabilized = patient.stabilized || patient.bleeding < 0.12;
+          unit.status = "Dragging casualty";
+          unit.lastAction = `Dragging ${unitLabel(patient)} out of immediate danger before treatment.`;
+          return true;
+        }
+        if (distance(unit, patient) > treatmentRange) moveToward(unit, patient, dt, 1.05);
         else {
           const criticalBeforeCare = patient.incapacitated || patient.hp / Math.max(1, patient.maxHp) < 0.48;
-          const careFactor = unit.medicalReserve > 0 ? 1 : 0.32;
-          patient.hp = clamp(patient.hp + dt * 2.4 * careFactor, 1, patient.maxHp * 0.78);
-          patient.morale = clamp(patient.morale + dt * 0.012, 0, 1);
-          patient.bleeding = clamp((patient.bleeding || 0) - dt * 0.14 * careFactor, 0, 0.55);
+          const supplyFactor = unit.medicalReserve > 0 ? 1 : 0.32;
+          const careFactor = supplyFactor * profile.treatmentRate;
+          patient.hp = clamp(patient.hp + dt * 2.4 * careFactor, 1, patient.maxHp * profile.limitedDuty);
+          patient.morale = clamp(patient.morale + dt * 0.012 * profile.treatmentRate, 0, 1);
+          patient.bleeding = clamp((patient.bleeding || 0) - dt * 0.14 * supplyFactor * profile.bleedingControl, 0, 0.55);
+          if (profile.risk && battleRandom() < profile.risk * dt * 0.08) {
+            patient.hp = Math.max(1, patient.hp - patient.maxHp * 0.04);
+            patient.status = "Painboy complication";
+          }
           if (patient.incapacitated && patient.bleeding < 0.045) {
             patient.stabilized = true;
             patient.rescueRequested = false;
-            patient.status = "Stabilized";
+            patient.status = profile.id === "necron" ? "Reanimation protocols active" : profile.id === "chaos" ? "Ritual stabilization" : "Stabilized";
           }
           patient.woundState = woundStateFor(patient);
-          unit.medicalReserve = Math.max(0, unit.medicalReserve - dt * 0.06);
-          if (criticalBeforeCare) recordRelationshipEvent(patient, unit, "savedFromDanger", "stabilized critical battlefield wounds", { cooldown: 90, reciprocal: 0.3 });
+          unit.medicalReserve = Math.max(0, unit.medicalReserve - dt * 0.06 * profile.treatmentRate);
+          if (criticalBeforeCare) recordRelationshipEvent(patient, unit, "savedFromDanger", `${profile.label.toLowerCase()} stabilized critical battlefield wounds`, { cooldown: 90, reciprocal: 0.3 });
         }
-        unit.status = distance(unit, patient) > 14 ? "Responding" : unit.medicalReserve > 0 ? "Stabilizing" : "Basic field aid";
-        unit.lastAction = `${unit.status} ${unitLabel(patient)}.`;
+        unit.status = distance(unit, patient) > treatmentRange ? "Responding" : unit.medicalReserve > 0 ? profile.label : "Basic field aid";
+        unit.lastAction = `${unit.status} treating ${unitLabel(patient)} · triage ${Math.round(selected.score)}.`;
         return true;
       }
 
@@ -5187,6 +5545,11 @@
         if (!unit || unit.deathProcessed) return;
         unit.deathProcessed = true;
         const player = playerFor(unit.faction);
+        for (const ally of nearbyCombatObjects(unit, unit.role === "commander" ? 190 : 110).units.filter(other => other.alive && other.faction === unit.faction && other.id !== unit.id)) {
+          const shock = unit.role === "commander" ? 0.24 : unit.role === "standard" ? 0.14 : 0.065;
+          ally.morale = clamp(ally.morale - shock * (1 - ally.discipline * 0.45), 0, 1);
+          ally.suppression = clamp((ally.suppression || 0) + shock * 0.8, 0, 1);
+        }
         if (player.faction === "Space Marines") {
           addIndexedFeature({ type: "wreckage", recoverableEquipment: true, geneSeed: true, sourceFaction: unit.faction, x: unit.x, y: unit.y, r: unit.role === "vehicle" ? 16 : 7, shape: "circle", opacity: 0.82, condition: 1, age: 0, visual: "urban" });
         } else if (player.race !== "Orks" && player.race !== "Tyranids") {
@@ -5221,25 +5584,37 @@
       }
 
       function casualtyTreatmentPoint(unit) {
-        return state.structures
+        const collectionPoint = state.casualtyPoints
+          .filter(item => item.active && areAllies(item.faction, unit.faction))
+          .sort((a, b) => distance(unit, a) - distance(unit, b))[0];
+        const fieldHospital = state.structures
           .filter(item => item.alive !== false && item.progress >= 1 && areAllies(item.faction, unit.faction) && item.type === "fieldhospital")
-          .sort((a, b) => distance(unit, a) - distance(unit, b))[0] || baseFor(unit.faction);
+          .sort((a, b) => distance(unit, a) - distance(unit, b))[0];
+        return collectionPoint || fieldHospital || baseFor(unit.faction);
       }
 
       function updateIncapacitated(unit, dt) {
         unit.woundState = "Incapacitated";
         unit.conditionMultiplier = 0.12;
+        const profile = medicalProfileFor(playerFor(unit.faction));
+        if (profile.reanimation && state.time - (unit.incapacitatedAt || state.time) > 2.5) {
+          unit.stabilized = true;
+          unit.bleeding = 0;
+          unit.status = "Self-repair and reanimation";
+        }
         const carrier = state.units.find(item => item.id === unit.carriedById && item.alive && !item.incapacitated);
         if (carrier) {
           unit.x = carrier.x - Math.cos(carrier.index || 0) * 4;
           unit.y = carrier.y - Math.sin(carrier.index || 0) * 4;
           const treatment = casualtyTreatmentPoint(unit);
-          moveToward(carrier, treatment, dt, 0.62);
-          carrier.status = "Carrying casualty";
-          carrier.lastAction = `Evacuating ${unitLabel(unit)} after the fighting subsided.`;
-          unit.status = "Being evacuated";
+          const transportMode = carrier.patientTransportMode === "drag" ? "Dragging" : "Carrying";
+          moveToward(carrier, treatment, dt, transportMode === "Dragging" ? 0.42 : 0.62);
+          carrier.status = `${transportMode} casualty`;
+          carrier.lastAction = transportMode === "Dragging" ? `Dragging ${unitLabel(unit)} toward the casualty collection point.` : `Evacuating ${unitLabel(unit)} after the fighting subsided.`;
+          unit.status = transportMode === "Dragging" ? "Being dragged" : "Being evacuated";
           if (distance(carrier, treatment) < 18) {
             carrier.carryingPatientId = null;
+            carrier.patientTransportMode = null;
             unit.carriedById = null;
             unit.evacuated = true;
             unit.stabilized = true;
@@ -5250,8 +5625,8 @@
           return;
         }
         if (unit.evacuated) {
-          unit.hp = clamp(unit.hp + dt * 0.45, 1, unit.maxHp * 0.52);
-          if (unit.hp >= unit.maxHp * 0.48) {
+          unit.hp = clamp(unit.hp + dt * 0.45 * profile.treatmentRate, 1, unit.maxHp * profile.limitedDuty);
+          if (unit.hp >= unit.maxHp * Math.min(profile.limitedDuty, 0.48)) {
             unit.incapacitated = false;
             unit.evacuated = false;
             unit.woundState = "Gravely Injured";
@@ -5268,8 +5643,10 @@
             .filter(other => other.alive && !other.incapacitated && !other.carryingPatientId && areAllies(other.faction, unit.faction) && other.id !== unit.id && other.role !== "vehicle")
             .sort((a, b) => distance(unit, a) - distance(unit, b))[0];
           const preserveVeteran = unit.experience > 24 || unit.role === "commander" || state.lighting.factionPreservation === "high";
-          if (carrierCandidate && distance(unit, carrierCandidate) < 34 && (preserveVeteran || distance(unit, treatment) < 180)) {
+          const evacuationApproved = shouldEvacuate(unit, 0, distance(unit, treatment), profile);
+          if (carrierCandidate && distance(unit, carrierCandidate) < 34 && evacuationApproved && (preserveVeteran || distance(unit, treatment) < 220)) {
             carrierCandidate.carryingPatientId = unit.id;
+            carrierCandidate.patientTransportMode = "carry";
             unit.carriedById = carrierCandidate.id;
             return;
           }
@@ -5281,13 +5658,113 @@
         } else unit.status = unsafe ? "Down under fire" : "Stabilized · evacuation deferred";
       }
 
+      function damageMeleeTarget(attacker, target, strike, scale = 1) {
+        if (!target || target.alive === false || strike.damage <= 0) return;
+        const damage = strike.damage * scale;
+        target.hp -= damage;
+        if (buildingCatalog[target.type]) {
+          target.condition = clamp(target.hp / target.maxHp, 0.04, 1);
+          if (target.hp <= 0) destroyStructure(target, attacker);
+          return;
+        }
+        target.morale = clamp(target.morale - 0.045 - strike.stagger * 0.08, 0, 1);
+        target.suppression = clamp((target.suppression || 0) + strike.stagger, 0, 1);
+        target.fireCd = Math.max(target.fireCd || 0, strike.stagger);
+        if (strike.knockback > 0) {
+          const dx = target.x - attacker.x;
+          const dy = target.y - attacker.y;
+          const length = Math.hypot(dx, dy) || 1;
+          const candidate = {
+            x: clamp(target.x + dx / length * strike.knockback, 24, worldWidth() - 24),
+            y: clamp(target.y + dy / length * strike.knockback, 24, worldHeight() - 24)
+          };
+          if (!structureCollisionAt(candidate, target.collisionRadius || 3) && !environmentCollisionAt(candidate, target, target.collisionRadius || 3)) {
+            target.x = candidate.x;
+            target.y = candidate.y;
+          }
+        }
+        if (damage > target.maxHp * 0.15 || strike.stagger >= 0.45) target.knockedDownRemaining = Math.max(target.knockedDownRemaining || 0, 0.7 + strike.stagger * 2);
+        target.woundState = woundStateFor(target);
+        if (target.hp <= 0) enterIncapacitated(target, "a melee strike");
+      }
+
+      function applyMeleeStrike(attacker, targetId, charged) {
+        const target = combatTargetById(targetId);
+        const melee = weaponProfileFor(attacker).melee;
+        if (!target || !target.alive || distance(attacker, target) > melee.reach + (attacker.collisionRadius || 3) + (target.collisionRadius || 4) + 4) {
+          attacker.status = "Melee attack missed";
+          return;
+        }
+        attacker.meleeState.charged = charged;
+        const strike = resolveMeleeStrike(attacker, target, battleRandom);
+        attacker.status = strike.result === "parried" ? "Melee parried" : strike.result === "blocked" ? "Melee blocked" : "Melee strike";
+        attacker.lastAction = `${weaponProfileFor(attacker).label} melee ${strike.result} against ${unitLabel(target)}.`;
+        damageMeleeTarget(attacker, target, strike);
+        if (strike.cleave > 1 && strike.damage > 0) {
+          const extras = nearbyCombatObjects(target, melee.reach + 6).units
+            .filter(other => other.alive && other.id !== target.id && !areAllies(other.faction, attacker.faction))
+            .slice(0, strike.cleave - 1);
+          for (const other of extras) damageMeleeTarget(attacker, other, strike, 0.62);
+        }
+      }
+
+      function updateResourceCollector(unit, dt) {
+        if (!unit.resourceZoneTargetId) return false;
+        const zone = state.resourceZones.find(item => item.id === unit.resourceZoneTargetId);
+        if (!zone || zone.requiresBuilding || zone.remaining <= 0 || !zone.allowedCollectors.includes(unit.role)) {
+          unit.resourceZoneTargetId = null;
+          return false;
+        }
+        syncResourceZone(zone);
+        unit.resourceCargo ||= { type: zone.resourceType, amount: 0, capacity: unit.role === "vehicle" ? 24 : 12 };
+        if (unit.resourceCargo.type !== zone.resourceType) unit.resourceCargo = { type: zone.resourceType, amount: 0, capacity: unit.role === "vehicle" ? 24 : 12 };
+        const destination = closestStoragePoint(unit.faction, unit);
+        if (unit.resourceCargo.amount >= unit.resourceCargo.capacity || zone.remaining <= 0) {
+          if (distance(unit, destination) > 16) moveToward(unit, destination, dt, 0.9);
+          else {
+            const economy = economyFor(unit.faction);
+            const capacity = economyCapacity(unit.faction);
+            economy.inventory[unit.resourceCargo.type] = clamp((economy.inventory[unit.resourceCargo.type] || 0) + unit.resourceCargo.amount, 0, capacity[unit.resourceCargo.type] || 999);
+            unit.resourceCargo.amount = 0;
+            if (zone.remaining <= 0) unit.resourceZoneTargetId = null;
+          }
+          unit.status = "Delivering resources";
+          unit.lastAction = `Carrying ${unit.resourceCargo.amount.toFixed(1)} ${zone.resourceType} from ${zone.name}.`;
+          return true;
+        }
+        if (!pointInResourceZone(unit, zone)) moveToward(unit, zone, dt, 0.92);
+        else {
+          const amount = drainResourceZone(zone, zone.gatherRate * dt / 5);
+          unit.resourceCargo.amount = Math.min(unit.resourceCargo.capacity, unit.resourceCargo.amount + amount);
+        }
+        unit.status = pointInResourceZone(unit, zone) ? "Gathering resources" : "Moving to resource zone";
+        unit.lastAction = `${unit.status} · ${zone.name} (${Math.round(zone.remaining / Math.max(1, zone.capacity) * 100)}% remaining).`;
+        return true;
+      }
+
       function updateUnit(unit, dt) {
         if (!unit.alive) return;
+        ensureIndividualRuntime(unit);
+        const combatEvents = updateCombatState(unit, dt);
+        for (const event of combatEvents) {
+          if (event.type === "melee-strike") applyMeleeStrike(unit, event.targetId, event.charged);
+          else if (event.type === "reloaded") {
+            unit.status = "Reloaded";
+            unit.lastAction = `${weaponProfileFor(unit).label} loaded with ${event.rounds} rounds.`;
+          }
+        }
         unit.fireCd -= dt;
         unit.healCd -= dt;
         unit.fatigue = clamp(unit.fatigue + dt * 0.0009, 0, 0.94);
         unit.suppression = clamp((unit.suppression || 0) - dt * (0.07 + unit.suppressionResistance * 0.08), 0, 1);
         unit.morale = clamp(unit.morale - unit.suppression * dt * 0.018, 0, 1);
+        const moraleAllies = nearbyCombatObjects(unit, 85).units.filter(other => other.faction === unit.faction);
+        unit.morale = clamp(unit.morale + moraleAuraFor(unit, moraleAllies) * dt, 0, 1);
+        const recoveryEvents = tickFactionRecovery(unit, dt, playerFor(unit.faction), battleRandom);
+        for (const event of recoveryEvents) {
+          if (event.type === "reanimated") incident(`${unitLabel(unit)} completed Necron reanimation and returned to battle.`, unit.id, "warning");
+          else if (event.type === "ritual-recovery") incident(`${unitLabel(unit)} returned through a Chaos battlefield ritual.`, unit.id, "warning");
+        }
         if ((unit.bleeding || 0) > 0) {
           unit.hp = unit.hp - unit.bleeding * dt * (unit.stabilized ? 0.18 : 2.2);
           unit.bleeding = clamp(unit.bleeding - dt * 0.002, 0, 0.55);
@@ -5306,6 +5783,13 @@
 
         if (unit.incapacitated) {
           updateIncapacitated(unit, dt);
+          return;
+        }
+        if ((unit.knockedDownRemaining || 0) > 0) {
+          unit.knockedDownRemaining = Math.max(0, unit.knockedDownRemaining - dt);
+          unit.woundState = "Knocked Down";
+          unit.status = "Knocked down";
+          unit.lastAction = "Recovering footing after impact or stagger.";
           return;
         }
         if (unit.carryingPatientId) {
@@ -5339,6 +5823,7 @@
           }
         }
 
+        if (updateResourceCollector(unit, dt)) return;
         if (unit.role === "builder") {
           updateBuilder(unit, dt);
           return;
@@ -5415,6 +5900,13 @@
             commitment.rejected = true;
             unit.killConfidence = 0;
             target = null;
+          } else if (distance(unit, target) <= weaponProfileFor(unit).melee.reach + (unit.collisionRadius || 3) + (target.collisionRadius || 4)) {
+            const charged = ["Pursuing kill", "Closing", "Advancing"].includes(unit.status);
+            if (beginMeleeAttack(unit, target.id, charged)) {
+              unit.status = "Melee wind-up";
+              unit.lastAction = `Committing to close combat with ${unitLabel(target)}.`;
+            }
+            return;
           } else if ((assignedSquad?.leaderId !== unit.id || assignedSquad?.formation === "escort") && unit.formationSlot && distance(unit, unit.formationSlot) > 18 && (restrictiveOrder || commitment.intent !== "Eliminate" || commitment.confidence < commitment.threshold + 5) && distance(unit, target) > unit.range * 0.35) {
             moveToward(unit, unit.formationSlot, dt, assignedSquad.cohesion < 0.55 ? 1.12 : 1.02);
             if (distance(unit, target) <= unit.range * 0.92 && unit.fireCd <= 0 && unit.ammo > 0) fireAt(unit, target);
@@ -6577,7 +7069,8 @@
           Object.entries(spec.produces || {}).forEach(([key, rate]) => { structure.inventory[key] = (structure.inventory[key] || 0) + rate * clamp(structure.condition, 0.2, 1) * depletionFactor; });
           if (resourceNode && nodeDistance <= 120 && extractorResourceType[structure.type]) {
             const drain = Object.values(spec.produces || {}).reduce((sum, value) => sum + value, 0) * 0.55;
-            resourceNode.reserve = Math.max(0, resourceNode.reserve - drain);
+            if (resourceNode.resourceZone) drainResourceZone(resourceNode, drain);
+            else resourceNode.reserve = Math.max(0, resourceNode.reserve - drain);
             resourceNode.condition = clamp(resourceNode.reserve / Math.max(1, resourceNode.maxReserve), 0.12, 1);
             if (resourceNode.reserve <= 0 && !resourceNode.exhaustionReported) {
               resourceNode.exhaustionReported = true;
@@ -6630,7 +7123,7 @@
           logisticsReach: controlledCells,
           defendableForces: Math.floor(supportCapacity),
           reinforcementRoutes: state.roads.filter(road => areAllies(road.controllerFaction || road.faction, player.id) && road.condition > 0.35).length,
-          strategicNodes: state.features.filter(feature => feature.resourceNode && feature.strategicObjective && territoryAt(feature)?.owner === player.id).length
+          strategicNodes: strategicResourceNodes().filter(feature => feature.strategicObjective && territoryAt(feature)?.owner === player.id).length
         };
         for (const unit of state.units.filter(item => item.alive && item.faction === player.id)) {
           unit.rations ??= 6;
@@ -6654,12 +7147,61 @@
         partner.nextDispatch = state.time + (convoy ? 46 + player.index * 2 : 6);
       }
 
+      function updateAuthoredResourceZones(player) {
+        const economy = economyFor(player.id);
+        const capacity = economyCapacity(player.id);
+        for (const zone of state.resourceZones.map(syncResourceZone)) {
+          if (player.index === 0) regenerateResourceZone(zone, 5);
+          const territoryOwner = territoryAt(zone)?.owner || zone.owner || zone.startingOwner;
+          if (territoryOwner) zone.owner = territoryOwner;
+          if (!zone.owner || !areAllies(zone.owner, player.id) || zone.remaining <= 0) continue;
+          if (!zone.requiresBuilding) {
+            const assigned = state.units.find(unit => unit.alive && unit.resourceZoneTargetId === zone.id);
+            if (!assigned) {
+              const collector = state.units
+                .filter(unit => unit.alive && unit.faction === player.id && zone.allowedCollectors.includes(unit.role) && !unit.buildProject)
+                .sort((a, b) => distance(a, zone) - distance(b, zone))[0];
+              if (collector) collector.resourceZoneTargetId = zone.id;
+            }
+            continue;
+          }
+          const expectedBuilding = resourceExtractorType[zone.resourceType] || "outpost";
+          const collector = state.structures.find(structure => structure.alive !== false && structure.progress >= 1 && structure.faction === player.id
+            && structure.type === expectedBuilding && (pointInResourceZone(structure, zone) || distance(structure, zone) <= 120));
+          if (!collector) continue;
+          ensureStructureRuntime(collector);
+          const amount = drainResourceZone(zone, zone.gatherRate * zone.richness);
+          collector.inventory[zone.resourceType] = (collector.inventory[zone.resourceType] || 0) + amount;
+          if (collector.inventory[zone.resourceType] >= 4 && !state.convoys.some(convoy => !convoy.finished && convoy.originId === collector.id && convoy.cargo?.[zone.resourceType])) {
+            const cargo = { [zone.resourceType]: collector.inventory[zone.resourceType] };
+            const destination = closestStoragePoint(player.id, collector);
+            if (destination.id === collector.id) {
+              economy.inventory[zone.resourceType] = clamp((economy.inventory[zone.resourceType] || 0) + cargo[zone.resourceType], 0, capacity[zone.resourceType] || 999);
+              collector.inventory[zone.resourceType] = 0;
+            } else {
+              const convoy = createConvoy(player.id, cargo, collector, destination, { destinationKind: "store", name: `${zone.name} Haul #${state.nextConvoyId}`, originId: collector.id });
+              if (convoy) collector.inventory[zone.resourceType] = 0;
+            }
+          }
+        }
+        if (player.race === "Orks") economy.inventory.scrap = clamp((economy.inventory.scrap || 0) + 0.8, 0, capacity.scrap || 999);
+        if (player.race === "Tyranids") {
+          const ecology = state.factionEcology[player.id];
+          if (ecology) economy.inventory.biomass = clamp(Math.max(economy.inventory.biomass || 0, ecology.biomass || 0), 0, capacity.biomass || 999);
+        }
+        if (player.race === "Chaos" || player.faction === "Chaos") {
+          const ritualists = state.units.filter(unit => unit.alive && unit.faction === player.id && (unit.role === "commander" || /apostle|chaplain/i.test(unit.name))).length;
+          economy.inventory.faith = clamp((economy.inventory.faith || 0) + ritualists * 0.7, 0, capacity.faith || 999);
+        }
+      }
+
       function economyTick() {
         for (const player of state.players) {
           const unitCap = unitCapFor(player);
           const economy = economyFor(player.id);
           refreshEconomyRequests(player);
           processEconomyRequests(player);
+          updateAuthoredResourceZones(player);
           for (const structure of state.structures.filter(item => item.faction === player.id)) dispatchStructureLogistics(player, structure);
           updateUnitConsumption(player);
           dispatchTradeConvoys(player);
@@ -6995,7 +7537,7 @@
           const terrain = terrainAt(point);
           if (["deepwater", "lava", "cliff", "mountain"].includes(terrain.type)) continue;
           const road = nearestRoadSegment(point, TERRITORY_CELL_SIZE * 0.78);
-          const resourceNodes = state.features.filter(feature => feature.resourceNode && feature.reserve > 0 && distance(point, feature) < TERRITORY_CELL_SIZE * 0.9);
+          const resourceNodes = strategicResourceNodes().filter(feature => distance(point, feature) < TERRITORY_CELL_SIZE * 0.9);
           const localStructures = state.structures.filter(structure => structure.alive !== false && distance(point, structure) < TERRITORY_CELL_SIZE * 0.8);
           const friendly = state.units.filter(unit => unit.alive && unit.faction === player.id && distance(point, unit) < TERRITORY_CELL_SIZE * 1.2);
           const hostile = state.units.filter(unit => unit.alive && !areAllies(unit.faction, player.id) && distance(point, unit) < TERRITORY_CELL_SIZE * 1.4);
@@ -7036,13 +7578,18 @@
             if (!reason || (!road && !objective && !resourceNodes.length && !threatenedAlly)) continue;
             culture -= 20;
           }
-          if (!reason && player.doctrine === "Expansion" && resources >= 20) reason = "Reach valuable resources";
+          const behavior = aiBehaviorFor(player);
+          if (!reason && behavior.expansion >= 62 && resources >= 20) reason = "Reach valuable resources";
           if (!reason && connection >= 36 && territory.disconnectedCells.size) reason = "Reconnect isolated territory";
           if (!reason) continue;
-          const value = resources + objective + routeValue + defensibility + connection + culture - threat - maintenance;
+          const value = resources + objective + routeValue + defensibility + connection + culture
+            + (behavior.expansion - 50) * 0.5 + (behavior.aggression - 50) * (hostile.length ? 0.25 : 0)
+            - (behavior.caution - 50) * (hostile.length ? 0.35 : 0) - threat - maintenance;
           options.push({ key, point, reason, value, hostilePower: hostile.length, friendlyPower: friendly.length });
         }
-        const threshold = player.faction === "Space Marines" ? 68 : player.race === "Tyranids" ? 48 : player.race === "Orks" ? 42 : player.doctrine === "Fortress" ? 58 : 50;
+        const behavior = aiBehaviorFor(player);
+        const culturalThreshold = player.faction === "Space Marines" ? 68 : player.race === "Tyranids" ? 48 : player.race === "Orks" ? 42 : 50;
+        const threshold = clamp(culturalThreshold - (behavior.expansion - 50) * 0.28 + (behavior.caution - 50) * 0.12, 28, 82);
         return options.sort((a, b) => b.value - a.value).find(option => option.value >= threshold) || null;
       }
 
@@ -7070,7 +7617,7 @@
               territory.cellPressure.set(key, pressure);
               const claimantTerritory = primaryTerritoryFor(hostile[0]);
               const connectedAttack = claimantTerritory && neighboringTerritoryCells(key).some(neighbor => claimantTerritory.claimedCells.has(neighbor));
-              if (hostile[1] >= 2 && hostile[1] > ownerPower && (connectedAttack || playerFor(hostile[0]).doctrine === "Aggressive") && pressure >= territory.captureDifficulty) {
+              if (hostile[1] >= 2 && hostile[1] > ownerPower && (connectedAttack || aiBehaviorFor(hostile[0]).aggression >= 68) && pressure >= territory.captureDifficulty) {
                 changed = transferTerritoryCell(key, hostile[0], `Captured from ${playerFor(territory.owner).faction}`) || changed;
                 incident(`${playerFor(hostile[0]).faction} captured a cell from ${playerFor(territory.owner).faction}.`, null, "critical");
               }
@@ -7102,7 +7649,9 @@
             territory.controlledCells.add(key);
           }
           rebuildTerritoryTopology(territory);
-          const cooldown = player.faction === "Space Marines" ? 30 : player.race === "Tyranids" ? 12 : player.race === "Orks" ? 10 : player.doctrine === "Aggressive" ? 14 : player.doctrine === "Fortress" ? 28 : 20;
+          const behavior = aiBehaviorFor(player);
+          const culturalCooldown = player.faction === "Space Marines" ? 30 : player.race === "Tyranids" ? 12 : player.race === "Orks" ? 10 : 20;
+          const cooldown = clamp(culturalCooldown - (behavior.expansion - 50) * 0.16 + (behavior.caution - 50) * 0.08, 7, 38);
           if (state.time - (player.lastTerritoryClaim || 0) < cooldown) continue;
           const decision = territoryExpansionDecision(player, territory);
           if (!decision) continue;
@@ -7422,6 +7971,7 @@
       function captureSnapshot() {
         state.snapshots.push({
           t: state.time,
+          clockElapsed: state.clock.elapsedSeconds,
           resources: { ...state.resources },
           units: state.units.map(unit => ({
             id: unit.id, faction: unit.faction, name: unit.name, role: unit.role, index: unit.index,
@@ -7770,8 +8320,10 @@
             const x = tileX * TILE_SIZE;
             const y = tileY * TILE_SIZE;
             if (x + TILE_SIZE < bounds.left || x > bounds.right || y + TILE_SIZE < bounds.top || y > bounds.bottom) continue;
-            ctx.fillStyle = atlasPatterns[atlasTypeMap[tile.type]] || terrainPaintColor(tile.type);
             ctx.globalAlpha = tile.opacity ?? 1;
+            ctx.fillStyle = terrainPaintColor(tile.type);
+            ctx.fillRect(x, y, TILE_SIZE + 0.5, TILE_SIZE + 0.5);
+            ctx.fillStyle = terrainTextures.pattern(ctx, tile.type, TILE_SIZE) || atlasPatterns[atlasTypeMap[tile.type]] || terrainPaintColor(tile.type);
             ctx.fillRect(x, y, TILE_SIZE + 0.5, TILE_SIZE + 0.5);
           }
         }
@@ -7800,7 +8352,9 @@
         bounds = cameraBounds(CHUNK_SIZE),
         terrainFeatures = state.camera.zoom < 0.15 ? visibleFeatureBuckets(bounds) : visibleFeatures(bounds)
       ) {
-        const basePattern = atlasPatterns[atlasTypeMap[state.world.baseTerrain]];
+        ctx.fillStyle = terrainPaintColor(state.world.baseTerrain);
+        ctx.fillRect(bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top);
+        const basePattern = terrainTextures.pattern(ctx, state.world.baseTerrain, TILE_SIZE) || atlasPatterns[atlasTypeMap[state.world.baseTerrain]];
         ctx.fillStyle = basePattern || terrainPaintColor(state.world.baseTerrain);
         ctx.fillRect(bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top);
         drawSparseTerrainTiles(bounds);
@@ -7861,10 +8415,18 @@
         if (type === "water") return "#60A5FA";
         if (type === "shallowwater") return "#BAE6FD";
         if (type === "deepwater" || type === "river") return "#2563EB";
-        if (["sand", "beach"].includes(type)) return colors.signal;
-        if (["rock", "smallrocks", "boulders", "pavement", "road"].includes(type) || brushLayers["Roads"].includes(type)) return colors.foreground;
+        if (type === "grass") return "#7c9237";
+        if (type === "drygrass") return "#c3a05b";
+        if (type === "darksoil") return "#4c4941";
+        if (type === "dirt") return "#9e7249";
+        if (type === "drydirt") return "#bc9a75";
+        if (type === "mud") return "#664b2f";
+        if (["sand", "beach"].includes(type)) return "#e7c678";
+        if (type === "gravel") return "#928a7e";
+        if (["rock", "rockysoil"].includes(type)) return "#856644";
+        if (["smallrocks", "boulders", "pavement", "road"].includes(type) || brushLayers["Roads"].includes(type)) return colors.foreground;
         if (["snow", "ice"].includes(type)) return colors.background;
-        if (["mud", "ash", "dirt"].includes(type)) return colors.mutedForeground;
+        if (type === "ash") return "#605f5d";
         if (type === "lava") return colors.danger;
         return colors.terrain;
       }
@@ -8089,7 +8651,7 @@
         ctx.restore();
       }
 
-      function drawFeatureShadows(time = state.time) {
+      function drawFeatureShadows(time = state.clock.elapsedSeconds) {
         for (const feature of visibleFeatures(cameraBounds(CHUNK_SIZE))) {
           const height = featureHeight(feature);
           if (!height) continue;
@@ -8101,7 +8663,7 @@
       }
 
       function drawStructureShadows(snapshot, visibleStructures = state.structures) {
-        const time = currentSnapshot()?.t ?? state.time;
+        const time = currentSnapshot()?.clockElapsed ?? state.clock.elapsedSeconds;
         const bounds = cameraBounds(CHUNK_SIZE);
         for (const item of visibleStructures) {
           if (item.progress < 0.18 || item.alive === false) continue;
@@ -8119,7 +8681,7 @@
       }
 
       function drawUnitShadows(snapshot, visibleUnits = state.units) {
-        const time = currentSnapshot()?.t ?? state.time;
+        const time = currentSnapshot()?.clockElapsed ?? state.clock.elapsedSeconds;
         for (const unit of visibleUnits) {
           if (!unit.alive) continue;
           if (!pointVisible(unit, 80)) continue;
@@ -8181,6 +8743,65 @@
           ctx.fillText(`${territory.name} · ${territory.status}`, center.x, center.y);
         }
         ctx.restore();
+      }
+
+      function resourceZoneColor(type) {
+        return { requisition: "#d8dee9", materials: "#d9b45d", fuel: "#d27843", energy: "#62c8eb", ammunition: "#ef6f6c", medical: "#67d5b5", food: "#79b85a", faith: "#f3d36a", influence: "#c084fc", scrap: "#a8a29e", biomass: "#84cc16" }[type] || "#ffffff";
+      }
+
+      function drawResourceZones() {
+        for (const zone of state.resourceZones) {
+          syncResourceZone(zone);
+          const selected = state.mode === "editor" && state.editorTool === "resource" && zone.id === state.selectedResourceZoneId;
+          const color = resourceZoneColor(zone.resourceType);
+          ctx.save();
+          ctx.strokeStyle = color;
+          ctx.fillStyle = color;
+          ctx.lineWidth = (selected ? 2.5 : 1.5) / state.camera.zoom;
+          ctx.globalAlpha = zone.remaining <= 0 ? 0.1 : 0.16;
+          if (zone.points.length) {
+            ctx.beginPath();
+            ctx.moveTo(zone.points[0].x, zone.points[0].y);
+            for (let index = 1; index < zone.points.length; index += 1) ctx.lineTo(zone.points[index].x, zone.points[index].y);
+            if (zone.points.length >= 3) ctx.closePath();
+            if (zone.points.length >= 3) ctx.fill();
+            ctx.globalAlpha = selected ? 0.95 : 0.62;
+            ctx.stroke();
+          }
+          if (selected) {
+            ctx.globalAlpha = 1;
+            for (const point of zone.points) {
+              ctx.beginPath();
+              ctx.arc(point.x, point.y, 4 / state.camera.zoom, 0, Math.PI * 2);
+              ctx.fill();
+            }
+          }
+          if (state.camera.zoom >= 0.28 && zone.points.length >= 3) {
+            const ratio = zone.remaining / Math.max(1, zone.capacity);
+            ctx.globalAlpha = 0.92;
+            ctx.fillStyle = colors.foreground;
+            ctx.font = `${10 / state.camera.zoom}px system-ui, sans-serif`;
+            ctx.textAlign = "center";
+            ctx.fillText(`${zone.name} · ${Math.round(ratio * 100)}%`, zone.x, zone.y);
+          }
+          ctx.restore();
+        }
+        for (const point of state.casualtyPoints.filter(item => item.active)) {
+          ctx.save();
+          ctx.translate(point.x, point.y);
+          ctx.strokeStyle = playerColor(point.faction);
+          ctx.fillStyle = colors.background;
+          ctx.lineWidth = 2 / state.camera.zoom;
+          ctx.globalAlpha = 0.9;
+          ctx.beginPath();
+          ctx.arc(0, 0, point.radius, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(-7, 0); ctx.lineTo(7, 0); ctx.moveTo(0, -7); ctx.lineTo(0, 7);
+          ctx.stroke();
+          ctx.restore();
+        }
       }
 
       function drawTerritories() {
@@ -8339,9 +8960,9 @@
             const renderTime = snapshot?.t ?? state.time;
             const deathProgress = clamp((renderTime - (item.destroyedAt ?? renderTime)) / STRUCTURE_DEATH_ANIMATION_SECONDS, 0, 1);
             const fade = 1 - deathProgress;
-            if (player.race === "Orks" && window.AWTModules?.orkSpriteForge?.drawStructure) {
+            if (player.race === "Orks" && orkSpriteForge?.drawStructure) {
               ctx.globalAlpha = fade;
-              if (window.AWTModules.orkSpriteForge.drawStructure(ctx, item, renderTime)) {
+              if (orkSpriteForge.drawStructure(ctx, item, renderTime)) {
                 ctx.restore();
                 continue;
               }
@@ -8369,7 +8990,7 @@
             continue;
           }
           const orkStructureDrawn = player.race === "Orks"
-            && Boolean(window.AWTModules?.orkSpriteForge?.drawStructure?.(ctx, item, snapshot?.t ?? state.time));
+            && Boolean(orkSpriteForge?.drawStructure?.(ctx, item, snapshot?.t ?? state.time));
           if (!orkStructureDrawn) {
           ctx.fillStyle = colors.mutedForeground;
           ctx.globalAlpha = 0.52 * (item.condition ?? 1);
@@ -8551,8 +9172,8 @@
           const deathProgress = clamp((renderTime - (view.deathStartedAt ?? unit.deathStartedAt ?? renderTime)) / UNIT_DEATH_ANIMATION_SECONDS, 0, 1);
           const fade = 1 - deathProgress;
           ctx.globalAlpha = fade;
-          if (playerFor(unit.faction).race === "Orks" && window.AWTModules?.orkSpriteForge?.hasUnit(unit.name)) {
-            const exactOrkBody = window.AWTModules.unitSpriteForge?.draw(ctx, { ...unit, ...view, alive: false }, { primary: color, secondary, accent: colors.foreground }, renderTime);
+          if (playerFor(unit.faction).race === "Orks" && orkSpriteForge?.hasUnit(unit.name)) {
+            const exactOrkBody = unitSpriteForge?.draw(ctx, { ...unit, ...view, alive: false }, { primary: color, secondary, accent: colors.foreground }, renderTime);
             if (exactOrkBody) {
               ctx.restore();
               return;
@@ -8560,7 +9181,7 @@
           }
           ctx.rotate((unit.index % 2 ? 1 : -1) * deathProgress * 0.42);
           ctx.scale(1 + deathProgress * 0.18, 1 - deathProgress * 0.3);
-          const forgedBody = window.AWTModules?.unitSpriteForge?.draw(ctx, { ...unit, alive: false }, { primary: color, secondary, accent: colors.foreground }, currentSnapshot()?.t ?? state.time);
+          const forgedBody = unitSpriteForge?.draw(ctx, { ...unit, alive: false }, { primary: color, secondary, accent: colors.foreground }, currentSnapshot()?.t ?? state.time);
           if (forgedBody) {
             ctx.fillStyle = colors.danger;
             ctx.globalAlpha = fade * 0.55;
@@ -8604,7 +9225,7 @@
         ctx.fillStyle = color;
         ctx.strokeStyle = color;
         ctx.globalAlpha = 0.96;
-        const forgedSprite = window.AWTModules?.unitSpriteForge?.draw(ctx, unit, { primary: color, secondary, accent: colors.foreground }, currentSnapshot()?.t ?? state.time);
+        const forgedSprite = unitSpriteForge?.draw(ctx, unit, { primary: color, secondary, accent: colors.foreground }, currentSnapshot()?.t ?? state.time);
         if (!forgedSprite && unit.role === "builder") {
           ctx.lineWidth = 2;
           ctx.beginPath();
@@ -8674,7 +9295,7 @@
         for (const projectile of state.projectiles) {
           if (!objectVisibleToFog(projectile)) continue;
           if (!pointVisible(projectile, 48) && !pointVisible({ x: projectile.previousX ?? projectile.x, y: projectile.previousY ?? projectile.y }, 48)) continue;
-          ctx.strokeStyle = playerColor(projectile.faction);
+          ctx.strokeStyle = projectile.tracerColor || playerColor(projectile.faction);
           ctx.globalAlpha = 0.9;
           ctx.lineWidth = projectile.damage >= 20 ? 2 : 1;
           ctx.beginPath();
@@ -8692,7 +9313,7 @@
 
       function drawDynamicLighting() {
         if (!state.lighting.enabled) return;
-        const time = currentSnapshot()?.t ?? state.time;
+        const time = currentSnapshot()?.clockElapsed ?? state.clock.elapsedSeconds;
         const sun = sunState(time);
         const weatherDarkness = { clear: 0, fog: 0.1, rain: 0.12, snow: -0.05, dust: 0.2 }[state.lighting.weather] || 0;
         const darkness = clamp((sun.daylight ? 0.22 - sun.intensity * 0.2 : 0.64) + weatherDarkness, 0, 0.72);
@@ -8764,7 +9385,7 @@
 
       function drawLightingOverlay() {
         if (!state.lighting.enabled || !state.lighting.overlay || state.fogPlayer !== "observer") return;
-        const time = currentSnapshot()?.t ?? state.time;
+        const time = currentSnapshot()?.clockElapsed ?? state.clock.elapsedSeconds;
         const sun = sunState(time);
         const columns = 12;
         const rows = 7;
@@ -8858,7 +9479,7 @@
           if (item.alive === false || item.progress < 1) continue;
           add(playerFor(item.faction).team, { x: item.x, y: item.y, r: item.type === "observationtower" ? 170 : 78 });
         }
-        for (const source of activeLightSources(currentSnapshot()?.t ?? state.time)) {
+        for (const source of activeLightSources(currentSnapshot()?.clockElapsed ?? state.clock.elapsedSeconds)) {
           if (!source.faction) continue;
           add(playerFor(source.faction).team, { x: source.x, y: source.y, r: source.radius * (source.searchlight ? 1 : 0.7) });
         }
@@ -9206,6 +9827,18 @@
             }
           }
         }
+        for (const zone of state.resourceZones) {
+          if (zone.points.length < 3) continue;
+          layer.fillStyle = resourceZoneColor(zone.resourceType);
+          layer.strokeStyle = resourceZoneColor(zone.resourceType);
+          layer.globalAlpha = 0.32;
+          layer.beginPath();
+          layer.moveTo(zone.points[0].x * scaleX, zone.points[0].y * scaleY);
+          for (let index = 1; index < zone.points.length; index += 1) layer.lineTo(zone.points[index].x * scaleX, zone.points[index].y * scaleY);
+          layer.closePath();
+          layer.fill();
+          layer.stroke();
+        }
         layer.globalAlpha = 0.48;
         layer.lineWidth = 1;
         for (const territory of state.territories) {
@@ -9274,8 +9907,26 @@
         minimapCtx.clearRect(0, 0, width, height);
         minimapCtx.drawImage(minimapTerrainLayer, 0, 0);
         minimapCtx.drawImage(minimapMarkerLayer, 0, 0);
+        const sweep = now / 3200 * Math.PI * 2;
+        const radarRadius = Math.hypot(width, height) * 0.58;
+        minimapCtx.save();
+        minimapCtx.translate(width / 2, height / 2);
+        minimapCtx.strokeStyle = "#6fa8c9";
+        minimapCtx.globalAlpha = 0.12;
+        minimapCtx.lineWidth = 1;
+        for (const fraction of [0.32, 0.64, 0.96]) {
+          minimapCtx.beginPath();
+          minimapCtx.arc(0, 0, radarRadius * fraction, 0, Math.PI * 2);
+          minimapCtx.stroke();
+        }
+        minimapCtx.globalAlpha = 0.26;
+        minimapCtx.beginPath();
+        minimapCtx.moveTo(0, 0);
+        minimapCtx.lineTo(Math.cos(sweep) * radarRadius, Math.sin(sweep) * radarRadius);
+        minimapCtx.stroke();
+        minimapCtx.restore();
         const bounds = cameraBounds();
-        minimapCtx.strokeStyle = "#ffffff";
+        minimapCtx.strokeStyle = "#e8e4d8";
         minimapCtx.globalAlpha = 0.96;
         minimapCtx.lineWidth = 2;
         minimapCtx.strokeRect(
@@ -9284,7 +9935,19 @@
           Math.max(2, (bounds.right - bounds.left) * scaleX),
           Math.max(2, (bounds.bottom - bounds.top) * scaleY)
         );
+        minimapCtx.strokeStyle = "#d68a3c";
+        minimapCtx.globalAlpha = 0.72;
+        minimapCtx.lineWidth = 1;
+        const corner = 9;
+        for (const [x, y, sx, sy] of [[1, 1, 1, 1], [width - 1, 1, -1, 1], [1, height - 1, 1, -1], [width - 1, height - 1, -1, -1]]) {
+          minimapCtx.beginPath();
+          minimapCtx.moveTo(x + sx * corner, y);
+          minimapCtx.lineTo(x, y);
+          minimapCtx.lineTo(x, y + sy * corner);
+          minimapCtx.stroke();
+        }
         minimapCtx.globalAlpha = 1;
+        els.minimapCoordinates.textContent = `${Math.round(state.camera.x).toString().padStart(4, "0")}, ${Math.round(state.camera.y).toString().padStart(4, "0")}`;
       }
 
       function draw() {
@@ -9314,6 +9977,13 @@
         state.renderedObjectCount = renderedActors + renderedProjectiles + terrainFeatures.length;
         els.cameraStatus.textContent = `Camera ${Math.round(state.camera.x)}, ${Math.round(state.camera.y)} · ${Math.round(state.camera.zoom * 100)}% · ${state.visibleChunkCount} chunks`;
         root.dataset.worldSize = `${worldWidth()}x${worldHeight()}`;
+        root.dataset.clockRunning = String(state.clock.running);
+        root.dataset.clockRate = String(state.clock.rate);
+        root.dataset.clockElapsed = state.clock.elapsedSeconds.toFixed(3);
+        root.dataset.aiBehavior = state.players.map(player => {
+          const behavior = aiBehaviorFor(player);
+          return `${player.id}:${behavior.aggression},${behavior.caution},${behavior.expansion},${behavior.economy}`;
+        }).join("|");
         root.dataset.camera = `${state.camera.x.toFixed(2)},${state.camera.y.toFixed(2)},${state.camera.zoom.toFixed(3)}`;
         root.dataset.visibleChunks = String(state.visibleChunkCount);
         root.dataset.renderedObjects = String(state.renderedObjectCount);
@@ -9342,8 +10012,14 @@
         root.dataset.ambushRoads = String(state.aiDiagnostics.ambushRoads);
         root.dataset.environmentCollisions = String(state.aiDiagnostics.environmentCollisions);
         root.dataset.obstacleProjectileHits = String(state.aiDiagnostics.obstacleProjectileHits);
-        root.dataset.resourceNodes = String(state.features.filter(feature => feature.resourceNode).length);
-        root.dataset.depletedNodes = String(state.features.filter(feature => feature.resourceNode && feature.reserve <= 0).length);
+        root.dataset.navigationRevision = String(state.navigationRevision);
+        root.dataset.navigationPlans = String(state.navigationPlans);
+        root.dataset.navigationCache = String(navigationPlanner.cache.size);
+        root.dataset.resourceNodes = String(state.features.filter(feature => feature.resourceNode).length + state.resourceZones.length);
+        root.dataset.resourceZones = String(state.resourceZones.length);
+        root.dataset.depletedNodes = String(state.features.filter(feature => feature.resourceNode && feature.reserve <= 0).length + state.resourceZones.filter(zone => zone.remaining <= 0).length);
+        root.dataset.projectilePool = String(state.projectilePool.length);
+        root.dataset.casualtyPoints = String(state.casualtyPoints.filter(point => point.active).length);
         root.dataset.incapacitated = String(state.units.filter(unit => unit.alive && unit.incapacitated).length);
         root.dataset.casualtyStates = [...new Set(state.units.map(unit => unit.woundState || "Healthy"))].join(",");
         root.dataset.deathAnimations = String(state.units.filter(unit => !unit.alive).length + state.structures.filter(structure => structure.alive === false).length);
@@ -9354,6 +10030,7 @@
         root.dataset.strategicOutcomes = state.players.map(player => `${player.id}:${state.strategicOutcomes[player.id]?.status || "forming"}`).join("|");
         beginCanvasFrame();
         drawTerrain(bounds, terrainFeatures);
+        drawResourceZones();
         drawTerritories();
         drawSupplyRadii();
         if (overviewMode) {
@@ -9409,7 +10086,7 @@
         els.fatigueValue.textContent = String(fatigue);
         els.unitStats.textContent = `Accuracy ${(unit.accuracy * 100).toFixed(1)} · Precision ${(unit.precision * 100).toFixed(1)} · Reflexes ${(unit.reflexes * 100).toFixed(0)} · ${unit.personality} · ${view.combatIntent || unit.combatIntent} ${view.killConfidence ?? unit.killConfidence}%`;
         els.unitKills.textContent = `${unit.kills} confirmed`;
-        const light = lightingAt(view, unit.faction, currentSnapshot()?.t ?? state.time);
+        const light = lightingAt(view, unit.faction, currentSnapshot()?.clockElapsed ?? state.clock.elapsedSeconds);
         const lightingState = !state.lighting.enabled ? "Lighting disabled" : light.searchlight > 0.15 ? "Searchlight exposed" : light.shadowed ? "Shadow cover" : `${light.period} light`;
         const social = strongestRelationships(unit).map(item => `${item.other.name}: ${relationshipBand(item.score)} (${Math.round(item.score)})`).join(" · ");
         els.unitDepth.textContent = `Age ${unit.age} · XP ${unit.experience} · Courage ${(unit.courage * 100).toFixed(0)} · Discipline ${(unit.discipline * 100).toFixed(0)} · ${unit.armor} · ${unit.weapon} · ${lightingState}${social ? ` · Bonds: ${social}` : " · Bonds forming"}`;
@@ -9544,9 +10221,10 @@
         const capacity = economyCapacity(player.id);
         els.logisticsPlayer.value = player.id;
         const armyPlan = state.armyPlans[player.id] || { goal: "Establish foothold" };
+        const behavior = aiBehaviorFor(player);
         const strategicOutcome = state.strategicOutcomes[player.id]?.status || "Building operational capability";
         const pressureLabel = economy.territoryPressure > 0 ? ` · Territory support pressure ${Math.round(economy.territoryPressure * 100)}%` : "";
-        els.logisticsPersonality.textContent = `${economy.personality} commander · Army goal: ${armyPlan.goal} · ${strategicOutcome}${pressureLabel} · ${economy.emergency}`;
+        els.logisticsPersonality.textContent = `${economy.personality} commander · A${behavior.aggression} C${behavior.caution} X${behavior.expansion} E${behavior.economy} · Army goal: ${armyPlan.goal} · ${strategicOutcome}${pressureLabel} · ${economy.emergency}`;
         els.logisticsResources.textContent = "";
         for (const key of economyResourceKeys) {
           const badge = document.createElement("span");
@@ -9596,7 +10274,8 @@
       function updateUI(force = false) {
         const snapshot = currentSnapshot();
         const displayTime = snapshot?.t ?? state.time;
-        const sun = sunState(displayTime);
+        const clockTime = snapshot?.clockElapsed ?? state.clock.elapsedSeconds;
+        const sun = sunState(clockTime);
         els.clock.textContent = formatHour(sun.hour);
         const weatherCount = state.features.filter(feature => weatherTypes.has(feature.type)).length;
         els.weather.textContent = state.lighting.enabled
@@ -9660,7 +10339,7 @@
       }
 
       function showMainMenu() {
-        root.classList.remove("is-configuring");
+        root.classList.remove("is-configuring", "is-editing");
         state.paused = true;
         state.mode = "menu";
         state.replay = false;
@@ -9673,6 +10352,7 @@
         els.quitPanel.hidden = true;
         els.editorBar.hidden = true;
         els.editorTip.hidden = true;
+        els.editorInspector.hidden = true;
         state.logisticsOpen = false;
         els.logisticsPanel.hidden = true;
         els.logisticsButton.setAttribute("aria-pressed", "false");
@@ -9682,7 +10362,7 @@
       }
 
       function startSimulation() {
-        root.classList.remove("is-configuring");
+        root.classList.remove("is-configuring", "is-editing");
         canvas.style.cursor = "crosshair";
         state.mode = "sim";
         state.paused = false;
@@ -9692,10 +10372,135 @@
         els.overlay.hidden = true;
         els.editorBar.hidden = true;
         els.editorTip.hidden = true;
+        els.editorInspector.hidden = true;
         setInspector(root.getBoundingClientRect().width > 680);
         els.battleName.textContent = `${state.scenario === "custom" ? "Custom world theater" : presets[state.scenario].name} / Autonomous base growth`;
         updatePauseButton();
         incident("Builder autonomy released. Buildings will be selected from live priorities.", null, "info");
+      }
+
+      function scaleFeatureToTestMap(feature, scaleX, scaleY) {
+        const scaled = { ...feature };
+        if (Number.isFinite(feature.x)) scaled.x = clamp(feature.x * scaleX, 0, TEST_MAP_WIDTH);
+        if (Number.isFinite(feature.y)) scaled.y = clamp(feature.y * scaleY, 0, TEST_MAP_HEIGHT);
+        if (Number.isFinite(feature.x2)) scaled.x2 = clamp(feature.x2 * scaleX, 0, TEST_MAP_WIDTH);
+        if (Number.isFinite(feature.y2)) scaled.y2 = clamp(feature.y2 * scaleY, 0, TEST_MAP_HEIGHT);
+        if (Number.isFinite(feature.r)) scaled.r = Math.max(1, feature.r * Math.min(scaleX, scaleY));
+        return scaled;
+      }
+
+      function serializeTestMap() {
+        const scaleX = TEST_MAP_WIDTH / Math.max(1, worldWidth());
+        const scaleY = TEST_MAP_HEIGHT / Math.max(1, worldHeight());
+        return {
+          version: 2,
+          savedAt: new Date().toISOString(),
+          name: state.scenario === "custom" ? "Local custom theater" : `${presets[state.scenario]?.name || "Test theater"} copy`,
+          world: { width: TEST_MAP_WIDTH, height: TEST_MAP_HEIGHT, baseTerrain: state.world.baseTerrain },
+          lighting: { ...state.lighting },
+          clock: { running: state.clock.running, rate: state.clock.rate, elapsedSeconds: state.clock.elapsedSeconds },
+          players: state.players.map(player => ({
+            id: player.id,
+            index: player.index,
+            name: player.name,
+            race: player.race,
+            faction: player.faction,
+            subfaction: player.subfaction,
+            team: player.team,
+            doctrine: player.doctrine,
+            aiPreset: player.aiPreset,
+            aiBehavior: { ...aiBehaviorFor(player) },
+            color: player.color,
+            secondaryColor: player.secondaryColor,
+            pattern: player.pattern,
+            base: { x: player.base.x * scaleX, y: player.base.y * scaleY },
+            spawnZone: player.spawnZone ? {
+              ...player.spawnZone,
+              size: Math.max(24, player.spawnZone.size * Math.min(scaleX, scaleY)),
+              points: (player.spawnZone.points || []).map(point => ({ x: point.x * scaleX, y: point.y * scaleY }))
+            } : null
+          })),
+          features: state.features.filter(feature => !feature.deleted).map(feature => scaleFeatureToTestMap(feature, scaleX, scaleY)),
+          resourceZones: state.resourceZones.map(zone => serializeResourceZone(zone, scaleX, scaleY))
+        };
+      }
+
+      function saveLocalTestMap() {
+        if (!storageAdapter) {
+          els.savedMapStatus.textContent = "Local storage is unavailable in this browser.";
+          return false;
+        }
+        const payload = serializeTestMap();
+        storageAdapter.save(TEST_MAP_SLOT, payload);
+        els.savedMapStatus.textContent = `${payload.name} saved at 1920 × 1080.`;
+        els.saveMap.innerHTML = '<i data-lucide="check" aria-hidden="true"></i>Saved · 1920 × 1080';
+        if (window.lucide) lucide.createIcons({ attrs: { width: 16, height: 16 } });
+        return true;
+      }
+
+      function loadLocalTestMap() {
+        const payload = storageAdapter?.load(TEST_MAP_SLOT);
+        if (!payload?.features || !Array.isArray(payload.players) || !payload.players.length) {
+          els.savedMapStatus.textContent = "No valid local test map is saved yet.";
+          return false;
+        }
+        const loadScaleX = TEST_MAP_WIDTH / Math.max(1, Number(payload.world?.width) || TEST_MAP_WIDTH);
+        const loadScaleY = TEST_MAP_HEIGHT / Math.max(1, Number(payload.world?.height) || TEST_MAP_HEIGHT);
+        setWorldSize(TEST_MAP_WIDTH, TEST_MAP_HEIGHT);
+        payload.players.slice(0, 12).forEach((saved, index) => {
+          Object.assign(setupPlayers[index], saved, { id: ids[index], index, aiBehavior: { ...aiBehaviorFor(saved) } });
+        });
+        state.players = payload.players.slice(0, 12).map((saved, index) => ({
+          ...setupPlayers[index],
+          ...saved,
+          id: ids[index],
+          index,
+          aiBehavior: { ...aiBehaviorFor(saved) },
+          base: {
+            x: clamp(saved.base?.x == null ? deploymentPosition(index, payload.players.length, state.world).x : saved.base.x * loadScaleX, 24, TEST_MAP_WIDTH - 24),
+            y: clamp(saved.base?.y == null ? deploymentPosition(index, payload.players.length, state.world).y : saved.base.y * loadScaleY, 24, TEST_MAP_HEIGHT - 24)
+          }
+        }));
+        state.world.baseTerrain = payload.world?.baseTerrain || "grass";
+        state.lighting = { ...state.lighting, ...(payload.lighting || {}) };
+        state.clock = { ...state.clock, ...(payload.clock || {}), elapsedSeconds: Number(payload.clock?.elapsedSeconds) || 0 };
+        resetBattle("custom", payload.features.map(feature => scaleFeatureToTestMap(feature, loadScaleX, loadScaleY)));
+        state.resourceZones = (payload.resourceZones || []).map((zone, index) => createResourceZone(
+          zone.id || `resource-zone-${index + 1}`,
+          { x: 0, y: 0 },
+          { ...zone, points: (zone.points || []).map(point => ({ x: clamp(point.x * loadScaleX, 0, TEST_MAP_WIDTH), y: clamp(point.y * loadScaleY, 0, TEST_MAP_HEIGHT) })) }
+        ));
+        state.nextResourceZoneId = state.resourceZones.length + 1;
+        state.selectedResourceZoneId = state.resourceZones[0]?.id || null;
+        state.world.baseTerrain = payload.world?.baseTerrain || "grass";
+        state.clock = { ...state.clock, ...(payload.clock || {}), elapsedSeconds: Number(payload.clock?.elapsedSeconds) || 0 };
+        payload.players.slice(0, state.players.length).forEach((saved, index) => {
+          const player = state.players[index];
+          player.base = {
+            x: clamp(saved.base?.x == null ? player.base.x : saved.base.x * loadScaleX, 24, TEST_MAP_WIDTH - 24),
+            y: clamp(saved.base?.y == null ? player.base.y : saved.base.y * loadScaleY, 24, TEST_MAP_HEIGHT - 24)
+          };
+          player.spawnZone = saved.spawnZone ? {
+            ...saved.spawnZone,
+            size: Math.max(24, (saved.spawnZone.size || 84) * Math.min(loadScaleX, loadScaleY)),
+            points: (saved.spawnZone.points || []).map(point => ({ x: clamp(point.x * loadScaleX, 0, TEST_MAP_WIDTH), y: clamp(point.y * loadScaleY, 0, TEST_MAP_HEIGHT) }))
+          } : { shape: "circle", size: 84, points: [] };
+          const builder = state.units.find(unit => unit.faction === player.id && unit.role === "builder");
+          if (builder) { builder.x = player.base.x; builder.y = player.base.y; }
+        });
+        state.nextTerritoryId = 1;
+        state.territories = state.players.map(player => createTerritory(player.id, player.base, spawnZoneFor(player).size, {
+          name: `${player.faction} heartland`, status: "controlled", resourceValue: 55, strategicValue: 70,
+          defensibility: 65, claimedAt: -20, reason: "Loaded headquarters supply", maxStructures: 28
+        }));
+        state.selectedTerritoryId = state.territories[0]?.id || null;
+        rebuildRoadNetwork();
+        rebuildSpatialGrid();
+        state.minimapTerrainDirty = true;
+        state.minimapMarkerDirty = true;
+        els.savedMapStatus.textContent = `${payload.name || "Local test map"} loaded at 1920 × 1080.`;
+        startSimulation();
+        return true;
       }
 
       function saveActivePlayerForm() {
@@ -9706,6 +10511,13 @@
         player.subfaction = els.playerSubfaction.value;
         player.team = els.playerTeam.value;
         player.doctrine = els.playerDoctrine.value;
+        player.aiPreset = els.playerAiPreset.value;
+        player.aiBehavior = {
+          aggression: Number(els.aiAggression.value),
+          caution: Number(els.aiCaution.value),
+          expansion: Number(els.aiExpansion.value),
+          economy: Number(els.aiEconomy.value)
+        };
         player.color = els.playerColor.value;
         player.secondaryColor = els.playerSecondaryColor.value;
         player.pattern = els.playerPattern.value;
@@ -9740,6 +10552,18 @@
         populateFactionSelect(player.race, player.faction, player.subfaction);
         els.playerTeam.value = player.team;
         els.playerDoctrine.value = player.doctrine;
+        player.aiPreset ||= behaviorPresetForDoctrine(player.doctrine);
+        player.aiBehavior ||= behaviorFromPreset(player.aiPreset);
+        const behavior = aiBehaviorFor(player);
+        els.playerAiPreset.value = behaviorPresets[player.aiPreset] ? player.aiPreset : "custom";
+        els.aiAggression.value = String(behavior.aggression);
+        els.aiCaution.value = String(behavior.caution);
+        els.aiExpansion.value = String(behavior.expansion);
+        els.aiEconomy.value = String(behavior.economy);
+        els.aiAggressionValue.textContent = `${behavior.aggression}%`;
+        els.aiCautionValue.textContent = `${behavior.caution}%`;
+        els.aiExpansionValue.textContent = `${behavior.expansion}%`;
+        els.aiEconomyValue.textContent = `${behavior.economy}%`;
         els.playerColor.value = player.color;
         els.playerColorValue.textContent = player.color.toUpperCase();
         els.playerSecondaryColor.value = player.secondaryColor;
@@ -9758,8 +10582,8 @@
       function selectedResolution() {
         if (els.mapResolution.value === "custom") {
           return {
-            width: clamp(Number(els.customWidth.value) || DEFAULT_WORLD_SIZE, 2048, 65536),
-            height: clamp(Number(els.customHeight.value) || DEFAULT_WORLD_SIZE, 2048, 65536)
+            width: clamp(Number(els.customWidth.value) || TEST_MAP_WIDTH, 640, 65536),
+            height: clamp(Number(els.customHeight.value) || TEST_MAP_HEIGHT, 360, 65536)
           };
         }
         const [width, height] = els.mapResolution.value.split("x").map(Number);
@@ -9803,6 +10627,10 @@
           els.territoryOwner.append(option);
         }
         if ([...els.territoryOwner.options].some(option => option.value === previous)) els.territoryOwner.value = previous;
+        const resourcePrevious = els.resourceOwner.value;
+        els.resourceOwner.textContent = "";
+        for (const option of els.territoryOwner.options) els.resourceOwner.append(option.cloneNode(true));
+        if ([...els.resourceOwner.options].some(option => option.value === resourcePrevious)) els.resourceOwner.value = resourcePrevious;
       }
 
       function rebuildTerritorySelect() {
@@ -9934,6 +10762,119 @@
         draw();
       }
 
+      function selectedResourceZone() {
+        return state.resourceZones.find(zone => zone.id === state.selectedResourceZoneId) || null;
+      }
+
+      function rebuildResourceZoneSelect() {
+        if (!els.resourceType.options.length) {
+          for (const resource of RESOURCE_TYPES) {
+            const option = document.createElement("option");
+            option.value = resource;
+            option.textContent = economyResourceLabels[resource] || resource;
+            els.resourceType.append(option);
+          }
+        }
+        const previous = state.selectedResourceZoneId;
+        els.resourceSelect.textContent = "";
+        for (const zone of state.resourceZones) {
+          const option = document.createElement("option");
+          option.value = zone.id;
+          option.textContent = `${zone.name} · ${economyResourceLabels[zone.resourceType] || zone.resourceType}`;
+          els.resourceSelect.append(option);
+        }
+        state.selectedResourceZoneId = state.resourceZones.some(zone => zone.id === previous) ? previous : state.resourceZones[0]?.id || null;
+        els.resourceSelect.value = state.selectedResourceZoneId || "";
+      }
+
+      function loadResourceZoneForm() {
+        const zone = selectedResourceZone();
+        if (!zone) return;
+        syncResourceZone(zone);
+        els.resourceSelect.value = zone.id;
+        els.resourceEditMode.value = state.resourceZoneEditMode;
+        els.resourceName.value = zone.name;
+        els.resourceType.value = zone.resourceType;
+        els.resourceCapacity.value = String(zone.capacity);
+        els.resourceGather.value = String(zone.gatherRate);
+        els.resourceRegeneration.value = String(zone.regeneration);
+        els.resourceOwner.value = zone.startingOwner || "";
+        els.resourceCollectors.value = zone.allowedCollectors.join(",");
+        els.resourceRequiresBuilding.checked = zone.requiresBuilding;
+        els.resourceStrategic.checked = zone.strategicObjective;
+      }
+
+      function saveResourceZoneForm() {
+        const zone = selectedResourceZone();
+        if (!zone) return;
+        zone.name = els.resourceName.value.trim() || zone.name;
+        zone.resourceType = els.resourceType.value;
+        const previousCapacity = zone.capacity;
+        zone.capacity = clamp(Number(els.resourceCapacity.value) || 0, 0, 100000);
+        zone.remaining = clamp(zone.remaining + (zone.capacity - previousCapacity), 0, zone.capacity);
+        zone.gatherRate = clamp(Number(els.resourceGather.value) || 0, 0, 1000);
+        zone.regeneration = clamp(Number(els.resourceRegeneration.value) || 0, 0, 100);
+        zone.startingOwner = els.resourceOwner.value;
+        zone.owner = zone.startingOwner;
+        zone.allowedCollectors = els.resourceCollectors.value.split(",").filter(Boolean);
+        zone.requiresBuilding = els.resourceRequiresBuilding.checked;
+        zone.strategicObjective = els.resourceStrategic.checked;
+        syncResourceZone(zone);
+        state.minimapMarkerDirty = true;
+        rebuildResourceZoneSelect();
+        draw();
+      }
+
+      function nearestResourceZoneAnchor(zone, point, limit = 22 / state.camera.zoom) {
+        let best = -1;
+        let bestDistance = limit;
+        zone.points.forEach((anchor, index) => {
+          const current = distance(anchor, point);
+          if (current < bestDistance) {
+            best = index;
+            bestDistance = current;
+          }
+        });
+        return best;
+      }
+
+      function editResourceZoneAtPoint(point) {
+        const zone = selectedResourceZone();
+        if (!zone) {
+          els.editorTip.textContent = "Create or select a resource zone before editing its shape.";
+          return;
+        }
+        const mode = state.resourceZoneEditMode;
+        if (mode === "translate") {
+          if (!pointInResourceZone(point, zone)) {
+            els.editorTip.textContent = `Click inside ${zone.name}, then drag to move the whole zone.`;
+            return;
+          }
+          state.resourceZoneDragStart = { point: { ...point }, points: zone.points.map(anchor => ({ ...anchor })) };
+          return;
+        }
+        if (mode === "delete") {
+          const index = nearestResourceZoneAnchor(zone, point);
+          if (index >= 0 && zone.points.length > 3) zone.points.splice(index, 1);
+        } else if (mode === "move") state.resourceZoneDragIndex = nearestResourceZoneAnchor(zone, point);
+        else if (mode === "bend" && zone.points.length >= 2) {
+          let insertAt = zone.points.length;
+          let best = Infinity;
+          for (let index = 0; index < zone.points.length; index += 1) {
+            const a = zone.points[index];
+            const b = zone.points[(index + 1) % zone.points.length];
+            const midpoint = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+            const current = distance(midpoint, point);
+            if (current < best) { best = current; insertAt = index + 1; }
+          }
+          zone.points.splice(insertAt, 0, { x: Math.round(point.x), y: Math.round(point.y) });
+        } else zone.points.push({ x: Math.round(point.x), y: Math.round(point.y) });
+        syncResourceZone(zone);
+        state.minimapMarkerDirty = true;
+        els.editorTip.textContent = `${zone.name} · ${zone.points.length} points · ${mode}`;
+        draw();
+      }
+
       function invalidateLightingCaches() {
         lightSourceCacheKey = "";
         lightSourceChunks = new Map();
@@ -9961,6 +10902,10 @@
         els.castShadows.disabled = lightingDisabled;
         els.timeMode.value = state.lighting.mode;
         els.timeMode.disabled = lightingDisabled;
+        els.clockRunning.checked = state.clock.running;
+        els.clockRunning.disabled = lightingDisabled || state.lighting.mode === "fixed";
+        els.clockRate.value = String(state.clock.rate);
+        els.clockRate.disabled = lightingDisabled || state.lighting.mode === "fixed" || !state.clock.running;
         els.timeOfDay.value = String(configuredHour);
         els.timeOfDay.disabled = lightingDisabled;
         els.timeOfDayValue.textContent = formatHour(configuredHour);
@@ -9998,9 +10943,11 @@
         els.zoneSizeValue.textContent = String(zone.size);
         const terrainMode = state.editorTool === "terrain";
         const territoryMode = state.editorTool === "territory";
+        const resourceMode = state.editorTool === "resource";
         const lightingMode = state.editorTool === "lighting";
         els.paintControls.hidden = !terrainMode;
         els.territoryControls.hidden = !territoryMode;
+        els.resourceControls.hidden = !resourceMode;
         els.lightingControls.hidden = !lightingMode;
         els.brushCategory.disabled = !terrainMode;
         els.brushType.disabled = !terrainMode;
@@ -10011,6 +10958,7 @@
         els.zoneShape.disabled = !["spawn", "zone"].includes(state.editorTool);
         els.clearZone.hidden = state.editorTool !== "zone" || zone.shape !== "custom";
         if (territoryMode) loadTerritoryForm();
+        if (resourceMode) loadResourceZoneForm();
         if (lightingMode) syncLightingControls();
         canvas.style.cursor = state.editorTool === "spawn" ? "move" : "crosshair";
       }
@@ -10057,6 +11005,7 @@
 
       function enterEditor() {
         root.classList.remove("is-configuring");
+        root.classList.add("is-editing");
         saveActivePlayerForm();
         const count = Number(els.playerCountSelect.value);
         const selectedWorld = selectedResolution();
@@ -10086,12 +11035,15 @@
         populateSpawnPlayers();
         populateTerritoryOwners();
         rebuildTerritorySelect();
+        rebuildResourceZoneSelect();
         state.mode = "editor";
         state.paused = true;
         state.replay = false;
         els.overlay.hidden = true;
         els.editorBar.hidden = false;
         els.editorTip.hidden = false;
+        els.editorInspector.hidden = false;
+        els.editorMapDims.textContent = `${worldWidth()} × ${worldHeight()}`;
         syncEditorControls();
         selectBrushPreset("grass");
         setInspector(false);
@@ -10145,6 +11097,11 @@
         const owner = state.players.find(player => pointInSpawnZone(point, player));
         const ownerLabel = owner ? `P${owner.index + 1}` : "Neutral";
         const cover = info.cover >= 0.35 ? "High" : info.cover >= 0.16 ? "Medium" : info.cover > 0.05 ? "Light" : "None";
+        els.editorCursor.textContent = `${pixelX}, ${pixelY}`;
+        els.editorTerrain.textContent = info.name;
+        els.editorElevation.textContent = info.elevation.toFixed(1);
+        els.editorCover.textContent = cover;
+        els.editorMovement.textContent = `${(1 / Math.max(0.01, info.speed)).toFixed(2)}× cost`;
         els.editorTip.textContent = `Pixel (${pixelX}, ${pixelY}) · Terrain ${info.name} · Elevation ${info.elevation} · Moisture ${Math.round(info.moisture)}% · ${temperature}°C · Move ${(1 / info.speed).toFixed(2)} · Visibility ${info.detection.toFixed(2)} · Cover ${cover} · Owner ${ownerLabel}`;
       }
 
@@ -10166,6 +11123,11 @@
             updateBrushTypes();
             els.brushType.value = type;
             state.brush = type;
+            const editorLayer = category === "Elevation" ? "Elevation"
+              : category === "Roads" ? "Roads"
+                : ["Vegetation", "Natural objects", "Rocks & urban"].includes(category) ? "Vegetation"
+                  : "Ground";
+            for (const tab of root.querySelectorAll("[data-editor-layer]")) tab.classList.toggle("is-active", tab.dataset.editorLayer === editorLayer);
           }
         }
         for (const button of root.querySelectorAll("[data-brush-preset]")) {
@@ -10346,6 +11308,8 @@
             addCustomZonePoint(player, point);
           } else if (state.editorTool === "territory") {
             editTerritoryAtPoint(point);
+          } else if (state.editorTool === "resource") {
+            editResourceZoneAtPoint(point);
           }
           return;
         }
@@ -10414,6 +11378,26 @@
             } else {
               els.editorTip.textContent = `${territory?.name || "Territory"} · ${state.territoryEditMode} · world (${Math.floor(state.hover.x)}, ${Math.floor(state.hover.y)})`;
             }
+          } else if (state.editorTool === "resource") {
+            const zone = selectedResourceZone();
+            if (zone && state.resourceZoneDragStart && (event.buttons & 1)) {
+              const dx = state.hover.x - state.resourceZoneDragStart.point.x;
+              const dy = state.hover.y - state.resourceZoneDragStart.point.y;
+              zone.points = state.resourceZoneDragStart.points.map(anchor => ({
+                x: clamp(anchor.x + dx, 0, worldWidth()),
+                y: clamp(anchor.y + dy, 0, worldHeight())
+              }));
+              syncResourceZone(zone);
+              state.minimapMarkerDirty = true;
+              draw();
+            } else if (zone && state.resourceZoneDragIndex >= 0 && (event.buttons & 1)) {
+              zone.points[state.resourceZoneDragIndex] = { x: Math.round(state.hover.x), y: Math.round(state.hover.y) };
+              syncResourceZone(zone);
+              state.minimapMarkerDirty = true;
+              draw();
+            } else {
+              els.editorTip.textContent = `${zone?.name || "Resource zone"} · ${state.resourceZoneEditMode} · world (${Math.floor(state.hover.x)}, ${Math.floor(state.hover.y)})`;
+            }
           } else {
             const pixelX = Math.floor(state.hover.x);
             const pixelY = Math.floor(state.hover.y);
@@ -10428,6 +11412,8 @@
         compactFeatureEdits();
         state.territoryDragIndex = -1;
         state.territoryDragStart = null;
+        state.resourceZoneDragIndex = -1;
+        state.resourceZoneDragStart = null;
       });
       canvas.addEventListener("pointercancel", event => {
         endRightPan(event);
@@ -10436,10 +11422,13 @@
         compactFeatureEdits();
         state.territoryDragIndex = -1;
         state.territoryDragStart = null;
+        state.resourceZoneDragIndex = -1;
+        state.resourceZoneDragStart = null;
       });
       canvas.addEventListener("pointerleave", () => {
         state.brushDown = false;
         state.territoryDragStart = null;
+        state.resourceZoneDragStart = null;
         state.hover = null;
         compactFeatureEdits();
       });
@@ -10452,12 +11441,26 @@
         setZoom(state.camera.zoom * (event.deltaY < 0 ? factor : 1 / factor), focus);
       }, { passive: false });
 
-      function recenterFromMinimap(event) {
+      function minimapWorldPoint(event) {
         const rect = els.minimap.getBoundingClientRect();
-        state.camera.x = clamp((event.clientX - rect.left) / rect.width * worldWidth(), 0, worldWidth());
-        state.camera.y = clamp((event.clientY - rect.top) / rect.height * worldHeight(), 0, worldHeight());
+        return {
+          x: clamp((event.clientX - rect.left) / rect.width * worldWidth(), 0, worldWidth()),
+          y: clamp((event.clientY - rect.top) / rect.height * worldHeight(), 0, worldHeight())
+        };
+      }
+
+      function showMinimapCoordinates(point) {
+        els.minimapCoordinates.textContent = `${Math.round(point.x).toString().padStart(4, "0")}, ${Math.round(point.y).toString().padStart(4, "0")}`;
+      }
+
+      function recenterFromMinimap(event) {
+        const point = minimapWorldPoint(event);
+        state.camera.x = point.x;
+        state.camera.y = point.y;
         clampCamera();
         state.cameraFocus = { x: state.camera.x, y: state.camera.y };
+        showMinimapCoordinates(point);
+        els.minimapHint.textContent = "CAMERA REPOSITIONED";
         draw();
       }
 
@@ -10467,12 +11470,49 @@
         recenterFromMinimap(event);
       });
       els.minimap.addEventListener("pointermove", event => {
+        showMinimapCoordinates(minimapWorldPoint(event));
         if (event.buttons & 1) recenterFromMinimap(event);
       });
       els.minimap.addEventListener("pointerup", event => {
         try {
           if (els.minimap.hasPointerCapture?.(event.pointerId)) els.minimap.releasePointerCapture(event.pointerId);
         } catch {}
+        els.minimapHint.textContent = "CLICK / DRAG TO REPOSITION";
+      });
+      els.minimap.addEventListener("pointerleave", () => {
+        showMinimapCoordinates(state.camera);
+        els.minimapHint.textContent = "CLICK / DRAG TO REPOSITION";
+      });
+      els.minimap.addEventListener("wheel", event => {
+        event.preventDefault();
+        const focus = minimapWorldPoint(event);
+        const factor = event.ctrlKey ? 1.1 : 1.25;
+        setZoom(state.camera.zoom * (event.deltaY < 0 ? factor : 1 / factor), focus);
+        showMinimapCoordinates(focus);
+        els.minimapHint.textContent = `ZOOM ${Math.round(state.camera.zoom * 100)}%`;
+      }, { passive: false });
+      els.minimap.addEventListener("dblclick", event => {
+        event.preventDefault();
+        setZoom("fit");
+        els.minimapHint.textContent = "WORLD FIT TO VIEW";
+      });
+      els.minimap.addEventListener("keydown", event => {
+        const stepX = Math.max(32, (cameraBounds().right - cameraBounds().left) * 0.18);
+        const stepY = Math.max(32, (cameraBounds().bottom - cameraBounds().top) * 0.18);
+        const movement = {
+          ArrowLeft: [-stepX, 0], ArrowRight: [stepX, 0], ArrowUp: [0, -stepY], ArrowDown: [0, stepY]
+        }[event.key];
+        if (movement) {
+          event.preventDefault();
+          state.camera.x += movement[0];
+          state.camera.y += movement[1];
+          clampCamera();
+          state.cameraFocus = { x: state.camera.x, y: state.camera.y };
+          draw();
+        } else if (event.key === "Home") {
+          event.preventDefault();
+          setZoom("fit");
+        }
       });
 
       root.querySelector("#awt-menu-button").addEventListener("click", showMainMenu);
@@ -10572,6 +11612,33 @@
       els.playerFaction.addEventListener("change", () => {
         populateFactionSelect(els.playerRace.value, els.playerFaction.value);
       });
+      els.playerDoctrine.addEventListener("change", saveActivePlayerForm);
+      els.playerAiPreset.addEventListener("change", () => {
+        if (els.playerAiPreset.value !== "custom") {
+          const behavior = behaviorFromPreset(els.playerAiPreset.value);
+          els.aiAggression.value = String(behavior.aggression);
+          els.aiCaution.value = String(behavior.caution);
+          els.aiExpansion.value = String(behavior.expansion);
+          els.aiEconomy.value = String(behavior.economy);
+          els.aiAggressionValue.textContent = `${behavior.aggression}%`;
+          els.aiCautionValue.textContent = `${behavior.caution}%`;
+          els.aiExpansionValue.textContent = `${behavior.expansion}%`;
+          els.aiEconomyValue.textContent = `${behavior.economy}%`;
+        }
+        saveActivePlayerForm();
+      });
+      for (const [control, value] of [
+        [els.aiAggression, els.aiAggressionValue],
+        [els.aiCaution, els.aiCautionValue],
+        [els.aiExpansion, els.aiExpansionValue],
+        [els.aiEconomy, els.aiEconomyValue]
+      ]) {
+        control.addEventListener("input", () => {
+          value.textContent = `${control.value}%`;
+          els.playerAiPreset.value = "custom";
+          saveActivePlayerForm();
+        });
+      }
       els.playerColor.addEventListener("input", () => {
         els.playerColorValue.textContent = els.playerColor.value.toUpperCase();
         saveActivePlayerForm();
@@ -10592,7 +11659,13 @@
       root.querySelector("#awt-load-map").addEventListener("click", () => {
         els.mainActions.hidden = true;
         els.loadPanel.hidden = false;
+        const saved = storageAdapter?.load(TEST_MAP_SLOT);
+        els.savedMapStatus.textContent = saved?.savedAt
+          ? `${saved.name || "Local test map"} · saved ${new Date(saved.savedAt).toLocaleString()} · 1920 × 1080`
+          : "No local test map is saved yet.";
       });
+      els.saveMap.addEventListener("click", saveLocalTestMap);
+      els.loadSavedMap.addEventListener("click", loadLocalTestMap);
       root.querySelector("#awt-load-back").addEventListener("click", () => {
         els.loadPanel.hidden = true;
         els.mainActions.hidden = false;
@@ -10633,6 +11706,8 @@
             ? `Click the map to move P${(player?.index ?? 0) + 1}'s spawn.`
             : state.editorTool === "territory"
               ? "Territory anchors ready · choose Pen, Add, Delete, Move, or Bend."
+            : state.editorTool === "resource"
+              ? "Resource zones ready · draw the polygon and configure capacity, gathering, regeneration, ownership, and collectors."
             : state.editorTool === "lighting"
               ? "Lighting map ready · configure the sun, weather, artificial lights, and faction materials."
             : zone?.shape === "custom"
@@ -10646,7 +11721,7 @@
         if (state.lighting.mode === "fixed") state.lighting.fixedHour = currentHour;
         else {
           state.lighting.startHour = currentHour;
-          state.time = 0;
+          state.clock.elapsedSeconds = 0;
         }
         syncLightingControls();
         updateUI(true);
@@ -10657,11 +11732,20 @@
         if (state.lighting.mode === "fixed") state.lighting.fixedHour = hour;
         else {
           state.lighting.startHour = hour;
-          state.time = 0;
+          state.clock.elapsedSeconds = 0;
         }
         els.timeOfDayValue.textContent = formatHour(hour);
         updateUI(true);
         draw();
+      });
+      els.clockRunning.addEventListener("change", () => {
+        state.clock.running = els.clockRunning.checked;
+        syncLightingControls();
+        updateUI(true);
+      });
+      els.clockRate.addEventListener("change", () => {
+        state.clock.rate = clamp(Number(els.clockRate.value) || 1, 1, 24);
+        updateUI(true);
       });
       els.dayLength.addEventListener("input", () => {
         state.lighting.dayLengthMinutes = Number(els.dayLength.value);
@@ -10933,7 +12017,88 @@
         loadTerritoryForm();
         draw();
       });
+      els.resourceSelect.addEventListener("change", () => {
+        state.selectedResourceZoneId = els.resourceSelect.value;
+        loadResourceZoneForm();
+        draw();
+      });
+      els.resourceEditMode.addEventListener("change", () => {
+        state.resourceZoneEditMode = els.resourceEditMode.value;
+        els.editorTip.textContent = `Resource-zone tool · ${state.resourceZoneEditMode}`;
+      });
+      [els.resourceName, els.resourceType, els.resourceCapacity, els.resourceGather, els.resourceRegeneration, els.resourceOwner, els.resourceCollectors, els.resourceRequiresBuilding, els.resourceStrategic]
+        .forEach(control => control.addEventListener("change", saveResourceZoneForm));
+      root.querySelector("#awt-new-resource-zone").addEventListener("click", () => {
+        const id = `resource-zone-${state.nextResourceZoneId++}`;
+        const zone = createResourceZone(id, state.cameraFocus || worldCenter(), { name: `Resource Zone ${state.nextResourceZoneId - 1}` });
+        zone.points = [];
+        state.resourceZones.push(zone);
+        state.selectedResourceZoneId = zone.id;
+        state.resourceZoneEditMode = "pen";
+        rebuildResourceZoneSelect();
+        loadResourceZoneForm();
+        els.editorTip.textContent = "New resource zone · click at least three map points, then close the shape.";
+        draw();
+      });
+      root.querySelector("#awt-close-resource-zone").addEventListener("click", () => {
+        const zone = selectedResourceZone();
+        if (!zone) return;
+        syncResourceZone(zone);
+        els.editorTip.textContent = zone.points.length >= 3 ? `${zone.name} closed with ${zone.points.length} points.` : `${zone.name} needs at least three points.`;
+        draw();
+      });
+      root.querySelector("#awt-duplicate-resource-zone").addEventListener("click", () => {
+        const zone = selectedResourceZone();
+        if (!zone) return;
+        const id = `resource-zone-${state.nextResourceZoneId++}`;
+        const copy = createResourceZone(id, resourceZoneCenter(zone), {
+          ...zone,
+          id,
+          name: `${zone.name} copy`,
+          startingOwner: "",
+          owner: "",
+          points: zone.points.map(point => ({ x: clamp(point.x + 18, 0, worldWidth()), y: clamp(point.y + 18, 0, worldHeight()) }))
+        });
+        state.resourceZones.push(copy);
+        state.selectedResourceZoneId = copy.id;
+        state.minimapMarkerDirty = true;
+        rebuildResourceZoneSelect();
+        loadResourceZoneForm();
+        draw();
+      });
+      root.querySelector("#awt-delete-resource-zone").addEventListener("click", () => {
+        const zone = selectedResourceZone();
+        if (!zone) return;
+        state.resourceZones = state.resourceZones.filter(item => item.id !== zone.id);
+        state.selectedResourceZoneId = state.resourceZones[0]?.id || null;
+        state.minimapMarkerDirty = true;
+        rebuildResourceZoneSelect();
+        loadResourceZoneForm();
+        draw();
+      });
       els.randomizeMap.addEventListener("click", randomizeMap);
+      root.querySelector("#awt-editor-save").addEventListener("click", saveLocalTestMap);
+      for (const tab of root.querySelectorAll("[data-editor-layer]")) {
+        tab.addEventListener("click", () => {
+          state.editorTool = "terrain";
+          els.editorTool.value = "terrain";
+          els.brushCategory.value = tab.dataset.editorLayer;
+          updateBrushTypes();
+          selectBrushPreset(tab.dataset.editorBrush);
+          syncEditorControls();
+          for (const item of root.querySelectorAll("[data-editor-layer]")) item.classList.toggle("is-active", item === tab);
+        });
+      }
+      for (const tab of root.querySelectorAll("[data-editor-tool-target]")) {
+        tab.addEventListener("click", () => {
+          state.editorTool = tab.dataset.editorToolTarget;
+          els.editorTool.value = state.editorTool;
+          syncEditorControls();
+          for (const item of root.querySelectorAll(".awt-editor-tab")) item.classList.toggle("is-active", item === tab);
+          els.editorTip.textContent = "Resource zones · author polygons and configure their economy rules.";
+          draw();
+        });
+      }
       root.querySelector("#awt-clear-map").addEventListener("click", () => {
         state.features = [];
         state.terrainChunks = new Map();
@@ -11015,6 +12180,9 @@
       function frame(now) {
         const rawDt = Math.min(0.25, (now - state.lastFrame) / 1000);
         state.lastFrame = now;
+        if (state.clock.running && state.lighting.mode === "dynamic" && state.mode !== "menu" && !state.replay) {
+          state.clock.elapsedSeconds += rawDt * state.clock.rate;
+        }
         if (!state.paused && state.mode === "sim" && !state.replay) {
           const simulationStep = 1 / 20;
           state.simulationAccumulator = Math.min(0.6, state.simulationAccumulator + rawDt * state.speed);

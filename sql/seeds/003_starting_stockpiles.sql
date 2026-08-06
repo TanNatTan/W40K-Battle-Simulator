@@ -12,7 +12,10 @@ INSERT OR REPLACE INTO starting_stockpile_templates(resource_code, starting_amou
   ('ammunition', 420, 650),
   ('medical', 220, 360),
   ('food', 360, 520),
+  ('faith', 90, 280),
   ('influence', 180, 320),
+  ('scrap', 80, 420),
+  ('biomass', 80, 420),
   ('parts', 240, 420);
 
 INSERT OR IGNORE INTO player_stockpiles(player_id, resource_code, amount, capacity)
@@ -22,4 +25,3 @@ CROSS JOIN starting_stockpile_templates AS templates;
 
 -- Trade partners may be seeded, but trade_routes intentionally are not.
 -- A commander must fund and establish each route during the simulation.
-

@@ -1,7 +1,6 @@
-(() => {
-  const modules = window.AWTModules ||= {};
+const modules = globalThis.AWTModules ||= {};
 
-  modules.economy = Object.freeze({
+export const economyConfig = Object.freeze({
     resources: [
       "requisition",
       "materials",
@@ -10,7 +9,10 @@
       "ammunition",
       "medical",
       "food",
+      "faith",
       "influence",
+      "scrap",
+      "biomass",
       "parts"
     ],
     startingStockpile: Object.freeze({
@@ -21,7 +23,10 @@
       ammunition: 420,
       medical: 220,
       food: 360,
+      faith: 90,
       influence: 180,
+      scrap: 80,
+      biomass: 80,
       parts: 240
     }),
     baseCapacity: Object.freeze({
@@ -32,11 +37,15 @@
       ammunition: 650,
       medical: 360,
       food: 520,
+      faith: 280,
       influence: 320,
+      scrap: 420,
+      biomass: 420,
       parts: 420
     }),
     shortageThreshold: 0.16,
     storageSalvageRate: 0.25
-  });
-})();
+});
 
+modules.economy = economyConfig;
+export default economyConfig;

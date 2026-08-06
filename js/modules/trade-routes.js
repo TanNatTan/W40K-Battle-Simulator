@@ -1,8 +1,7 @@
-(() => {
-  const modules = window.AWTModules ||= {};
-  const establishmentCost = Object.freeze({ influence: 40, materials: 25 });
+const modules = globalThis.AWTModules ||= {};
+const establishmentCost = Object.freeze({ influence: 40, materials: 25 });
 
-  modules.tradeRoutes = Object.freeze({
+export const tradeRouteConfig = Object.freeze({
     establishmentCost,
     canEstablish({ partner, economy, headquarters, warehouse }) {
       if (!partner || partner.established) return { allowed: false, reason: "already-established" };
@@ -17,6 +16,7 @@
       partner.nextDispatch = simulationTime + 28 + playerIndex * 4;
       return partner;
     }
-  });
-})();
+});
 
+modules.tradeRoutes = tradeRouteConfig;
+export default tradeRouteConfig;

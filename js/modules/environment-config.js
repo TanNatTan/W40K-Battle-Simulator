@@ -1,7 +1,6 @@
-(() => {
-  const modules = window.AWTModules ||= {};
+const modules = globalThis.AWTModules ||= {};
 
-  const profiles = {
+const profiles = {
     sapling: { family: "tree", movement: "soft", trunk: 2.5, canopy: 10, cover: "light", destructible: true, crushable: true },
     smalltree: { family: "tree", movement: "circle", trunk: 4, canopy: 15, cover: "light", destructible: true, crushable: true },
     mediumtree: { family: "tree", movement: "circle", trunk: 6, canopy: 21, cover: "medium", destructible: true, crushable: false },
@@ -36,9 +35,11 @@
     biomassremains: { family: "biomass", movement: "soft", movementCost: 1.08, cover: "light", destructible: true, removable: true, crushable: true }
   };
 
-  modules.environment = Object.freeze({
+export const environmentConfig = Object.freeze({
     spatialCellSize: 128,
     coverValues: Object.freeze({ none: 0, light: 0.12, medium: 0.24, heavy: 0.42 }),
     profiles: Object.freeze(profiles)
-  });
-})();
+});
+
+modules.environment = environmentConfig;
+export default environmentConfig;

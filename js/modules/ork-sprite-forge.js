@@ -1,5 +1,4 @@
-(() => {
-  const modules = window.AWTModules ||= {};
+const modules = globalThis.AWTModules ||= {};
 
   // Rendering geometry, colors, weapons, rank marks, and animation curves are
   // ported directly from ork_forge (1).html. Only the simulator adapter below
@@ -758,7 +757,7 @@
     return Math.max(0, time - startedAt);
   }
 
-  modules.orkSpriteForge = Object.freeze({
+  export const orkSpriteForge = Object.freeze({
     source: "ork_forge (1).html",
     colors: COLORS,
     drawUnit(ctx, unit, time = 0) {
@@ -790,4 +789,6 @@
       return Boolean(HUMANOIDS[clean] || VEHICLES[clean]);
     }
   });
-})();
+
+modules.orkSpriteForge = orkSpriteForge;
+export default orkSpriteForge;

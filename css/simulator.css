@@ -110,34 +110,57 @@
       position: absolute;
       right: 12px;
       bottom: 12px;
-      width: clamp(132px, 16vw, 240px);
-      aspect-ratio: 1;
+      width: clamp(218px, 20vw, 300px);
       overflow: hidden;
-      border: 1px solid color-mix(in srgb, var(--foreground) 52%, transparent);
-      border-radius: 8px;
-      background: color-mix(in srgb, var(--background) 88%, transparent);
-      box-shadow: 0 8px 28px color-mix(in srgb, var(--background) 58%, transparent);
+      border: 1px solid color-mix(in srgb, var(--foreground) 38%, transparent);
+      border-radius: 6px;
+      background: #0b1014;
+      box-shadow: 0 10px 34px rgba(0, 0, 0, 0.56), inset 0 0 0 1px rgba(111, 168, 201, 0.08);
       z-index: 3;
     }
 
     #autonomous-war-theater #awt-minimap {
+      display: block;
       width: 100%;
-      height: 100%;
-      aspect-ratio: 1;
+      height: auto;
+      aspect-ratio: 280 / 176;
       object-fit: fill;
       cursor: crosshair;
       image-rendering: auto;
       background: var(--muted);
+      touch-action: none;
+      border-block: 1px solid rgba(111, 168, 201, 0.2);
     }
 
-    #autonomous-war-theater .awt-minimap-label {
-      position: absolute;
-      top: 6px;
-      left: 7px;
-      color: var(--foreground);
-      letter-spacing: 0.12em;
+    #autonomous-war-theater #awt-minimap:focus-visible {
+      outline: 2px solid #d68a3c;
+      outline-offset: -2px;
+    }
+
+    #autonomous-war-theater .awt-minimap-head,
+    #autonomous-war-theater .awt-minimap-foot {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 5px 7px;
+      color: #8d969d;
+      font: 600 9px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      letter-spacing: 0.09em;
       pointer-events: none;
-      text-shadow: 0 1px 3px var(--background);
+    }
+
+    #autonomous-war-theater .awt-minimap-head {
+      color: #dce7ed;
+    }
+
+    #autonomous-war-theater .awt-minimap-head span:first-child {
+      color: #d68a3c;
+    }
+
+    #autonomous-war-theater .awt-minimap-foot {
+      font-size: 8px;
+      letter-spacing: 0.04em;
     }
 
     #autonomous-war-theater .awt-overlay {
@@ -153,6 +176,7 @@
 
     #autonomous-war-theater .awt-overlay[hidden],
     #autonomous-war-theater .awt-editor-bar[hidden],
+    #autonomous-war-theater .awt-editor-inspector[hidden],
     #autonomous-war-theater .awt-editor-tip[hidden],
     #autonomous-war-theater .awt-menu-actions[hidden],
     #autonomous-war-theater #awt-sprite-panel[hidden],
@@ -283,6 +307,216 @@
       position: static;
       display: grid;
       gap: 8px;
+    }
+
+    #autonomous-war-theater .awt-editor-masthead {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      min-width: 0;
+    }
+
+    #autonomous-war-theater .awt-editor-brand,
+    #autonomous-war-theater .awt-editor-brand > span:last-child,
+    #autonomous-war-theater .awt-editor-map-title {
+      display: flex;
+    }
+
+    #autonomous-war-theater .awt-editor-brand {
+      align-items: center;
+      gap: 9px;
+      flex: 0 0 auto;
+    }
+
+    #autonomous-war-theater .awt-editor-brand > span:last-child,
+    #autonomous-war-theater .awt-editor-map-title {
+      flex-direction: column;
+    }
+
+    #autonomous-war-theater .awt-editor-brand strong {
+      font-size: 15px;
+      letter-spacing: 0.12em;
+    }
+
+    #autonomous-war-theater .awt-editor-brand small,
+    #autonomous-war-theater .awt-editor-map-title span {
+      color: #77838b;
+      font-size: 9px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    #autonomous-war-theater .awt-editor-mark {
+      width: 18px;
+      height: 18px;
+      border: 2px solid #d68a3c;
+      transform: rotate(45deg);
+      box-shadow: inset 0 0 0 4px #171c21, inset 0 0 0 9px #d68a3c;
+    }
+
+    #autonomous-war-theater .awt-editor-map-title {
+      min-width: 120px;
+      padding-left: 14px;
+      border-left: 1px solid #303940;
+    }
+
+    #autonomous-war-theater .awt-editor-tabs {
+      display: flex;
+      gap: 2px;
+      margin-left: auto;
+      padding: 3px;
+      overflow-x: auto;
+      border: 1px solid #2a333b;
+      border-radius: 6px;
+      background: #1e252b;
+    }
+
+    #autonomous-war-theater .awt-editor-tab {
+      padding: 7px 12px;
+      border: 0;
+      border-radius: 4px;
+      color: #8d969d;
+      background: transparent;
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    #autonomous-war-theater .awt-editor-tab:hover {
+      color: #e8e4d8;
+      background: #242c33;
+    }
+
+    #autonomous-war-theater .awt-editor-tab.is-active {
+      color: #1a1408;
+      background: #d68a3c;
+      font-weight: 700;
+    }
+
+    #autonomous-war-theater .awt-editor-inspector {
+      position: absolute;
+      top: 48px;
+      right: 12px;
+      z-index: 3;
+      width: 210px;
+      padding: 12px;
+      color: #dce3e8;
+      border: 1px solid #2a333b;
+      border-radius: 6px;
+      background: rgba(23, 28, 33, 0.94);
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+      backdrop-filter: blur(8px);
+    }
+
+    #autonomous-war-theater .awt-editor-inspector h3 {
+      margin: 0 0 8px;
+      color: #77838b;
+      font-size: 10px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    #autonomous-war-theater .awt-editor-inspector dl {
+      display: grid;
+      gap: 0;
+      margin: 0;
+    }
+
+    #autonomous-war-theater .awt-editor-inspector dl div {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 5px 0;
+      border-bottom: 1px dashed #2a333b;
+      font-size: 10px;
+    }
+
+    #autonomous-war-theater .awt-editor-inspector dt {
+      color: #77838b;
+    }
+
+    #autonomous-war-theater .awt-editor-inspector dd {
+      margin: 0;
+      color: #6fa8c9;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      text-align: right;
+    }
+
+    #autonomous-war-theater .awt-editor-inspector p {
+      margin: 10px 0 0;
+      color: #77838b;
+      font-size: 9px;
+      line-height: 1.45;
+    }
+
+    #autonomous-war-theater.is-editing .awt-header,
+    #autonomous-war-theater.is-editing .viz-grid {
+      display: none;
+    }
+
+    #autonomous-war-theater.is-editing .awt-shell {
+      gap: 8px;
+      color: #e8e4d8;
+      background: #0f1215;
+    }
+
+    #autonomous-war-theater.is-editing .awt-editor-bar {
+      gap: 10px;
+      padding: 10px 12px;
+      border-color: #2a333b;
+      border-radius: 4px;
+      background: #171c21;
+    }
+
+    #autonomous-war-theater.is-editing .awt-editor-primary-tools {
+      padding-top: 9px;
+      border-top: 1px solid #2a333b;
+    }
+
+    #autonomous-war-theater.is-editing .awt-editor-save {
+      color: #1a1408;
+      border-color: #d68a3c;
+      background: #d68a3c;
+      font-weight: 700;
+    }
+
+    #autonomous-war-theater.is-editing #awt-paint-controls {
+      gap: 9px;
+      padding-top: 9px;
+      border-top: 1px solid #2a333b;
+    }
+
+    #autonomous-war-theater.is-editing .awt-brush-presets {
+      display: flex;
+      gap: 5px;
+      overflow-x: auto;
+      padding: 2px 2px 7px;
+    }
+
+    #autonomous-war-theater.is-editing .awt-brush-presets .btn {
+      flex: 0 0 auto;
+      min-width: 96px;
+      border-color: #2a333b;
+      background: #1e252b;
+    }
+
+    #autonomous-war-theater.is-editing .awt-brush-presets .btn-primary {
+      color: #1a1408;
+      border-color: #d68a3c;
+      background: #d68a3c;
+    }
+
+    #autonomous-war-theater.is-editing .awt-field {
+      padding: 12px;
+      background-color: #0c0e10;
+      background-image: linear-gradient(45deg, #141a1f 25%, transparent 25%), linear-gradient(-45deg, #141a1f 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #141a1f 75%), linear-gradient(-45deg, transparent 75%, #141a1f 75%);
+      background-position: 0 0, 0 10px, 10px -10px, -10px 0;
+      background-size: 20px 20px;
+    }
+
+    #autonomous-war-theater.is-editing #awt-canvas {
+      box-shadow: 0 0 0 1px #2a333b, 0 14px 42px rgba(0, 0, 0, 0.5);
     }
 
     #autonomous-war-theater .awt-editor-tools {
@@ -612,7 +846,28 @@
       #autonomous-war-theater .awt-minimap-shell {
         right: 8px;
         bottom: 8px;
-        width: 124px;
+        width: 190px;
+      }
+
+      #autonomous-war-theater .awt-minimap-foot span:last-child,
+      #autonomous-war-theater .awt-editor-map-title {
+        display: none;
+      }
+
+      #autonomous-war-theater .awt-editor-masthead {
+        flex-wrap: wrap;
+      }
+
+      #autonomous-war-theater .awt-editor-tabs {
+        order: 3;
+        width: 100%;
+        margin-left: 0;
+      }
+
+      #autonomous-war-theater .awt-editor-inspector {
+        top: 42px;
+        right: 8px;
+        width: 178px;
       }
     }
 

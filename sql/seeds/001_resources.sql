@@ -6,6 +6,8 @@ INSERT OR IGNORE INTO resource_types(code, display_name, layer, faction_specific
   ('ammunition', 'Ammunition', 'production', 0),
   ('medical', 'Medical Supplies', 'production', 0),
   ('food', 'Food', 'production', 0),
-  ('influence', 'Faith / Influence', 'production', 1),
+  ('faith', 'Faith', 'production', 1),
+  ('influence', 'Influence', 'production', 0),
+  ('scrap', 'Scrap', 'production', 1),
+  ('biomass', 'Biomass', 'production', 1),
   ('parts', 'Spare Parts', 'production', 0);
-

@@ -143,7 +143,25 @@
     </div>
 
     <div class="card awt-editor-bar" id="awt-editor-bar" hidden>
-      <div class="viz-controls">
+      <div class="awt-editor-masthead">
+        <div class="awt-editor-brand">
+          <span class="awt-editor-mark" aria-hidden="true"></span>
+          <span><strong>SECTOR</strong><small>Battlefield Map Editor</small></span>
+        </div>
+        <div class="awt-editor-map-title">
+          <strong>Untitled theater</strong>
+          <span id="awt-editor-map-dims">1920 × 1080</span>
+        </div>
+        <nav class="awt-editor-tabs" aria-label="Map editor layers">
+          <button type="button" class="awt-editor-tab is-active" data-editor-layer="Ground" data-editor-brush="grass">Terrain</button>
+          <button type="button" class="awt-editor-tab" data-editor-layer="Elevation" data-editor-brush="raise">Elevation</button>
+          <button type="button" class="awt-editor-tab" data-editor-layer="Vegetation" data-editor-brush="trees">Objects</button>
+          <button type="button" class="awt-editor-tab" data-editor-layer="Roads" data-editor-brush="dirtroad">Roads</button>
+          <button type="button" class="awt-editor-tab" data-editor-tool-target="resource">Resources</button>
+        </nav>
+        <button type="button" class="btn btn-primary awt-editor-save" id="awt-editor-save"><i data-lucide="save" aria-hidden="true"></i>Save</button>
+      </div>
+      <div class="viz-controls awt-editor-primary-tools">
         <label class="form-label text-small" for="awt-editor-tool">
           Editor tool
           <select class="form-select" id="awt-editor-tool">
@@ -151,6 +169,7 @@
             <option value="spawn">Move spawn</option>
             <option value="zone">Custom spawn zone</option>
             <option value="territory">Territory anchors</option>
+            <option value="resource">Resource zones</option>
             <option value="lighting">Lighting &amp; shadows</option>
           </select>
         </label>
@@ -181,10 +200,15 @@
         </div>
         <div class="awt-brush-presets" id="awt-brush-presets" aria-label="Terrain brush presets">
           <button type="button" class="btn btn-primary" data-brush-preset="grass" data-shortcut="g" aria-pressed="true"><span class="awt-preset-content"><span class="awt-preset-icon"><i data-lucide="sprout" aria-hidden="true"></i></span><span>Grass <span class="text-small">G</span></span></span></button>
+          <button type="button" class="btn" data-brush-preset="drygrass" aria-pressed="false"><span class="awt-preset-content"><span class="awt-preset-icon"><i data-lucide="wheat" aria-hidden="true"></i></span><span>Dry grass</span></span></button>
+          <button type="button" class="btn" data-brush-preset="darksoil" aria-pressed="false"><span class="awt-preset-content"><span class="awt-preset-icon"><i data-lucide="cloudy" aria-hidden="true"></i></span><span>Dark battlefield soil</span></span></button>
           <button type="button" class="btn" data-brush-preset="dirt" data-shortcut="d" aria-pressed="false"><span class="awt-preset-content"><span class="awt-preset-icon"><i data-lucide="circle-dot-dashed" aria-hidden="true"></i></span><span>Dirt <span class="text-small">D</span></span></span></button>
+          <button type="button" class="btn" data-brush-preset="drydirt" aria-pressed="false"><span class="awt-preset-content"><span class="awt-preset-icon"><i data-lucide="circle-dashed" aria-hidden="true"></i></span><span>Dry dirt</span></span></button>
           <button type="button" class="btn" data-brush-preset="sand" data-shortcut="s" aria-pressed="false"><span class="awt-preset-content"><span class="awt-preset-icon"><i data-lucide="sun" aria-hidden="true"></i></span><span>Sand <span class="text-small">S</span></span></span></button>
           <button type="button" class="btn" data-brush-preset="mud" data-shortcut="m" aria-pressed="false"><span class="awt-preset-content"><span class="awt-preset-icon"><i data-lucide="footprints" aria-hidden="true"></i></span><span>Mud <span class="text-small">M</span></span></span></button>
           <button type="button" class="btn" data-brush-preset="rock" data-shortcut="r" aria-pressed="false"><span class="awt-preset-content"><span class="awt-preset-icon"><i data-lucide="mountain" aria-hidden="true"></i></span><span>Rock <span class="text-small">R</span></span></span></button>
+          <button type="button" class="btn" data-brush-preset="rockysoil" aria-pressed="false"><span class="awt-preset-content"><span class="awt-preset-icon"><i data-lucide="mountain-snow" aria-hidden="true"></i></span><span>Rocky soil</span></span></button>
+          <button type="button" class="btn" data-brush-preset="gravel" aria-pressed="false"><span class="awt-preset-content"><span class="awt-preset-icon"><i data-lucide="grip" aria-hidden="true"></i></span><span>Gravel</span></span></button>
           <button type="button" class="btn" data-brush-preset="snow" data-shortcut="n" aria-pressed="false"><span class="awt-preset-content"><span class="awt-preset-icon"><i data-lucide="snowflake" aria-hidden="true"></i></span><span>Snow <span class="text-small">N</span></span></span></button>
           <button type="button" class="btn" data-brush-preset="water" data-shortcut="w" aria-pressed="false"><span class="awt-preset-content"><span class="awt-preset-icon awt-water-icon"><i data-lucide="waves" aria-hidden="true"></i></span><span>Water <span class="text-small">W</span></span></span></button>
           <button type="button" class="btn" data-brush-preset="deepwater" aria-pressed="false"><span class="awt-preset-content"><span class="awt-preset-icon awt-water-icon"><i data-lucide="chevrons-down" aria-hidden="true"></i></span><span>Deep water</span></span></button>
@@ -279,10 +303,37 @@
         </div>
       </div>
 
+      <div id="awt-resource-controls" hidden>
+        <div class="awt-panel-title">Resource-zone editor</div>
+        <div class="awt-territory-properties">
+          <label class="form-label text-small" for="awt-resource-select">Zone<select class="form-select" id="awt-resource-select"></select></label>
+          <label class="form-label text-small" for="awt-resource-edit-mode">Shape tool<select class="form-select" id="awt-resource-edit-mode"><option value="translate">Move zone</option><option value="move">Move point</option><option value="pen">Pen / add point</option><option value="add">Add point</option><option value="delete">Delete point</option><option value="bend">Bend edge</option></select></label>
+          <label class="form-label text-small" for="awt-resource-name">Zone name<input class="form-control" id="awt-resource-name" type="text" value="New resource zone"></label>
+          <label class="form-label text-small" for="awt-resource-type">Resource<select class="form-select" id="awt-resource-type"></select></label>
+          <label class="form-label text-small" for="awt-resource-capacity">Capacity<input class="form-control" id="awt-resource-capacity" type="number" min="0" max="100000" value="600"></label>
+          <label class="form-label text-small" for="awt-resource-gather">Gather rate<input class="form-control" id="awt-resource-gather" type="number" min="0" max="1000" step="0.5" value="8"></label>
+          <label class="form-label text-small" for="awt-resource-regeneration">Regeneration / sec<input class="form-control" id="awt-resource-regeneration" type="number" min="0" max="100" step="0.1" value="0"></label>
+          <label class="form-label text-small" for="awt-resource-owner">Starting owner<select class="form-select" id="awt-resource-owner"><option value="">Neutral</option></select></label>
+          <label class="form-label text-small" for="awt-resource-collectors">Allowed collectors<select class="form-select" id="awt-resource-collectors"><option value="builder,vehicle">Builders and vehicles</option><option value="builder">Builders only</option><option value="vehicle">Vehicles only</option></select></label>
+        </div>
+        <div class="viz-row">
+          <label class="form-check"><input class="form-check-input" id="awt-resource-requires-building" type="checkbox" checked><span class="form-check-label">Requires building</span></label>
+          <label class="form-check"><input class="form-check-input" id="awt-resource-strategic" type="checkbox"><span class="form-check-label">Strategic objective</span></label>
+        </div>
+        <div class="viz-row">
+          <button type="button" class="btn btn-primary" id="awt-new-resource-zone">New zone</button>
+          <button type="button" class="btn" id="awt-close-resource-zone">Close shape</button>
+          <button type="button" class="btn" id="awt-duplicate-resource-zone">Duplicate</button>
+          <button type="button" class="btn btn-ghost" id="awt-delete-resource-zone">Delete</button>
+        </div>
+      </div>
+
       <div id="awt-lighting-controls" hidden>
         <div class="awt-panel-title">Dynamic lighting, shadows &amp; faction materials</div>
         <div class="awt-paint-settings">
           <label class="form-label text-small" for="awt-time-mode">Sun behavior<select class="form-select" id="awt-time-mode"><option value="dynamic">Dynamic cycle</option><option value="fixed">Fixed time</option></select></label>
+          <label class="form-check form-switch"><input class="form-check-input" id="awt-clock-running" type="checkbox" checked><span class="form-check-label">Run theater clock</span></label>
+          <label class="form-label text-small" for="awt-clock-rate">Clock rate<select class="form-select" id="awt-clock-rate"><option value="1">1× real time</option><option value="4">4×</option><option value="12">12×</option><option value="24">24×</option></select></label>
           <label class="form-label text-small" for="awt-time-of-day">Time <span id="awt-time-of-day-value">07:00</span><input class="form-range" id="awt-time-of-day" type="range" min="0" max="23.75" value="7" step="0.25"></label>
           <label class="form-label text-small" for="awt-day-length">Day length <span id="awt-day-length-value">12</span> min<input class="form-range" id="awt-day-length" type="range" min="2" max="60" value="12" step="1"></label>
           <label class="form-label text-small" for="awt-latitude">Latitude <span id="awt-latitude-value">35</span>°<input class="form-range" id="awt-latitude" type="range" min="-60" max="60" value="35" step="5"></label>
@@ -316,9 +367,21 @@
         </canvas>
         <div class="viz-badge awt-field-mode" id="awt-field-mode">Observer / Paused</div>
         <div class="viz-badge awt-camera-status" id="awt-camera-status">Camera 8192, 8192 · 100%</div>
+        <aside class="awt-editor-inspector" id="awt-editor-inspector" hidden aria-label="Map editor cursor inspector">
+          <h3>Cursor</h3>
+          <dl>
+            <div><dt>World</dt><dd id="awt-editor-cursor">—</dd></div>
+            <div><dt>Terrain</dt><dd id="awt-editor-terrain">—</dd></div>
+            <div><dt>Elevation</dt><dd id="awt-editor-elevation">—</dd></div>
+            <div><dt>Cover</dt><dd id="awt-editor-cover">—</dd></div>
+            <div><dt>Movement</dt><dd id="awt-editor-movement">—</dd></div>
+          </dl>
+          <p>Paint conditions; autonomous armies decide how to cross them.</p>
+        </aside>
         <div class="awt-minimap-shell" aria-label="Battlefield minimap">
-          <canvas id="awt-minimap" width="240" height="240" role="img" aria-label="Minimap showing the entire world and current camera rectangle."></canvas>
-          <span class="awt-minimap-label text-small">WORLD</span>
+          <div class="awt-minimap-head"><span>WORLD NAV</span><span id="awt-minimap-coordinates">0000, 0000</span></div>
+          <canvas id="awt-minimap" width="280" height="176" tabindex="0" role="img" aria-label="Interactive minimap. Click or drag to move the camera, use the wheel to zoom, or double click to fit the world."></canvas>
+          <div class="awt-minimap-foot"><span id="awt-minimap-hint">CLICK / DRAG TO REPOSITION</span><span>SCROLL TO ZOOM</span></div>
         </div>
 
         <div class="awt-editor-tip text-small" id="awt-editor-tip" hidden>
@@ -340,6 +403,10 @@
               <button type="button" class="btn btn-block" id="awt-load-map">
                 <i data-lucide="folder-open" aria-hidden="true"></i>
                 Load map
+              </button>
+              <button type="button" class="btn btn-block" id="awt-save-map">
+                <i data-lucide="save" aria-hidden="true"></i>
+                Save current test map
               </button>
               <button type="button" class="btn btn-block" id="awt-open-sprite-lab">
                 <i data-lucide="palette" aria-hidden="true"></i>
@@ -382,15 +449,16 @@
             </div>
             <div id="awt-setup-panel" hidden>
               <div class="awt-panel-title">World parameters</div>
-              <p class="awt-panel-copy text-small">The 1920 × 1080 camera moves independently across a chunked world. Terrain uses sparse 64 px tiles inside 256 px chunks.</p>
+              <p class="awt-panel-copy text-small">Test maps load and save at 1920 × 1080 pixels. Terrain uses sparse 64 px tiles inside 256 px chunks.</p>
               <div class="awt-load-list">
                 <div class="viz-controls">
                   <label class="form-label" for="awt-map-resolution">
                     World size
                     <select class="form-select" id="awt-map-resolution">
+                      <option value="1920x1080" selected>Test map · 1920 × 1080</option>
                       <option value="4096x4096">Small · 4096 × 4096</option>
                       <option value="8192x8192">Medium · 8192 × 8192</option>
-                      <option value="16384x16384" selected>Large · 16384 × 16384</option>
+                      <option value="16384x16384">Large · 16384 × 16384</option>
                       <option value="32768x32768">Massive · 32768 × 32768</option>
                       <option value="custom">Custom world</option>
                     </select>
@@ -415,11 +483,11 @@
                 <div class="viz-controls" id="awt-custom-resolution" hidden>
                   <label class="form-label" for="awt-custom-width">
                     Width
-                    <input class="form-control" id="awt-custom-width" type="number" min="2048" max="65536" step="256" value="16384">
+                    <input class="form-control" id="awt-custom-width" type="number" min="640" max="65536" step="64" value="1920">
                   </label>
                   <label class="form-label" for="awt-custom-height">
                     Height
-                    <input class="form-control" id="awt-custom-height" type="number" min="2048" max="65536" step="256" value="16384">
+                    <input class="form-control" id="awt-custom-height" type="number" min="360" max="65536" step="8" value="1080">
                   </label>
                 </div>
                 <button type="button" class="btn btn-primary btn-block" id="awt-configure-players">Configure players</button>
@@ -481,6 +549,21 @@
                       <option>Aggressive</option>
                     </select>
                   </label>
+                  <label class="form-label" for="awt-player-ai-preset">
+                    AI behavior preset
+                    <select class="form-select" id="awt-player-ai-preset">
+                      <option value="balanced">Balanced command</option>
+                      <option value="offensive">Offensive pressure</option>
+                      <option value="defensive">Defensive hold</option>
+                      <option value="expansion">Territory expansion</option>
+                      <option value="economic">Economic buildup</option>
+                      <option value="custom">Custom behavior</option>
+                    </select>
+                  </label>
+                  <label class="form-label" for="awt-ai-aggression">Aggression <span id="awt-ai-aggression-value">50%</span><input class="form-range" id="awt-ai-aggression" type="range" min="0" max="100" step="5" value="50"></label>
+                  <label class="form-label" for="awt-ai-caution">Caution <span id="awt-ai-caution-value">50%</span><input class="form-range" id="awt-ai-caution" type="range" min="0" max="100" step="5" value="50"></label>
+                  <label class="form-label" for="awt-ai-expansion">Expansion <span id="awt-ai-expansion-value">50%</span><input class="form-range" id="awt-ai-expansion" type="range" min="0" max="100" step="5" value="50"></label>
+                  <label class="form-label" for="awt-ai-economy">Economy <span id="awt-ai-economy-value">50%</span><input class="form-range" id="awt-ai-economy" type="range" min="0" max="100" step="5" value="50"></label>
                   <label class="form-label" for="awt-player-color">
                     Primary color <span id="awt-player-color-value">#3B82F6</span>
                     <input class="form-control form-control-color" id="awt-player-color" type="color" value="#3b82f6">
@@ -502,6 +585,8 @@
               <div class="awt-panel-title">Saved theaters</div>
               <p class="awt-panel-copy text-small">Each scenario preserves terrain, weather, doctrine, and starting logistics.</p>
               <div class="awt-load-list">
+                <button type="button" class="btn btn-primary btn-block" id="awt-load-saved-map">Load local test map · 1920 × 1080</button>
+                <div class="text-small text-muted" id="awt-saved-map-status">No local test map checked yet.</div>
                 <button type="button" class="btn btn-block" data-scenario="iron">Iron Pass · Rain · Fortress vs Raiding</button>
                 <button type="button" class="btn btn-block" data-scenario="verdant">Verdant Delta · Dawn fog · Balanced</button>
                 <button type="button" class="btn btn-block" data-scenario="ash">Ash Meridian · Night · Mechanized</button>
@@ -609,14 +694,6 @@
 </div>
 
   </main>
-  <script src="js/modules/faction-config.js"></script>
-  <script src="js/modules/economy-config.js"></script>
-  <script src="js/modules/trade-routes.js"></script>
-  <script src="js/modules/ai-config.js"></script>
-  <script src="js/modules/environment-config.js"></script>
-  <script src="js/modules/ork-sprite-forge.js"></script>
-  <script src="js/modules/unit-sprite-forge.js"></script>
-  <script src="js/modules/storage-adapter.js"></script>
-  <script src="js/app.js"></script>
+  <script type="module" src="src/main.js"></script>
 </body>
 </html>
