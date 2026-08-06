@@ -170,7 +170,7 @@ try {
   }
 
   await evaluate("document.querySelector('#awt-deploy-map').click()");
-  await new Promise(resolve => setTimeout(resolve, 1200));
+  await new Promise(resolve => setTimeout(resolve, 3600));
   const simulation = await evaluate(`(() => {
     const root = document.querySelector('#autonomous-war-theater');
     return {
@@ -178,10 +178,16 @@ try {
       paused: root.awtDebugState?.paused,
       units: root.awtDebugState?.units?.length,
       navigationRevision: Number(root.dataset.navigationRevision || 0),
+      unsourcedUnits: Number(root.dataset.unsourcedUnits || 0),
+      factionAIDataVersion: globalThis.AWTData?.factionAI?.version || null,
+      factionAIProfiles: Object.keys(root.awtDebugState?.factionAIProfiles || {}).length,
+      factionAIChoices: root.awtDebugState?.players?.map(player => player.factionAIChoice),
       error: root.dataset.runtimeError || null
     };
   })()`);
-  if (simulation.mode !== "sim" || simulation.paused || simulation.units < 2 || simulation.error) {
+  if (simulation.mode !== "sim" || simulation.paused || simulation.units < 2 || simulation.unsourcedUnits !== 0
+    || simulation.factionAIDataVersion !== 1 || simulation.factionAIProfiles < 2
+    || simulation.factionAIChoices.some(choice => !choice || choice === "establish") || simulation.error) {
     throw new Error(`Simulation smoke check failed: ${JSON.stringify(simulation)}`);
   }
 

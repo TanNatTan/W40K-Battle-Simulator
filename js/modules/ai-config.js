@@ -9,20 +9,26 @@ export const aiConfig = Object.freeze({
       economic: Object.freeze({ aggression: 30, caution: 65, expansion: 55, economy: 90 })
     }),
     relationshipBands: [
-      { min: 70, label: "Strong bond" },
+      { min: 70, label: "Bonded" },
       { min: 30, label: "Friendly" },
       { min: 10, label: "Familiar" },
       { min: -9, label: "Neutral" },
       { min: -29, label: "Not close" },
-      { min: -69, label: "Disliked" },
-      { min: -100, label: "Hated but tolerated" }
+      { min: -59, label: "Disliked" },
+      { min: -84, label: "Hated but tolerated" },
+      { min: -100, label: "Enemy" }
     ],
     relationshipEvents: Object.freeze({
       foughtTogether: 3,
       protectedBuilder: 7,
+      savedAlly: 12,
       savedFromDanger: 12,
+      abandonedAlly: -8,
       repairedAlly: 8,
       sharedSupplies: 5,
+      friendlyFire: -14,
+      successfulSquadHistory: 4,
+      commanderTrust: 6,
       successfulOrder: 3,
       completedTogether: 6,
       abandoned: -7,

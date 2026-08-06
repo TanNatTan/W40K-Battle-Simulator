@@ -30,6 +30,36 @@ import { seededRandom } from "../src/utilities/random.js";
 import { NavigationPlanner } from "../src/map/NavigationPlanner.js";
 import { TerrainTextureLibrary } from "../src/rendering/TerrainTextureLibrary.js";
 import {
+  FORMATION_TYPES,
+  assignCombinedArmsSupport,
+  formationLocalPosition as formationSlotFor
+} from "../src/formations/FormationSystem.js";
+import {
+  boardTransport,
+  createAircraftState,
+  createVehicleState,
+  disembarkTransport,
+  updateAircraftState,
+  updateVehicleState
+} from "../src/vehicles/VehicleAircraftSystem.js";
+import {
+  chooseDeploymentMethod,
+  createDeploymentRecord,
+  validateDeploymentRecord
+} from "../src/deployment/DeploymentSystem.js";
+import {
+  branchBehaviorFor,
+  resolveFactionAIProfile,
+  selectStrategicChoice
+} from "../src/ai/FactionAISystem.js";
+import {
+  relationshipBandFor,
+  relationshipEffect,
+  relationshipPriority,
+  serializeRelationshipMemory
+} from "../src/relationships/RelationshipSystem.js";
+import { createFactionLearningMemory } from "../src/learning/LearningSystem.js";
+import {
   armorFacingFor,
   beginMeleeAttack,
   ensureWeaponState,
@@ -586,7 +616,7 @@ import {
       };
       const trainingRoles = ["commander", "trooper", "trooper", "medic", "engineer", "trooper", "standard", "scout", "trooper", "vehicle"];
       const squadNames = ["Alpha", "Bravo", "Cinder", "Delta", "Echo", "Ferro"];
-      const formationTypes = aiConfig.formations || ["line", "column", "wedge", "triangle", "circle", "staggered", "flanking", "escort"];
+      const formationTypes = FORMATION_TYPES;
       const routeOrderTypes = aiConfig.routeOrders || ["Hold Route", "Block Route", "Patrol Route", "Observe Route", "Escort Route", "Keep Route Open", "Delay Enemy", "Destroy Route if Overrun", "Ambush Route"];
       const relationshipBands = aiConfig.relationshipBands || [
         { min: 70, label: "Strong bond" }, { min: 30, label: "Friendly" }, { min: 10, label: "Familiar" },
@@ -679,11 +709,13 @@ import {
         const player = typeof playerOrFaction === "string" ? playerFor(playerOrFaction) : playerOrFaction;
         const fallback = behaviorFromPreset(player?.aiPreset || behaviorPresetForDoctrine(player?.doctrine));
         const configured = player?.aiBehavior || fallback;
+        const branch = branchBehaviorFor(player);
+        const combined = key => Number(configured[key] ?? fallback[key]) + (Number(branch[key] ?? 50) - 50) * 0.35;
         return {
-          aggression: clamp(Number(configured.aggression ?? fallback.aggression), 0, 100),
-          caution: clamp(Number(configured.caution ?? fallback.caution), 0, 100),
-          expansion: clamp(Number(configured.expansion ?? fallback.expansion), 0, 100),
-          economy: clamp(Number(configured.economy ?? fallback.economy), 0, 100)
+          aggression: clamp(combined("aggression"), 0, 100),
+          caution: clamp(combined("caution"), 0, 100),
+          expansion: clamp(combined("expansion"), 0, 100),
+          economy: clamp(combined("economy"), 0, 100)
         };
       }
 
@@ -1037,12 +1069,16 @@ import {
         nextSquadId: 1,
         armyPlans: {},
         factionEcology: {},
+        factionAIProfiles: {},
+        factionLearning: {},
+        battleHistory: [],
         strategicOutcomes: {},
         victoryEvaluationAccumulator: 0,
         aiDiagnostics: { relationshipEdges: 0, killPursuits: 0, formationSquads: 0, routeOrders: 0, guardSquads: 0, securedRoads: 0, ambushRoads: 0, checkpoints: 0, environmentCollisions: 0, obstacleProjectileHits: 0 },
         nextSnapshot: 0,
         nextEconomy: 0,
         nextMilestone: 240,
+        nextMemoryPersistAt: 120,
         battleSeed: "AWT-742918",
         simulationAccumulator: 0,
         spatialAccumulator: 0,
@@ -2366,6 +2402,18 @@ import {
         unit.knockedDownRemaining ??= 0;
         unit.stagger ??= 0;
         unit.facing ??= 0;
+        if (!validateDeploymentRecord(unit.deployment)) {
+          const player = playerFor(unit.faction);
+          unit.deployment = createDeploymentRecord({
+            faction: unit.faction,
+            race: player.race,
+            source: { sourceId: `legacy-save:${unit.faction}`, sourceType: "save-migration", label: unit.deploymentSource || "Legacy deployment source" },
+            time: unit.createdAt || 0,
+            sequence: unit.index || 0
+          });
+          unit.deploymentSource = unit.deployment.label;
+        }
+        if (unit.role === "vehicle") unit.vehicleState ||= createVehicleState(unit);
         unit.medicalPolicy ||= medicalProfileFor(playerFor(unit.faction)).id;
         const { profile } = ensureWeaponState(unit);
         if (!unit.combatProfileApplied) {
@@ -2376,7 +2424,7 @@ import {
       }
 
       function relationshipBand(score) {
-        return relationshipBands.find(band => score >= band.min)?.label || "Hated but tolerated";
+        return relationshipBandFor(score);
       }
 
       function refreshRelationshipLists(unit) {
@@ -2540,6 +2588,14 @@ import {
         const player = playerFor(faction);
         const index = state.nextUnitIndex[faction] || 0;
         state.nextUnitIndex[faction] = index + 1;
+        const deployment = createDeploymentRecord({
+          faction,
+          race: player.race,
+          source: deploymentSource,
+          time: state.time,
+          sequence: index
+        });
+        if (!validateDeploymentRecord(deployment)) throw new Error(`Unit ${faction}-${index} has no valid deployment source.`);
         const base = baseFor(faction);
         const maxHp = role === "vehicle" ? 230 : role === "commander" ? 126 : role === "builder" ? 82 : 100;
         const researchLevel = state.economies[faction]?.research?.level || 0;
@@ -2625,8 +2681,9 @@ import {
           armorProtection: role === "vehicle" ? 16 : role === "commander" ? 12 : role === "scout" ? 6 : 9,
           facing: 0,
           bodyZones: { head: 1, chest: 1, leftArm: 1, rightArm: 1, leftLeg: 1, rightLeg: 1 },
-          vehicleSystems: role === "vehicle" ? { tracks: 1, engine: 1, turret: 1, mainGun: 1, crew: 1, ammoStorage: 1, fuel: 1 } : null,
-          deploymentSource,
+          vehicleSystems: role === "vehicle" ? { hull: 1, tracks: 1, engine: 1, turret: 1, weapons: 1, mainGun: 1, crew: 1, ammo: 1, ammoStorage: 1, fuel: 1 } : null,
+          deployment,
+          deploymentSource: deployment.label,
           status: role === "builder" ? "Evaluating" : "Forming up",
           lastAction: role === "builder" ? "Evaluating economy, risk, and dependencies." : "Awaiting a squad leader.",
           logs: role === "builder" ? ["Surveying deployment zone.", "No build order assigned."] : ["Deployed as an individual.", "Seeking compatible squad."],
@@ -2669,6 +2726,7 @@ import {
           }
         }
         if (unit.role === "vehicle" && /Land Raider|Baneblade|Rogal Dorn|Battlewagon|Carnifex|Tyrannofex/i.test(unit.name)) unit.collisionRadius = 22;
+        if (unit.role === "vehicle") unit.vehicleState = createVehicleState(unit);
         ensureIndividualRuntime(unit);
         if (player.race === "Tyranids") unit.personality = unit.synapse ? "Synaptic relay" : "Instinctive bioform";
         return unit;
@@ -2762,7 +2820,7 @@ import {
       function livingSquadMemberMap() {
         const map = new Map();
         for (const unit of state.units) {
-          if (!unit.alive || !unit.squadId) continue;
+          if (!unit.alive || unit.embarkedInId || !unit.squadId) continue;
           if (!map.has(unit.squadId)) map.set(unit.squadId, []);
           map.get(unit.squadId).push(unit);
         }
@@ -2953,6 +3011,10 @@ import {
         state.nextSquadId = 1;
         state.armyPlans = {};
         state.factionEcology = {};
+        state.factionAIProfiles = {};
+        state.factionLearning = {};
+        const storedBattleHistory = storageAdapter.load("battle-history");
+        state.battleHistory = Array.isArray(storedBattleHistory) ? storedBattleHistory : [];
         state.strategicOutcomes = {};
         state.victoryEvaluationAccumulator = 0;
         state.navigationRevision += 1;
@@ -2968,6 +3030,14 @@ import {
         state.explorationAccumulator = 0;
         const exploredByTeam = new Map();
         for (const player of state.players) {
+          const factionAIProfile = resolveFactionAIProfile(player);
+          state.factionAIProfiles[player.id] = factionAIProfile;
+          state.factionLearning[player.id] = createFactionLearningMemory(
+            factionAIProfile,
+            storageAdapter.load(`ai-memory:${factionAIProfile.id}`)
+          );
+          player.factionAIProfileId = factionAIProfile.id;
+          player.factionAIChoice = "establish";
           state.economies[player.id] = createEconomy(player);
           state.resources[player.id] = state.economies[player.id].inventory.requisition;
           state.casualties[player.id] = 0;
@@ -3004,6 +3074,7 @@ import {
         state.nextSnapshot = 0;
         state.nextEconomy = 0;
         state.nextMilestone = 240;
+        state.nextMemoryPersistAt = 120;
         state.environmentAccumulator = 0;
         state.separationAccumulator = 0;
         state.renderAccumulator = 0;
@@ -3675,7 +3746,8 @@ import {
         const legCondition = unit.bodyZones ? ((unit.bodyZones.leftLeg || 0) + (unit.bodyZones.rightLeg || 0)) / 2 : 1;
         const suppressionFactor = clamp(1 - (unit.suppression || 0) * 0.42, 0.45, 1);
         const obstacleMovement = environmentalMovementFactor(unit, unit);
-        const step = unit.speed * terrain.speed * obstacleMovement * (unit.roadMovementFactor || 1) * (1 - unit.fatigue * 0.36) * speedFactor * fuelFactor * clamp(legCondition, 0.35, 1) * suppressionFactor * (unit.conditionMultiplier || 1) * dt;
+        const vehicleFactor = unit.role === "vehicle" ? (unit.vehiclePerformance?.speedFactor ?? 1) : 1;
+        const step = unit.speed * terrain.speed * obstacleMovement * (unit.roadMovementFactor || 1) * (1 - unit.fatigue * 0.36) * speedFactor * fuelFactor * vehicleFactor * clamp(legCondition, 0.35, 1) * suppressionFactor * (unit.conditionMultiplier || 1) * dt;
         const next = { x: clamp(unit.x + dx / d * step, 24, worldWidth() - 24), y: clamp(unit.y + dy / d * step, 24, worldHeight() - 24) };
         const blockedAt = candidate => structureCollisionAt(candidate, radius, ignoreId) || environmentCollisionAt(candidate, unit, radius);
         let collision = blockedAt(next);
@@ -4065,6 +4137,7 @@ import {
           wedge: 22 + (moving ? 18 : 0) + (doctrine === "Aggressive" ? 24 : 0) + openGround * 10,
           triangle: 24 + (moving ? 14 : 0) + members.length * 0.8 + (doctrine === "Balanced" ? 16 : 0),
           circle: 12 + (surrounded ? 58 : 0) + woundedRatio * 22 + (squad.orderType === "Hold Route" ? 10 : 0),
+          "defensive-ring": 14 + (surrounded ? 112 : 0) + woundedRatio * 26 + (["Hold Route", "Escort Route"].includes(squad.orderType) ? 18 : 0),
           staggered: 20 + concealed * 25 + (squad.orderType === "Observe Route" ? 35 : 0) + (squad.orderType === "Ambush Route" ? 18 : 0) + (["Delay Enemy", "Destroy Route if Overrun"].includes(squad.orderType) ? 12 : 0) + enemies.filter(enemy => enemy.role === "vehicle").length * 4,
           flanking: 8 + concealed * 22 + (members.length >= 6 ? 24 : -55) + (enemies.length ? 15 : -12) + (squad.orderType === "Ambush Route" ? 44 : 0) + (doctrine === "Aggressive" ? 12 : 0),
           escort: (protectedAsset ? 72 : -35) + (squad.orderType === "Escort Route" ? 42 : 0) + woundedRatio * 10
@@ -4206,6 +4279,11 @@ import {
         }
         const leader = state.units.find(unit => unit.id === squad.leaderId && unit.alive);
         if (leader) addUnitLog(leader, reason);
+        state.factionLearning[squad.faction]?.observe("failed-assault", {
+          formation: squad.formation,
+          reason,
+          enemyFaction: leader?.cachedTargetId ? combatTargetById(leader.cachedTargetId)?.faction : null
+        }, { visible: true, observedAt: state.time });
       }
 
       function updateRouteOrderState(squad, members, leader, road, center) {
@@ -4440,9 +4518,11 @@ import {
           } else squad.ambushPhase = null;
           const nearbyRoad = nearestRoadSegment(center, 28)?.road;
           const formationScores = scoreSquadFormations({ squad, members, center, enemies, protectedAsset, nearbyRoad, regrouping });
+          const learnedFormation = state.factionLearning[squad.faction]?.bestFormation(squad.formation);
+          if (learnedFormation && Object.hasOwn(formationScores, learnedFormation)) formationScores[learnedFormation] += 8;
           const [desiredFormation, desiredScore] = Object.entries(formationScores).sort((a, b) => b[1] - a[1] || formationTypes.indexOf(a[0]) - formationTypes.indexOf(b[0]))[0];
           const currentScore = formationScores[squad.formation] ?? -Infinity;
-          const emergencyChange = desiredFormation === "circle" && enemies.length > 0 || desiredFormation === "escort" && protectedAsset || regrouping && desiredFormation === "column";
+          const emergencyChange = ["circle", "defensive-ring"].includes(desiredFormation) && enemies.length > 0 || desiredFormation === "escort" && protectedAsset || regrouping && desiredFormation === "column";
           if (desiredFormation !== squad.formation && (emergencyChange || state.time - squad.formationSince > 4 && desiredScore >= currentScore + 15)) {
             squad.formation = desiredFormation;
             squad.formationSince = state.time;
@@ -4460,7 +4540,7 @@ import {
             member.formationGroup = formationGroupFor(member, index);
             const groupRank = groupRanks.get(member.formationGroup) || 0;
             groupRanks.set(member.formationGroup, groupRank + 1);
-            const local = formationLocalPosition(squad.formation, index, members.length, member, groupRank);
+            const local = formationSlotFor(squad.formation, index, members.length, member, groupRank);
             const slot = safeFormationPosition({
               x: clamp(anchor.x + right.x * local.x + forward.x * local.y, 20, worldWidth() - 20),
               y: clamp(anchor.y + right.y * local.x + forward.y * local.y, 20, worldHeight() - 20)
@@ -4472,8 +4552,13 @@ import {
           squad.cohesion = inPosition / members.length;
           if (distance(leader, squad.objective || leader) < 30 && squad.orderType !== "Advance" && squad.lastCreditedOrderAt !== squad.orderIssuedAt) {
             for (const member of members.slice(1)) {
-              recordRelationshipEvent(member, leader, "successfulOrder", "completed a commander route order", { cooldown: 55, reciprocal: 0.25 });
+              recordRelationshipEvent(member, leader, "commanderTrust", "completed a commander route order", { cooldown: 55, reciprocal: 0.25 });
             }
+            state.factionLearning[squad.faction]?.observe("successful-formation", {
+              formation: squad.formation,
+              success: true,
+              orderType: squad.orderType
+            }, { visible: true, observedAt: state.time });
             squad.lastCreditedOrderAt = squad.orderIssuedAt;
           }
         }
@@ -4484,19 +4569,59 @@ import {
       function updateArmyAI() {
         for (const player of state.players) {
           const behavior = aiBehaviorFor(player);
+          const operationalUnits = state.units.filter(unit => unit.alive && !unit.incapacitated && unit.faction === player.id && unit.role !== "builder");
+          const combinedArms = assignCombinedArmsSupport(operationalUnits);
+          player.combinedArmsGroups = Object.fromEntries(Object.entries(combinedArms.groups).map(([role, units]) => [role, units.length]));
+          for (const unit of operationalUnits) {
+            const assignment = combinedArms.assignments.get(unit.id);
+            unit.combinedArmsRole = Object.entries(combinedArms.groups).find(([, members]) => members.includes(unit))?.[0] || "infantry";
+            unit.combinedArmsTargetId = assignment?.targetId || null;
+            unit.combinedArmsPurpose = assignment?.purpose || "independent maneuver";
+          }
+          for (const transport of operationalUnits.filter(unit => unit.role === "vehicle" && unit.vehicleState?.passengerCapacity > 0)) {
+            const embarked = state.units.filter(unit => transport.vehicleState.passengerIds.includes(unit.id));
+            const enemyClose = state.units.some(unit => unit.alive && !unit.embarkedInId && !areAllies(unit.faction, transport.faction) && distance(unit, transport) < 150);
+            if (embarked.length && enemyClose) {
+              const deployed = disembarkTransport(transport.vehicleState, embarked, transport);
+              for (const member of deployed) member.status = "Deployed from transport";
+              incident(`${unitLabel(transport)} deployed ${deployed.length} passengers into contact.`, transport.id, "info");
+            } else if (!embarked.length) {
+              const squad = state.squads
+                .filter(candidate => candidate.faction === player.id)
+                .map(candidate => ({ squad: candidate, members: squadMembers(candidate.id).filter(member => member.alive && !member.embarkedInId && member.role !== "vehicle") }))
+                .filter(candidate => candidate.members.length && candidate.members.every(member => distance(member, transport) < 42))
+                .sort((a, b) => distance(a.members[0], transport) - distance(b.members[0], transport))[0];
+              if (squad) {
+                const boarded = squad.members.filter(member => boardTransport(transport.vehicleState, member));
+                if (boarded.length) {
+                  transport.transportingSquadId = squad.squad.id;
+                  transport.status = "Transporting squad";
+                  incident(`${unitLabel(transport)} embarked ${boarded.length} members of ${squad.squad.name}.`, transport.id, "info");
+                }
+              }
+            }
+          }
           const enemies = state.players.filter(other => !areAllies(other.id, player.id));
           const target = enemies.sort((a, b) => distance(player.base, a.base) - distance(player.base, b.base))[0] || null;
           const economy = economyFor(player.id);
           const contestedRoad = state.roads.some(road => areAllies(road.faction, player.id) && ["Contested", "Enemy controlled", "Blocked"].includes(road.status));
-          const force = state.units.filter(unit => unit.alive && unit.faction === player.id && unit.role !== "builder").length;
-          let goal = "Advance on enemy command";
+          const force = operationalUnits.length;
+          const branchGoal = {
+            attack: "Break enemy routes and eliminate resistance",
+            defend: "Secure approaches and deny routes",
+            expand: "Secure connected territory and strategic resources",
+            research: "Protect production and advance research",
+            logistics: "Keep supply network open",
+            regroup: "Consolidate squads and hold routes"
+          }[player.factionAIChoice];
+          let goal = branchGoal || "Advance on enemy command";
           if (contestedRoad || economy.shortages?.length) goal = "Keep supply network open";
           else if (force < 5) goal = "Consolidate squads and hold routes";
-          else if (behavior.economy >= 72 && economy.inventory.materials < economy.baseCapacity.materials * 0.55) goal = "Protect production and expand resource gathering";
-          else if (behavior.expansion >= 72) goal = "Secure connected territory and strategic resources";
-          else if (behavior.caution >= 72) goal = "Secure approaches and deny routes";
-          else if (behavior.aggression >= 72) goal = "Break enemy routes and eliminate resistance";
-          state.armyPlans[player.id] = { goal, targetFaction: target?.id || null, issuedAt: state.time };
+          else if (!branchGoal && behavior.economy >= 72 && economy.inventory.materials < economy.baseCapacity.materials * 0.55) goal = "Protect production and expand resource gathering";
+          else if (!branchGoal && behavior.expansion >= 72) goal = "Secure connected territory and strategic resources";
+          else if (!branchGoal && behavior.caution >= 72) goal = "Secure approaches and deny routes";
+          else if (!branchGoal && behavior.aggression >= 72) goal = "Break enemy routes and eliminate resistance";
+          state.armyPlans[player.id] = { goal, targetFaction: target?.id || null, issuedAt: state.time, combinedArms: player.combinedArmsGroups, branchChoice: player.factionAIChoice || null };
         }
       }
 
@@ -4648,7 +4773,7 @@ import {
         const withinRadius = (item, padding = 0) => distance(point, item) <= radius + padding;
         if (!state.spatialGrid?.size) {
           return {
-            units: state.units.filter(unit => unit.alive && withinRadius(unit, unit.role === "vehicle" ? 8 : 4)),
+            units: state.units.filter(unit => unit.alive && !unit.embarkedInId && withinRadius(unit, unit.role === "vehicle" ? 8 : 4)),
             structures: state.structures.filter(item => item.alive !== false && withinRadius(item, Math.max(item.hitbox?.w || 0, item.hitbox?.h || 0) / 2))
           };
         }
@@ -4666,7 +4791,7 @@ import {
             const bucket = state.spatialGrid.get(spatialGridKey(cellX, cellY));
             if (!bucket) continue;
             for (const unit of bucket.units) {
-              if (unit.alive) result.units.push(unit);
+              if (unit.alive && !unit.embarkedInId) result.units.push(unit);
             }
             for (const structure of bucket.structures) {
               if (structure.alive !== false) result.structures.push(structure);
@@ -5024,6 +5149,9 @@ import {
         applySuppression(target || projectile, projectile.faction, projectile.suppression);
         if (!target) return;
         const shooter = state.units.find(unit => unit.id === projectile.shooterId);
+        if (shooter && target.role && shooter.id !== target.id && areAllies(shooter.faction, target.faction)) {
+          recordRelationshipEvent(target, shooter, "friendlyFire", "was struck by friendly fire", { cooldown: 60, reciprocal: 0 });
+        }
         if (target.environmentObstacle) {
           state.aiDiagnostics.obstacleProjectileHits += 1;
           damageEnvironmentFeature(target, projectile.damage * (0.75 + projectile.penetration * 0.025), shooter);
@@ -5108,6 +5236,9 @@ import {
             for (const ally of nearbyCombatObjects(shooter, 90).units.filter(unit => unit.alive && areAllies(unit.faction, shooter.faction) && unit.id !== shooter.id).slice(0, 8)) {
               recordRelationshipEvent(ally, shooter, "foughtTogether", "secured a nearby kill", { cooldown: 24, reciprocal: 0.5 });
             }
+            const learning = state.factionLearning[shooter.faction];
+            learning?.observe("unit-effectiveness", { unitType: shooter.role || "unit", success: true }, { visible: true, observedAt: state.time });
+            learning?.observe("preferred-target", { targetType: target.role || target.type || "unit", success: true }, { visible: true, observedAt: state.time });
           }
           state.casualties[target.faction] += 1;
           handleFactionDeath(target, shooter);
@@ -5282,7 +5413,9 @@ import {
           .map(patient => {
             const hostiles = nearbyCombatObjects(patient, 75).units.filter(other => other.alive && !other.incapacitated && !areAllies(other.faction, unit.faction));
             const danger = clamp(hostiles.length / 4, 0, 1);
-            return { patient, danger, score: triageScore(patient, unit, danger, profile) };
+            const medicalPriority = triageScore(patient, unit, danger, profile);
+            const trust = (relationshipScore(unit, patient) + relationshipScore(patient, unit)) / 2;
+            return { patient, danger, score: relationshipPriority(medicalPriority, trust, "healing") };
           })
           .filter(item => distance(unit, item.patient) <= profile.approachRange * 1.8)
           .sort((a, b) => b.score - a.score);
@@ -5343,6 +5476,31 @@ import {
           }
           unit.status = "Clearing route";
           unit.lastAction = `Repairing ${roadDamage.road.name || roadDamage.road.id} after damage or obstruction.`;
+          return true;
+        }
+        const damagedVehicle = state.units
+          .filter(item => item.alive && item.role === "vehicle" && item.id !== unit.id && areAllies(item.faction, unit.faction) && item.hp < item.maxHp * 0.9)
+          .map(item => ({
+            item,
+            score: relationshipPriority(
+              (1 - item.hp / Math.max(1, item.maxHp)) * 100 - distance(unit, item) * 0.18,
+              (relationshipScore(unit, item) + relationshipScore(item, unit)) / 2,
+              "repair"
+            )
+          }))
+          .filter(candidate => distance(unit, candidate.item) <= 120)
+          .sort((a, b) => b.score - a.score)[0]?.item;
+        if (damagedVehicle) {
+          if (distance(unit, damagedVehicle) > 15) moveToward(unit, damagedVehicle, dt);
+          else {
+            damagedVehicle.hp = clamp(damagedVehicle.hp + dt * 8 * Math.max(0.5, unit.engineering || 0.5), 0, damagedVehicle.maxHp);
+            for (const system of Object.keys(damagedVehicle.vehicleSystems || {})) {
+              damagedVehicle.vehicleSystems[system] = clamp(damagedVehicle.vehicleSystems[system] + dt * 0.015, 0, 1);
+            }
+            recordRelationshipEvent(damagedVehicle, unit, "repairedAlly", "repaired their damaged vehicle", { cooldown: 40, reciprocal: 0.3 });
+          }
+          unit.status = "Repairing vehicle";
+          unit.lastAction = `Repairing ${unitLabel(damagedVehicle)} in the field.`;
           return true;
         }
         const damaged = state.structures
@@ -5534,8 +5692,78 @@ import {
         }
       }
 
+      function observedEnemiesFor(player) {
+        const observers = state.units.filter(unit => unit.alive && !unit.incapacitated && unit.faction === player.id);
+        if (!observers.length) return [];
+        return state.units.filter(enemy => enemy.alive && !enemy.incapacitated && !areAllies(enemy.faction, player.id)
+          && observers.some(observer => canDetectTarget(observer, enemy)));
+      }
+
+      function updateSharedFactionBranch(player) {
+        const profile = state.factionAIProfiles[player.id] ||= resolveFactionAIProfile(player);
+        const memory = state.factionLearning[player.id] ||= createFactionLearningMemory(profile);
+        const ownUnits = state.units.filter(unit => unit.alive && !unit.incapacitated && unit.faction === player.id);
+        const observedEnemies = observedEnemiesFor(player);
+        const economy = economyFor(player.id);
+        const hostileNearBase = observedEnemies.filter(enemy => distance(enemy, player.base) < 320).length;
+        const friendlyRoads = state.roads.filter(road => areAllies(road.controllerFaction || road.faction, player.id));
+        const riskyRoads = friendlyRoads.filter(road => ["Contested", "Enemy controlled", "Blocked", "Damaged"].includes(road.status)).length;
+        const casualtyCount = state.casualties[player.id] || 0;
+        const context = {
+          ownStrength: clamp(ownUnits.length / 24, 0, 1),
+          observedEnemyStrength: clamp(observedEnemies.length / 24, 0, 1),
+          enemyPressure: clamp(hostileNearBase / 7, 0, 1),
+          resourceShortage: clamp((economy.shortages?.length || 0) / 4, 0, 1),
+          territoryOpportunity: clamp(state.resourceZones.filter(zone => !zone.owner || !areAllies(zone.owner, player.id)).length / 6, 0.15, 1),
+          routeRisk: friendlyRoads.length ? riskyRoads / friendlyRoads.length : 0.35,
+          casualtyRatio: casualtyCount / Math.max(1, casualtyCount + ownUnits.length)
+        };
+        const decision = selectStrategicChoice(profile, context, memory.learnedWeights);
+        player.factionAIProfileId = profile.id;
+        player.factionAIChoice = decision.choice;
+        player.factionAIScores = decision.scores;
+
+        if ((player.nextEnemyPatternMemoryAt || 0) <= state.time && observedEnemies.length) {
+          const roleCounts = observedEnemies.reduce((counts, enemy) => {
+            counts[enemy.role || "unit"] = (counts[enemy.role || "unit"] || 0) + 1;
+            return counts;
+          }, {});
+          memory.observe("enemy-pattern", { roleCounts, sampleSize: observedEnemies.length }, { visible: true, observedAt: state.time });
+          player.nextEnemyPatternMemoryAt = state.time + 30;
+        }
+        if ((player.nextShortageMemoryAt || 0) <= state.time && economy.shortages?.length) {
+          for (const resource of economy.shortages) memory.observe("resource-shortage", { resource }, { visible: true, observedAt: state.time });
+          player.nextShortageMemoryAt = state.time + 45;
+        }
+      }
+
+      function persistBattleMemory(reason = "interval") {
+        try {
+          for (const player of state.players) {
+            const profile = state.factionAIProfiles[player.id];
+            const memory = state.factionLearning[player.id];
+            if (profile && memory) storageAdapter.save(`ai-memory:${profile.id}`, memory.toJSON());
+          }
+          const socialMemory = serializeRelationshipMemory(state.units, state.battleSeed);
+          storageAdapter.save(`relationship-memory:${state.battleSeed}`, socialMemory);
+          const snapshot = {
+            battleId: state.battleSeed,
+            at: state.time,
+            reason,
+            outcomes: structuredClone(state.strategicOutcomes),
+            factionChoices: Object.fromEntries(state.players.map(player => [player.id, player.factionAIChoice || null]))
+          };
+          state.battleHistory.push(snapshot);
+          state.battleHistory = state.battleHistory.slice(-32);
+          storageAdapter.save("battle-history", state.battleHistory);
+        } catch (error) {
+          console.warn("Battle memory could not be persisted.", error);
+        }
+      }
+
       function updateFactionAI() {
         for (const player of state.players) {
+          updateSharedFactionBranch(player);
           if (player.race === "Orks") updateOrkCulture(player);
           else if (player.race === "Tyranids") updateTyranidSwarm(player);
         }
@@ -5546,7 +5774,8 @@ import {
         unit.deathProcessed = true;
         const player = playerFor(unit.faction);
         for (const ally of nearbyCombatObjects(unit, unit.role === "commander" ? 190 : 110).units.filter(other => other.alive && other.faction === unit.faction && other.id !== unit.id)) {
-          const shock = unit.role === "commander" ? 0.24 : unit.role === "standard" ? 0.14 : 0.065;
+          const baseShock = unit.role === "commander" ? 0.24 : unit.role === "standard" ? 0.14 : 0.065;
+          const shock = baseShock * (1 + Math.max(0, relationshipEffect(relationshipScore(ally, unit), "morale")));
           ally.morale = clamp(ally.morale - shock * (1 - ally.discipline * 0.45), 0, 1);
           ally.suppression = clamp((ally.suppression || 0) + shock * 0.8, 0, 1);
         }
@@ -5580,6 +5809,9 @@ import {
             incident("A synapse organism died; lesser bioforms fell back on instinctive behaviour while the Hive Mind reroutes control.", unit.id, "critical");
           }
         }
+        const cell = `${Math.floor(unit.x / 128)},${Math.floor(unit.y / 128)}`;
+        state.factionLearning[unit.faction]?.observe("map-danger", { cell, danger: unit.role === "commander" ? 0.24 : 0.1 }, { visible: true, observedAt: state.time });
+        state.factionLearning[unit.faction]?.observe("unit-effectiveness", { unitType: unit.role || "unit", success: false }, { visible: true, observedAt: state.time });
         if (killer && player.race === "Tyranids") state.factionEcology[unit.faction].lastThreatFaction = killer.faction;
       }
 
@@ -5641,7 +5873,15 @@ import {
           const treatment = casualtyTreatmentPoint(unit);
           const carrierCandidate = state.units
             .filter(other => other.alive && !other.incapacitated && !other.carryingPatientId && areAllies(other.faction, unit.faction) && other.id !== unit.id && other.role !== "vehicle")
-            .sort((a, b) => distance(unit, a) - distance(unit, b))[0];
+            .map(other => ({
+              other,
+              score: relationshipPriority(
+                100 - distance(unit, other) * 1.5,
+                (relationshipScore(unit, other) + relationshipScore(other, unit)) / 2,
+                "rescue"
+              )
+            }))
+            .sort((a, b) => b.score - a.score)[0]?.other;
           const preserveVeteran = unit.experience > 24 || unit.role === "commander" || state.lighting.factionPreservation === "high";
           const evacuationApproved = shouldEvacuate(unit, 0, distance(unit, treatment), profile);
           if (carrierCandidate && distance(unit, carrierCandidate) < 34 && evacuationApproved && (preserveVeteran || distance(unit, treatment) < 220)) {
@@ -5745,6 +5985,30 @@ import {
       function updateUnit(unit, dt) {
         if (!unit.alive) return;
         ensureIndividualRuntime(unit);
+        if (unit.embarkedInId) {
+          const carrier = state.units.find(candidate => candidate.id === unit.embarkedInId && candidate.alive);
+          if (carrier) {
+            unit.x = carrier.x;
+            unit.y = carrier.y;
+            unit.status = `Embarked in ${carrier.name}`;
+            unit.lastAction = "Riding under armor to the deployment point.";
+            return;
+          }
+          unit.embarkedInId = null;
+        }
+        if (unit.role === "vehicle") {
+          unit.vehicleState ||= createVehicleState(unit);
+          unit.vehiclePerformance = updateVehicleState(unit.vehicleState, dt, {
+            moving: ["Advancing", "Closing", "Retreating", "Combined-arms support"].includes(unit.status),
+            firing: Boolean(unit.targetId && unit.fireCd > 0),
+            legacySystems: unit.vehicleSystems || {}
+          });
+          if (!unit.vehiclePerformance.operational) {
+            unit.status = "Vehicle disabled";
+            unit.lastAction = "Hull, crew, or drivetrain damage has disabled the vehicle.";
+            return;
+          }
+        }
         const combatEvents = updateCombatState(unit, dt);
         for (const event of combatEvents) {
           if (event.type === "melee-strike") applyMeleeStrike(unit, event.targetId, event.charged);
@@ -5948,6 +6212,13 @@ import {
             unit.lastAction = `${assignedSquad.orderType} · deforming around terrain into ${assignedSquad.formation} formation.`;
             return;
           }
+        }
+        const combinedArmsTarget = state.units.find(candidate => candidate.id === unit.combinedArmsTargetId && candidate.alive && !candidate.incapacitated);
+        if (combinedArmsTarget && distance(unit, combinedArmsTarget) > (unit.role === "vehicle" ? 96 : 72)) {
+          moveToward(unit, combinedArmsTarget, dt, unit.role === "vehicle" ? 0.82 : 0.92);
+          unit.status = "Combined-arms support";
+          unit.lastAction = `${unit.combinedArmsPurpose || "Mutual support"} with ${unitLabel(combinedArmsTarget)}.`;
+          return;
         }
         unit.objectiveCooldown = (unit.objectiveCooldown || 0) - dt;
         if (!unit.cachedObjective || unit.objectiveCooldown <= 0) {
@@ -6436,6 +6707,7 @@ import {
           reroutes: 0,
           roadRevision: state.roadRevision,
           activeSegmentId: null,
+          memoryRouteId: options.routeId || `${Math.round(origin.x / 128)},${Math.round(origin.y / 128)}>${Math.round(destination.x / 128)},${Math.round(destination.y / 128)}`,
           trade: Boolean(options.trade),
           training: Boolean(options.training),
           trainingRequestId: options.trainingRequestId || null,
@@ -6680,7 +6952,12 @@ import {
         if (!memberSpecs.length || memberSpecs.length !== requestedCount || requestedCount < (targetSquad ? minimumReplacementBatch : fullSpecs.length)) return [];
         const batchId = `guard-batch-${state.time.toFixed(2)}-${state.nextUnitIndex[player.id]}`;
         const newUnits = memberSpecs.map((spec, index) => {
-          const unit = makeUnit(player.id, spec.role || "trooper", `${factionBuildingLabel(player.id, "barracks")} squad deployment`);
+          const unit = makeUnit(player.id, spec.role || "trooper", {
+            method: "ground-deployment",
+            sourceId: barracks.id,
+            sourceType: "building",
+            label: `${factionBuildingLabel(player.id, "barracks")} squad deployment`
+          });
           unit.name = `${spec.title}${spec.ordinal > 1 ? ` ${spec.ordinal}` : ""}`;
           unit.specialty = spec.title;
           unit.weapon = spec.weapon || unit.weapon;
@@ -6741,7 +7018,10 @@ import {
       function productionManifestFor(player, availableSlots) {
         const cycle = player.productionCycle || 0;
         let manifest;
-        if (player.faction === "Space Marines") {
+        const vehicleRoster = factionProfile(player).roster?.vehicle || [];
+        if (cycle > 0 && cycle % 5 === 4 && vehicleRoster.length) {
+          manifest = [{ name: vehicleRoster[Math.floor(cycle / 5) % vehicleRoster.length], role: "vehicle" }];
+        } else if (player.faction === "Space Marines") {
           const size = cycle % 3 === 2 ? 10 : 5;
           manifest = [{ name: "Sergeant", role: "commander" }, ...Array.from({ length: size - 1 }, () => ({ name: cycle % 2 ? "Intercessor" : "Tactical Marine", role: "trooper" }))];
         } else if (player.race === "Orks") {
@@ -6770,9 +7050,14 @@ import {
           : player.race === "Orks" ? `Mob mustered at the ${factionBuildingLabel(player.id, "barracks")}`
             : `${factionBuildingLabel(player.id, "barracks")} formation deployment`;
         const units = manifest.map((member, index) => {
-          const unit = makeUnit(player.id, member.role, source);
+          const unit = makeUnit(player.id, member.role, {
+            sourceId: barracks.id,
+            sourceType: "building",
+            label: source
+          });
           unit.name = `${member.name} ${unit.index + 1}`;
           unit.specialty = member.name;
+          if (unit.role === "vehicle") unit.vehicleState = createVehicleState(unit);
           const angle = index / Math.max(1, manifest.length) * Math.PI * 2;
           const ring = 20 + Math.floor(index / 10) * 10;
           unit.x = clamp(barracks.x + Math.cos(angle) * ring, 24, worldWidth() - 24);
@@ -6886,10 +7171,18 @@ import {
         const activePod = state.dropPods.some(pod => pod.faction === player.id && !pod.deployed);
         if (activePod) return false;
         const landing = bestDropPodLandingZone(player);
-        const distant = distance(player.base, landing.point) > 420;
-        const urgent = landing.score > 34;
-        const groundRoute = nearestRoadSegment(player.base, 65) && nearestRoadSegment(landing.point, 65);
-        return urgent && (distant || !groundRoute || landing.enemyCount >= 2);
+        const travelDistance = distance(player.base, landing.point);
+        const groundRoute = Boolean(nearestRoadSegment(player.base, 65) && nearestRoadSegment(landing.point, 65));
+        const decision = chooseDeploymentMethod({
+          faction: player.faction,
+          race: player.race,
+          distance: travelDistance,
+          urgency: clamp((landing.score + (landing.enemyCount || 0) * 10) / 100, 0, 1),
+          groundRoute,
+          friendlyTerritory: landing.ownership === player.id,
+          specialAvailable: { "drop-pod": true }
+        });
+        return decision.method === "drop-pod" && landing.score > 34;
       }
 
       function startDropPod(player, request) {
@@ -7130,7 +7423,7 @@ import {
           unit.medicalReserve ??= 2;
           unit.fuelReserve ??= unit.role === "vehicle" ? 12 : 0;
           if (needsFood) unit.rations = Math.max(0, unit.rations - 0.28 * upkeep);
-          if (unit.role === "vehicle" && ["Advancing", "Closing", "Retreating"].includes(unit.status)) unit.fuelReserve = Math.max(0, unit.fuelReserve - 0.45 * upkeep);
+          if (unit.role === "vehicle" && ["Advancing", "Closing", "Retreating", "Combined-arms support"].includes(unit.status)) unit.fuelReserve = Math.max(0, unit.fuelReserve - 0.45 * upkeep);
           if (pressure > 0.4 && unit.ammo > 0) unit.ammo = Math.max(0, unit.ammo - pressure * 0.12);
           if (unit.rations < 1.2 || unit.role === "vehicle" && unit.fuelReserve < 2 || unit.ammo < unit.maxAmmo * 0.18) requestUnitResupply(unit);
           if (unit.rations <= 0) unit.morale = clamp(unit.morale - 0.035, 0.12, 1);
@@ -7282,6 +7575,7 @@ import {
             unit.medicalReserve = (unit.medicalReserve || 0) + (convoy.cargo.medical || 0);
             unit.rations = (unit.rations || 0) + (convoy.cargo.food || 0);
             unit.fuelReserve = (unit.fuelReserve || 0) + (convoy.cargo.fuel || 0);
+            if (unit.vehicleState) unit.vehicleState.fuel = Math.min(unit.vehicleState.maxFuel, unit.vehicleState.fuel + (convoy.cargo.fuel || 0) * 4);
             economy.queue.filter(item => item.targetId === unit.id).forEach(item => { item.status = "Delivered"; });
           }
         } else if (convoy.destinationKind === "structure") {
@@ -7294,6 +7588,10 @@ import {
         convoy.status = "Delivered";
         convoy.finished = true;
         convoy.finishedAt = state.time;
+        state.factionLearning[convoy.faction]?.observe("route-safety", {
+          routeId: convoy.memoryRouteId || convoy.activeSegmentId || convoy.id,
+          safe: true
+        }, { visible: true, observedAt: state.time });
         syncLegacyResources(convoy.faction);
       }
 
@@ -7340,6 +7638,14 @@ import {
               convoy.status = ambushers.length ? `Ambushed · ${ambushers.length} attackers` : "Awaiting escort";
               convoy.escortRequested = true;
             } else convoy.status = ambushers.length ? `Ambushed · ${escorts} escort` : `Under attack · ${escorts} escort`;
+            if ((convoy.lastRouteMemoryAt || 0) + 20 <= state.time) {
+              state.factionLearning[convoy.faction]?.observe("route-safety", {
+                routeId: convoy.memoryRouteId || convoy.activeSegmentId || convoy.id,
+                safe: false,
+                attackers: attackerIds.size
+              }, { visible: true, observedAt: state.time });
+              convoy.lastRouteMemoryAt = state.time;
+            }
           } else if (convoy.status === "Awaiting escort" && escorts) convoy.status = "Escort arrived · continuing";
           if (convoy.hp <= 0) {
             convoy.finished = true;
@@ -7351,6 +7657,11 @@ import {
               wreckedRoad.segment.operationalFlags = [...new Set([...(wreckedRoad.segment.operationalFlags || []), "wreck", "damaged"])]
             }
             incident(`${convoy.name} was destroyed; remaining cargo lost on the route.`, null, "critical");
+            state.factionLearning[convoy.faction]?.observe("route-safety", {
+              routeId: convoy.memoryRouteId || convoy.activeSegmentId || convoy.id,
+              safe: false,
+              destroyed: true
+            }, { visible: true, observedAt: state.time });
             continue;
           }
           const terrainType = terrainAt(waypoint).type;
@@ -7391,6 +7702,24 @@ import {
             convoy.blockedRerouteUntil = state.time + 4;
             continue;
           }
+          if (convoy.mode === "cargo aircraft") {
+            convoy.aircraftState ||= createAircraftState({
+              id: `${convoy.id}-aircraft`,
+              type: "transport",
+              passengerCapacity: 0,
+              sourceId: convoy.originId || `logistics:${convoy.faction}`
+            });
+            if (convoy.aircraftState.phase === "landed") convoy.aircraftState.phase = "taking-off";
+            const antiAirThreat = hostile.filter(unit => unit.combinedArmsRole === "anti-air" || unit.role === "vehicle").length
+              + state.structures.filter(structure => structure.alive !== false && !areAllies(structure.faction, convoy.faction) && structure.type === "turret" && distance(structure, convoy) < 180).length;
+            updateAircraftState(convoy.aircraftState, dt, { antiAirThreat });
+            convoy.altitude = convoy.aircraftState.altitude;
+            convoy.hp = Math.min(convoy.hp, convoy.maxHp * convoy.aircraftState.integrity);
+            if (convoy.aircraftState.phase === "crashed") {
+              convoy.hp = 0;
+              convoy.status = "Aircraft crashed";
+            }
+          }
           const roadSpeed = activeRoad ? clamp((activeRoad.segment.condition ?? 0.2) * 1.1 + 0.28 - (activeRoad.segment.traffic || 0) / Math.max(1, activeRoad.segment.capacity) * 0.18, 0.28, 1.35) : 0.72;
           const speed = convoy.mode === "cargo aircraft" ? 34 : 13 * roadSpeed;
           const hold = convoy.status === "Awaiting escort" ? 0.24 : 1;
@@ -7419,7 +7748,12 @@ import {
           if (pod.stage === "Deployed") {
             pod.deployed = true;
             for (const [index, role] of ["commander", "trooper", "medic"].entries()) {
-              const unit = makeUnit(pod.faction, role, "Orbital drop pod");
+              const unit = makeUnit(pod.faction, role, {
+                method: "drop-pod",
+                sourceId: pod.id,
+                sourceType: "drop-pod",
+                label: "Orbital drop pod"
+              });
               const angle = index * Math.PI * 2 / 3;
               let landingPoint = { x: pod.destination.x + Math.cos(angle) * 14, y: pod.destination.y + Math.sin(angle) * 14 };
               for (let attempt = 0; attempt < 10; attempt += 1) {
@@ -7866,6 +8200,7 @@ import {
             outcome.status = outcome.surrendered ? "Surrendered · military capability collapsed" : "Defeated · no operational military capability";
             outcome.decidedAt = state.time;
             incident(`${player.faction} ${outcome.surrendered ? "surrendered" : "lost the war"}: no combat force, rebuilding production, reinforcement route, operational commander, or allied rescue force remains.`, null, "critical");
+            persistBattleMemory("faction-defeated");
           } else if (ownPower < enemyPower * 0.22 && state.time > 90) {
             if (mayWithdraw) outcome.status = forceMorale < 0.38 ? "Evaluating withdrawal or surrender" : "Withdrawing to preserve operational forces";
             else outcome.status = player.race === "Tyranids" ? "Consuming reserves · no surrender" : player.race === "Orks" ? "Last Waaagh! · no surrender" : "Last stand · no surrender";
@@ -7958,6 +8293,10 @@ import {
         if (state.time >= state.nextSnapshot) {
           captureSnapshot();
           state.nextSnapshot += state.speed >= 8 ? 6 : 1.5;
+        }
+        if (state.time >= state.nextMemoryPersistAt) {
+          persistBattleMemory("interval");
+          state.nextMemoryPersistAt += 120;
         }
         if (state.time >= state.nextMilestone) {
           const strongest = state.players
@@ -9151,6 +9490,7 @@ import {
 
       function drawUnit(unit, historical) {
         const view = historical || unit;
+        if (view.embarkedInId) return;
         if (!pointVisible(view, Math.max(96, unit.range || 0))) return;
         const color = playerColor(unit.faction);
         const secondary = playerSecondaryColor(unit.faction);
@@ -9995,6 +10335,18 @@ import {
         root.dataset.synapseCoverage = String(Math.round(Math.max(0, ...Object.values(state.factionEcology).map(item => item.synapseCoverage || 0)) * 100));
         root.dataset.waaaghMomentum = String(Math.round(Math.max(0, ...Object.values(state.factionEcology).map(item => item.waaaghMomentum || 0)) * 100));
         root.dataset.dropPods = String(state.dropPods.length);
+        root.dataset.unsourcedUnits = String(state.units.filter(unit => !validateDeploymentRecord(unit.deployment)).length);
+        root.dataset.aircraft = String(state.convoys.filter(convoy => convoy.mode === "cargo aircraft" && !convoy.finished).length);
+        root.dataset.combinedArmsGroups = state.players.map(player => `${player.id}:${Object.entries(player.combinedArmsGroups || {}).filter(([, count]) => count > 0).map(([role, count]) => `${role}=${count}`).join(",")}`).join("|");
+        root.dataset.factionAIBranches = state.players.map(player => `${player.id}:${state.factionAIProfiles[player.id]?.branch || "unknown"}:${player.factionAIChoice || "pending"}`).join("|");
+        root.dataset.learningObservations = String(Object.values(state.factionLearning).reduce((sum, memory) => sum + (memory.observations?.length || 0), 0));
+        root.dataset.relationshipBands = JSON.stringify(state.units.filter(unit => unit.alive).reduce((counts, unit) => {
+          for (const record of Object.values(unit.relationships || {})) {
+            const band = relationshipBand(record.score || 0);
+            counts[band] = (counts[band] || 0) + 1;
+          }
+          return counts;
+        }, {}));
         root.dataset.hostileDropPods = String(state.dropPods.filter(pod => pod.landingOwnership && ![pod.faction, "allied"].includes(pod.landingOwnership)).length);
         root.dataset.dropPodScores = state.dropPods.map(pod => Math.round(pod.landingScore || 0)).join(",");
         root.dataset.exploredChunks = String(state.explored[state.fogPlayer]?.size || 0);

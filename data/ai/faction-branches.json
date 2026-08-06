@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "sharedCore": ["combat", "economy", "territory", "pathfinding", "logistics", "squads", "morale", "learning"],
+  "races": {
+    "Space Marines": { "behavior": { "aggression": 58, "caution": 54, "expansion": 44, "economy": 48 }, "weights": { "attack": 1.05, "defend": 1.0, "expand": 0.82, "research": 1.05, "logistics": 0.9, "melee": 0.85, "ranged": 1.1, "vehicles": 0.95, "swarm": 0.25 }, "identity": { "elite": 0.9, "discipline": 0.9, "mobility": 0.72 } },
+    "Imperial Guard": { "behavior": { "aggression": 46, "caution": 62, "expansion": 56, "economy": 68 }, "weights": { "attack": 0.92, "defend": 1.15, "expand": 1.0, "research": 0.8, "logistics": 1.25, "melee": 0.45, "ranged": 1.15, "vehicles": 1.2, "swarm": 0.72 }, "identity": { "attrition": 0.82, "artillery": 0.85, "discipline": 0.74 } },
+    "Chaos": { "behavior": { "aggression": 72, "caution": 34, "expansion": 54, "economy": 42 }, "weights": { "attack": 1.22, "defend": 0.72, "expand": 0.98, "research": 0.88, "logistics": 0.7, "melee": 1.18, "ranged": 0.9, "vehicles": 0.9, "swarm": 0.62 }, "identity": { "ritual": 0.86, "corruption": 0.9, "aggression": 0.84 } },
+    "Orks": { "behavior": { "aggression": 88, "caution": 18, "expansion": 68, "economy": 28 }, "weights": { "attack": 1.38, "defend": 0.52, "expand": 1.12, "research": 0.45, "logistics": 0.62, "melee": 1.4, "ranged": 0.72, "vehicles": 1.08, "swarm": 1.25 }, "identity": { "waaagh": 1.0, "melee": 0.95, "improvisation": 0.88 } },
+    "Necrons": { "behavior": { "aggression": 52, "caution": 68, "expansion": 42, "economy": 66 }, "weights": { "attack": 0.96, "defend": 1.2, "expand": 0.75, "research": 1.32, "logistics": 0.72, "melee": 0.72, "ranged": 1.12, "vehicles": 1.1, "swarm": 0.45 }, "identity": { "reanimation": 1.0, "durability": 0.94, "technology": 0.95 } },
+    "Tau": { "behavior": { "aggression": 42, "caution": 74, "expansion": 60, "economy": 64 }, "weights": { "attack": 0.86, "defend": 1.06, "expand": 1.08, "research": 1.18, "logistics": 1.1, "melee": 0.28, "ranged": 1.42, "vehicles": 1.15, "swarm": 0.32 }, "identity": { "ranged": 1.0, "coordination": 0.94, "meleeAvoidance": 1.0 } },
+    "Tyranids": { "behavior": { "aggression": 78, "caution": 24, "expansion": 86, "economy": 36 }, "weights": { "attack": 1.24, "defend": 0.58, "expand": 1.38, "research": 0.55, "logistics": 0.45, "melee": 1.22, "ranged": 0.7, "vehicles": 0.72, "swarm": 1.5 }, "identity": { "swarm": 1.0, "adaptation": 0.94, "synapse": 1.0 } }
+  },
+  "subfactions": {
+    "Ultramarines": { "weights": { "defend": 1.08, "logistics": 1.02 }, "identity": { "discipline": 1.0 } },
+    "Blood Angels": { "weights": { "attack": 1.16, "melee": 1.28, "defend": 0.84 } },
+    "Salamanders": { "weights": { "defend": 1.2, "logistics": 1.08 }, "identity": { "rescue": 0.95 } },
+    "White Scars": { "weights": { "attack": 1.1, "vehicles": 1.2, "expand": 1.08 }, "identity": { "mobility": 1.0 } },
+    "Krieg": { "weights": { "attack": 1.08, "defend": 1.18, "logistics": 1.14 }, "identity": { "attrition": 1.0 } },
+    "Cadian": { "weights": { "defend": 1.22, "ranged": 1.12 }, "identity": { "discipline": 0.95 } },
+    "Goffs": { "weights": { "attack": 1.22, "melee": 1.35, "vehicles": 0.86 } },
+    "Evil Sunz": { "weights": { "vehicles": 1.38, "expand": 1.18, "defend": 0.72 }, "identity": { "mobility": 1.0 } },
+    "Behemoth": { "weights": { "attack": 1.3, "melee": 1.25, "expand": 1.1 } },
+    "Kraken": { "weights": { "expand": 1.25, "attack": 1.12 }, "identity": { "mobility": 0.96 } },
+    "Sautekh": { "weights": { "defend": 1.18, "research": 1.2, "ranged": 1.08 } },
+    "Farsight Enclaves": { "weights": { "attack": 1.18, "melee": 0.48, "ranged": 1.28, "defend": 0.82 } }
+  }
+}
