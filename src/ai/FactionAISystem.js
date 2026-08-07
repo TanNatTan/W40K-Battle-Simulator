@@ -21,10 +21,10 @@ function normalize(value) { return String(value || "").toLowerCase().replace(/[^
 export function raceBranchFor(player = {}) {
   const race = normalize(player.race);
   const faction = normalize(player.faction);
+  if (race.includes("chaos")) return "Chaos";
   if (faction.includes("spacemarine")) return "Space Marines";
   if (faction.includes("imperialguard")) return "Imperial Guard";
   if (faction.includes("machinecult") || faction.includes("mechanicus")) return "Adeptus Mechanicus";
-  if (race.includes("chaos")) return "Chaos";
   if (race.includes("ork")) return "Orks";
   if (race.includes("necron")) return "Necrons";
   if (race.includes("tau")) return "Tau";

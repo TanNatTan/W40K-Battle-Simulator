@@ -1,9 +1,11 @@
-const CELL_STATES = Object.freeze({
+export const CELL_STATES = Object.freeze({
   neutral: "neutral",
   claimed: "claimed",
   contested: "contested",
   abandoned: "abandoned"
 });
+
+export const CELL_STATE = CELL_STATES;
 
 export const OBJECTIVE_TYPES = Object.freeze([
   "strategic-point",
@@ -27,13 +29,21 @@ export const OBJECTIVE_EFFECTS = Object.freeze({
   "resource-hub": { control: 2, resource: 3 }
 });
 
-const DEFAULT_WEIGHTS = Object.freeze({
+export const DEFAULT_WEIGHTS = Object.freeze({
   resourceAccess: 1,
   objectives: 1.6,
   roadControl: 1.2,
   supplyConnection: 1.4,
   baseDefense: 1.1,
   strategicDepth: 0.7
+});
+
+export const UNIT_CONFIG = Object.freeze({
+  unitsPerPlayer: 10,
+  baseCaptureSeconds: 60,
+  perUnitBonus: 0.2,
+  maxUnitsPerTarget: 5,
+  moveSecondsPerHop: 3.5
 });
 
 const mulberry32 = seed => {
@@ -128,14 +138,29 @@ export class SpatialPartition {
     }
     const polygons = this._polygons(this.sites);
     this.cells = polygons.map((cell, index) => {
-      const nearest = this.sites
+      const edgeNeighbors = polygons
+        .map((candidate, candidateIndex) => candidateIndex !== index && SpatialPartition._sharesEdge(cell.polygon, candidate.polygon) ? candidateIndex : -1)
+        .filter(candidateIndex => candidateIndex >= 0);
+      // Degenerate border cells still receive a navigable fallback connection.
+      const neighbors = edgeNeighbors.length ? edgeNeighbors : this.sites
         .map((site, candidate) => ({ candidate, value: candidate === index ? Infinity : distance(cell.site, site) }))
         .sort((a, b) => a.value - b.value)
-        .slice(0, 6)
+        .slice(0, 1)
         .map(item => item.candidate);
-      return { ...cell, id: index, neighbors: nearest };
+      return { ...cell, id: index, neighbors };
     });
     this._makeAdjacencySymmetric();
+  }
+
+  static _sharesEdge(first, second) {
+    const epsilon = 0.75;
+    let sharedVertices = 0;
+    for (const a of first) {
+      for (const b of second) {
+        if (Math.abs(a.x - b.x) < epsilon && Math.abs(a.y - b.y) < epsilon) sharedVertices += 1;
+      }
+    }
+    return sharedVertices >= 2;
   }
 
   _scatter(count) {
@@ -189,37 +214,51 @@ export class TerritorySystem {
   constructor(partition, players = [], options = {}) {
     this.partition = partition;
     this.weights = { ...DEFAULT_WEIGHTS, ...(options.weights || {}) };
-    this.strengthProvider = typeof options.strengthProvider === "function" ? options.strengthProvider : null;
+    this.unitConfig = { ...UNIT_CONFIG, ...(options.unitConfig || {}) };
     this.players = new Map(players.map(player => [player.id, { ...player }]));
     this.tickCount = 0;
+    this.simSeconds = 0;
     this.log = [];
-    this.random = mulberry32(options.combatSeed ?? 999);
-    this.cells = partition.cells.map(source => ({
-      id: source.id,
-      polygon: source.polygon.map(point => ({ ...point })),
-      neighbors: [...source.neighbors],
-      centroid: PolygonMath.centroid(source.polygon),
-      area: PolygonMath.area(source.polygon),
-      owner: null,
-      state: CELL_STATES.neutral,
-      objective: null,
-      resourceAccess: 0,
-      roadControl: 0,
-      supplyConnected: false,
-      contest: null,
-      lastOwner: null,
-      isolatedTicks: 0,
-      isBase: false
-    }));
+    this.cells = partition.cells.map(source => {
+      const cell = {
+        id: source.id,
+        polygon: source.polygon.map(point => ({ ...point })),
+        neighbors: [...source.neighbors],
+        centroid: PolygonMath.centroid(source.polygon),
+        area: PolygonMath.area(source.polygon),
+        owner: null,
+        state: CELL_STATES.neutral,
+        objective: null,
+        resources: { resourceAccess: 0, roadControl: 0, supplyConnected: false },
+        siege: null,
+        lastOwner: null,
+        isolatedTicks: 0,
+        isBase: false
+      };
+      // Flat aliases preserve the existing renderer and objective evaluator API.
+      for (const key of ["resourceAccess", "roadControl", "supplyConnected"]) {
+        Object.defineProperty(cell, key, {
+          enumerable: true,
+          get: () => cell.resources[key],
+          set: value => { cell.resources[key] = value; }
+        });
+      }
+      return cell;
+    });
     this.byId = new Map(this.cells.map(cell => [cell.id, cell]));
     this._cellReferences = new Map(this.cells.map(cell => [cell.id, cell]));
-    this.garrisons = new Map(players.map(player => [player.id, Number(options.startingGarrison) || 40]));
-    this.casualties = new Map(players.map(player => [player.id, 0]));
-    this.eliminated = new Set();
-    this.gameOver = false;
-    this.winner = null;
     this._seedAuthoredLayer(options);
     this._seedBases(players);
+    this.units = [];
+    this._spawnUnits();
+    this._unitReferences = new Map(this.units.map(unit => [unit.id, unit]));
+    // Compatibility readout for the current UI; territory agents are the garrison.
+    this.garrisons = new Map(players.map(player => [player.id, this.unitConfig.unitsPerPlayer]));
+    this.casualties = new Map(players.map(player => [player.id, 0]));
+    this.eliminated = new Set();
+    this._reconnectTimer = 0;
+    this.gameOver = false;
+    this.winner = null;
   }
 
   _seedAuthoredLayer(options) {
@@ -248,16 +287,40 @@ export class TerritorySystem {
     }
   }
 
+  _spawnUnits() {
+    for (const player of this.players.values()) {
+      for (let index = 0; index < this.unitConfig.unitsPerPlayer; index += 1) {
+        this.units.push({
+          id: `${player.id}-territory-${index}`,
+          playerId: player.id,
+          cellId: player.baseCellId,
+          targetCellId: null,
+          path: [],
+          moveTimer: 0,
+          state: "idle"
+        });
+      }
+    }
+  }
+
   _setOwner(cell, owner, state) {
     if (cell.owner && cell.owner !== owner) cell.lastOwner = cell.owner;
     cell.owner = owner;
     cell.state = state;
-    cell.contest = null;
+    cell.siege = null;
     cell.isolatedTicks = 0;
   }
 
   _record(action, cell, actor, detail = "") {
-    this.log.push({ tick: this.tickCount, action, cellId: cell?.id ?? null, actor: actor ?? null, detail });
+    this.log.push({
+      tick: this.tickCount,
+      action,
+      type: action,
+      cellId: cell?.id ?? null,
+      actor: actor ?? null,
+      playerId: actor ?? null,
+      detail
+    });
     if (this.log.length > 2000) this.log.splice(0, this.log.length - 2000);
   }
 
@@ -275,7 +338,7 @@ export class TerritorySystem {
     if (this.gameOver) return false;
     const cell = this.byId.get(cellId);
     if (!cell || cell.owner === playerId) return false;
-    if (cell.owner && cell.state !== CELL_STATES.abandoned) return this.contestCell(cellId, playerId);
+    if (cell.owner) return false;
     this._setOwner(cell, playerId, CELL_STATES.claimed);
     this._record("claim", cell, playerId, reason);
     return true;
@@ -288,9 +351,8 @@ export class TerritorySystem {
     cell.lastOwner = owner;
     cell.owner = null;
     cell.state = CELL_STATES.neutral;
-    cell.contest = null;
+    cell.siege = null;
     this._record("lose", cell, owner, reason);
-    this._checkVictory();
     return true;
   }
 
@@ -302,48 +364,22 @@ export class TerritorySystem {
     return true;
   }
 
-  _strength(cell, playerId, unitStrength = 0) {
-    const objective = OBJECTIVE_EFFECTS[cell.objective] || {};
-    const adjacent = cell.neighbors.filter(id => this.byId.get(id)?.owner === playerId).length;
-    const garrison = Math.sqrt(this.garrisons.get(playerId) || 0) * 0.6;
-    return 1 + unitStrength + adjacent * 0.65 + garrison + (objective.defense || 0) * (cell.owner === playerId ? 1 : 0);
-  }
-
-  contestCell(cellId, challengerId, combat = {}) {
+  /** Scripted contests resolve immediately; live contests advance through unit sieges. */
+  contestCell(cellId, challengerId) {
     if (this.gameOver) return false;
     const cell = this.byId.get(cellId);
-    if (!cell?.owner || cell.owner === challengerId) return false;
-    const defenderId = cell.owner;
-    const attackerUnits = combat.attackerStrength ?? this.strengthProvider?.(cell, challengerId) ?? 0;
-    const defenderUnits = combat.defenderStrength ?? this.strengthProvider?.(cell, defenderId) ?? 0;
-    const stakes = (cell.objective ? 1.3 : 1) * (cell.isBase ? 1.5 : 1);
-    const attacker = this._strength(cell, challengerId, attackerUnits) * stakes * (0.75 + this.random() * 0.5);
-    const defender = this._strength(cell, defenderId, defenderUnits) * 1.15 * stakes * (0.75 + this.random() * 0.5);
+    if (!cell || cell.owner === challengerId) return false;
     cell.state = CELL_STATES.contested;
-    cell.contest = { challengerId, defenderId, attacker, defender };
-    this._record("contest", cell, challengerId, cell.isBase ? `base siege against ${defenderId}` : `battle against ${defenderId}`);
+    cell.siege = { attackerId: challengerId, progress: 1, unitsAssigned: 0 };
+    this._record("contest", cell, challengerId, cell.owner ? `siege against ${cell.owner}` : "claiming neutral territory");
     return this.resolveContest(cellId);
   }
 
   resolveContest(cellId) {
     const cell = this.byId.get(cellId);
-    if (!cell?.contest || cell.state !== CELL_STATES.contested) return false;
-    const { challengerId, defenderId, attacker, defender } = cell.contest;
-    const loss = Math.min(attacker, defender) * 0.4;
-    for (const playerId of [challengerId, defenderId]) {
-      this.garrisons.set(playerId, Math.max(0, (this.garrisons.get(playerId) || 0) - loss));
-      this.casualties.set(playerId, (this.casualties.get(playerId) || 0) + loss);
-    }
-    if (attacker > defender) {
-      this._setOwner(cell, challengerId, CELL_STATES.claimed);
-      this._record("decapture", cell, challengerId, cell.isBase ? `overran ${defenderId}'s base` : `defeated ${defenderId}`);
-      this._checkVictory();
-      return true;
-    }
-    cell.state = CELL_STATES.claimed;
-    cell.contest = null;
-    this._record("hold", cell, defenderId);
-    return false;
+    if (!cell?.siege) return false;
+    this._resolveSiege(cell);
+    return true;
   }
 
   abandonCell(cellId) {
@@ -353,7 +389,7 @@ export class TerritorySystem {
     cell.lastOwner = owner;
     cell.owner = null;
     cell.state = CELL_STATES.abandoned;
-    cell.contest = null;
+    cell.siege = null;
     this._record("abandon", cell, owner);
     return true;
   }
@@ -390,13 +426,14 @@ export class TerritorySystem {
     return { isolated, reconnected };
   }
 
-  _score(cell, playerId, aggression) {
+  _score(cell, playerId, aggression = 0) {
     const objective = OBJECTIVE_EFFECTS[cell.objective] || {};
-    const base = this.players.get(playerId)?.base;
+    const player = this.players.get(playerId);
+    const baseCell = this.byId.get(player?.baseCellId);
     const enemy = cell.owner && cell.owner !== playerId;
     const supply = cell.neighbors.some(id => this.byId.get(id)?.owner === playerId) ? 1 : 0;
     const depth = cell.neighbors.filter(id => this.byId.get(id)?.owner === playerId).length;
-    const baseDefense = base ? 1 / Math.max(1, distance(cell.centroid, base) / Math.max(this.partition.width, this.partition.height)) : 0;
+    const baseDefense = baseCell ? 1 - Math.min(1, distance(cell.centroid, baseCell.centroid) / Math.max(this.partition.width, this.partition.height)) : 0;
     return (cell.resourceAccess + (objective.resource || 0)) * this.weights.resourceAccess
       + (objective.control || 0) * this.weights.objectives
       + (cell.roadControl + (objective.road || 0)) * this.weights.roadControl
@@ -407,41 +444,176 @@ export class TerritorySystem {
       + (cell.isBase && enemy ? aggression * 16 : 0);
   }
 
-  aiTick(playerId, { maxClaimsPerTick = 1, overextendThreshold = 0.4, aggression = 0 } = {}) {
-    if (this.gameOver || this.eliminated.has(playerId)) return [];
-    const owned = this.fieldFor(playerId);
+  rankSiegeTargets(playerId, aggression = 0) {
     const frontier = new Set();
-    for (const cell of owned) for (const id of cell.neighbors) if (this.byId.get(id)?.owner !== playerId) frontier.add(id);
-    const ranked = [...frontier].map(id => this.byId.get(id)).filter(Boolean)
-      .sort((a, b) => this._score(b, playerId, aggression) - this._score(a, playerId, aggression));
-    const actions = [];
-    for (const cell of ranked.slice(0, maxClaimsPerTick)) {
-      const success = cell.owner ? this.contestCell(cell.id, playerId) : this.claimCell(cell.id, playerId, "AI frontier expansion");
-      actions.push({ type: cell.owner ? "combat" : "claim", cellId: cell.id, success });
+    for (const cell of this.cells) {
+      if (cell.owner !== playerId) continue;
+      for (const neighborId of cell.neighbors) {
+        if (this.byId.get(neighborId)?.owner !== playerId) frontier.add(neighborId);
+      }
     }
-    if (aggression < 1 && owned.length / this.cells.length > overextendThreshold) {
-      const weak = owned.filter(cell => !cell.isBase).sort((a, b) => this._score(a, playerId, aggression) - this._score(b, playerId, aggression))[0];
-      if (weak && this.abandonCell(weak.id)) actions.push({ type: "abandon", cellId: weak.id, success: true });
-    }
-    this.reconnectIsolatedCells(playerId);
-    return actions;
+    const candidates = frontier.size
+      ? [...frontier].map(id => this.byId.get(id)).filter(Boolean)
+      : this.cells.filter(cell => cell.owner !== playerId);
+    return candidates.map(cell => ({ cell, score: this._score(cell, playerId, aggression) }))
+      .sort((a, b) => b.score - a.score);
   }
 
-  step({ maxClaimsPerTick = 1, aggression = 0 } = {}) {
-    if (this.gameOver) return [];
-    this.tickCount += 1;
-    for (const playerId of this.players.keys()) {
-      const resources = this.fieldFor(playerId).reduce((sum, cell) => sum + cell.resourceAccess, 0);
-      this.garrisons.set(playerId, Math.min(200, (this.garrisons.get(playerId) || 0) + this.territoryCount(playerId) * 0.15 + resources * 0.1));
+  _findPath(fromId, toId) {
+    if (fromId === toId) return [];
+    const visited = new Set([fromId]);
+    const queue = [[fromId]];
+    while (queue.length) {
+      const path = queue.shift();
+      const last = path[path.length - 1];
+      for (const neighborId of this.byId.get(last)?.neighbors || []) {
+        if (visited.has(neighborId)) continue;
+        if (neighborId === toId) return [...path.slice(1), neighborId];
+        visited.add(neighborId);
+        queue.push([...path, neighborId]);
+      }
     }
-    const actions = [];
-    for (const playerId of this.players.keys()) actions.push(...this.aiTick(playerId, { maxClaimsPerTick, aggression }));
+    return null;
+  }
+
+  _assignIdleUnits(playerId, aggression = 0) {
+    if (this.eliminated.has(playerId)) return;
+    const idle = this.units.filter(unit => unit.playerId === playerId && unit.state === "idle");
+    if (!idle.length) return;
+    const ranked = this.rankSiegeTargets(playerId, aggression);
+    if (!ranked.length) return;
+    for (const unit of idle) {
+      let chosen = ranked[0].cell;
+      for (const { cell } of ranked) {
+        const assigned = this.units.filter(candidate => candidate.playerId === playerId
+          && candidate.targetCellId === cell.id && candidate.state !== "idle").length;
+        if (assigned < this.unitConfig.maxUnitsPerTarget) {
+          chosen = cell;
+          break;
+        }
+      }
+      unit.targetCellId = chosen.id;
+      unit.moveTimer = 0;
+      if (unit.cellId === chosen.id) {
+        unit.path.length = 0;
+        unit.state = "capturing";
+      } else {
+        const path = this._findPath(unit.cellId, chosen.id);
+        unit.path = path || [];
+        unit.state = path?.length ? "moving" : "idle";
+      }
+    }
+  }
+
+  _updateMovement(dtSeconds) {
+    for (const unit of this.units) {
+      if (unit.state !== "moving") continue;
+      unit.moveTimer += dtSeconds;
+      while (unit.moveTimer >= this.unitConfig.moveSecondsPerHop && unit.path.length) {
+        unit.moveTimer -= this.unitConfig.moveSecondsPerHop;
+        unit.cellId = unit.path.shift();
+      }
+      if (!unit.path.length && unit.cellId === unit.targetCellId) unit.state = "capturing";
+    }
+  }
+
+  _updateSieges(dtSeconds) {
+    const forces = new Map();
+    for (const unit of this.units) {
+      if (unit.state !== "capturing") continue;
+      const cell = this.byId.get(unit.cellId);
+      if (!cell || cell.owner === unit.playerId) {
+        unit.state = "idle";
+        unit.targetCellId = null;
+        continue;
+      }
+      if (!forces.has(cell.id)) forces.set(cell.id, new Map());
+      const byPlayer = forces.get(cell.id);
+      byPlayer.set(unit.playerId, (byPlayer.get(unit.playerId) || 0) + 1);
+    }
+    for (const [cellId, byPlayer] of forces) {
+      const cell = this.byId.get(cellId);
+      let attackerId = null;
+      let unitsAssigned = 0;
+      for (const [playerId, count] of byPlayer) {
+        if (count > unitsAssigned) {
+          attackerId = playerId;
+          unitsAssigned = count;
+        }
+      }
+      if (!cell.siege || cell.siege.attackerId !== attackerId) {
+        cell.siege = { attackerId, progress: 0, unitsAssigned };
+      }
+      cell.state = CELL_STATES.contested;
+      cell.siege.unitsAssigned = unitsAssigned;
+      const rate = (1 / this.unitConfig.baseCaptureSeconds)
+        * (1 + this.unitConfig.perUnitBonus * Math.max(0, unitsAssigned - 1));
+      cell.siege.progress = Math.min(1, cell.siege.progress + rate * dtSeconds);
+      if (cell.siege.progress >= 1) this._resolveSiege(cell);
+      if (this.gameOver) break;
+    }
+  }
+
+  _resolveSiege(cell) {
+    const attackerId = cell.siege?.attackerId;
+    if (!attackerId) return false;
+    const defenderId = cell.owner;
+    const wasBase = cell.isBase;
+    if (!defenderId) {
+      if (cell.lastOwner === attackerId) this.reclaimCell(cell.id, attackerId);
+      else this.claimCell(cell.id, attackerId, "siege-complete");
+    } else {
+      this._setOwner(cell, attackerId, CELL_STATES.claimed);
+      this._record("decapture", cell, attackerId, wasBase ? `overran ${defenderId}'s base` : `overcame ${defenderId}`);
+      this._record("lose", cell, defenderId, `lost to ${attackerId}`);
+    }
+    cell.siege = null;
+    for (const unit of this.units) {
+      if (unit.playerId === attackerId && unit.cellId === cell.id && unit.state === "capturing") {
+        unit.state = "idle";
+        unit.targetCellId = null;
+      }
+    }
     this._checkVictory();
-    return actions;
+    return true;
+  }
+
+  advance(dtSeconds = 1, { aggression = 0 } = {}) {
+    if (this.gameOver) return [];
+    const elapsed = Math.max(0, Number(dtSeconds) || 0);
+    const logStart = this.log.length;
+    this.tickCount += 1;
+    this.simSeconds += elapsed;
+    for (const playerId of this.players.keys()) this._assignIdleUnits(playerId, aggression);
+    this._updateMovement(elapsed);
+    this._updateSieges(elapsed);
+    this._reconnectTimer += elapsed;
+    if (this._reconnectTimer >= 2) {
+      this._reconnectTimer %= 2;
+      for (const playerId of this.players.keys()) this.reconnectIsolatedCells(playerId);
+    }
+    this._checkVictory();
+    this.assertNoNewObjects();
+    this.assertNoNewUnits();
+    return this.log.slice(logStart);
+  }
+
+  step({ dtSeconds = 5, aggression = 0 } = {}) {
+    return this.advance(dtSeconds, { aggression });
   }
 
   _checkVictory() {
-    for (const playerId of this.players.keys()) if (this.territoryCount(playerId) === 0) this.eliminated.add(playerId);
+    for (const playerId of this.players.keys()) {
+      if (this.territoryCount(playerId) === 0) {
+        this.eliminated.add(playerId);
+        for (const unit of this.units) {
+          if (unit.playerId !== playerId) continue;
+          unit.state = "idle";
+          unit.targetCellId = null;
+          unit.path.length = 0;
+        }
+      }
+    }
     const alive = [...this.players.keys()].filter(playerId => !this.eliminated.has(playerId));
     if (alive.length <= 1 && this.players.size > 1) {
       this.gameOver = true;
@@ -456,21 +628,41 @@ export class TerritorySystem {
     return true;
   }
 
+  assertNoNewUnits() {
+    if (this.units.length !== this._unitReferences.size) throw new Error("Territory unit pool size changed.");
+    for (const unit of this.units) if (this._unitReferences.get(unit.id) !== unit) throw new Error(`Territory unit ${unit.id} was replaced.`);
+    return true;
+  }
+
+  unitsFor(playerId) {
+    return this.units.filter(unit => unit.playerId === playerId);
+  }
+
   toJSON() {
     return {
-      version: 1,
+      version: 2,
       tickCount: this.tickCount,
+      simSeconds: this.simSeconds,
       cells: this.cells.map(cell => ({
         id: cell.id, owner: cell.owner, state: cell.state, objective: cell.objective,
-        resourceAccess: cell.resourceAccess, roadControl: cell.roadControl,
-        supplyConnected: cell.supplyConnected, contest: cell.contest ? { ...cell.contest } : null,
+        resources: { ...cell.resources }, siege: cell.siege ? { ...cell.siege } : null,
         lastOwner: cell.lastOwner, isolatedTicks: cell.isolatedTicks, isBase: cell.isBase
+      })),
+      units: this.units.map(unit => ({
+        id: unit.id,
+        playerId: unit.playerId,
+        cellId: unit.cellId,
+        targetCellId: unit.targetCellId,
+        path: [...unit.path],
+        moveTimer: unit.moveTimer,
+        state: unit.state
       })),
       garrisons: Object.fromEntries(this.garrisons),
       casualties: Object.fromEntries(this.casualties),
       eliminated: [...this.eliminated],
       gameOver: this.gameOver,
-      winner: this.winner
+      winner: this.winner,
+      log: this.log.slice(-500)
     };
   }
 
@@ -480,15 +672,45 @@ export class TerritorySystem {
     for (const saved of state.cells) {
       const cell = this.byId.get(saved.id);
       if (!cell) throw new Error(`Unknown territory cell ${saved.id}.`);
-      Object.assign(cell, saved, { contest: saved.contest ? { ...saved.contest } : null });
+      cell.owner = saved.owner ?? null;
+      cell.state = saved.state || CELL_STATES.neutral;
+      cell.objective = saved.objective ?? null;
+      cell.resources = saved.resources ? { ...saved.resources } : {
+        resourceAccess: Number(saved.resourceAccess) || 0,
+        roadControl: Number(saved.roadControl) || 0,
+        supplyConnected: Boolean(saved.supplyConnected)
+      };
+      cell.siege = saved.siege ? { ...saved.siege } : saved.contest ? {
+        attackerId: saved.contest.challengerId,
+        progress: 0,
+        unitsAssigned: 0
+      } : null;
+      cell.lastOwner = saved.lastOwner ?? null;
+      cell.isolatedTicks = Number(saved.isolatedTicks) || 0;
+      cell.isBase = Boolean(saved.isBase);
+    }
+    if (state.units) {
+      const savedUnits = new Map(state.units.map(unit => [unit.id, unit]));
+      for (const unit of this.units) {
+        const saved = savedUnits.get(unit.id);
+        if (!saved) continue;
+        unit.cellId = saved.cellId;
+        unit.targetCellId = saved.targetCellId ?? null;
+        unit.path = [...(saved.path || [])];
+        unit.moveTimer = Number(saved.moveTimer) || 0;
+        unit.state = saved.state || "idle";
+      }
     }
     this.tickCount = Number(state.tickCount) || 0;
+    this.simSeconds = Number(state.simSeconds) || 0;
     this.garrisons = new Map(Object.entries(state.garrisons || {}));
     this.casualties = new Map(Object.entries(state.casualties || {}));
     this.eliminated = new Set(state.eliminated || []);
     this.gameOver = Boolean(state.gameOver);
     this.winner = state.winner ?? null;
+    this.log = [...(state.log || [])];
     this.assertNoNewObjects();
+    this.assertNoNewUnits();
     return this;
   }
 }

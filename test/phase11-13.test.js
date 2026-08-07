@@ -23,7 +23,7 @@ test("Phase 11 dynamic polygon manager mutates, queries, harvests, and restores 
   assert.equal(restored.remove(zone.id), true);
 });
 
-test("Phase 12 allocates one irregular polygon pool and implements every territory action", () => {
+test("Phase 12 allocates fixed irregular territory and unit pools and implements every action", () => {
   const partition = new SpatialPartition({ width: 900, height: 600, cellCount: 48, seed: 42 });
   assert.equal(partition.cells.length, 48);
   assert.ok(new Set(partition.cells.map(cell => cell.polygon.length)).size > 1);
@@ -36,6 +36,9 @@ test("Phase 12 allocates one irregular polygon pool and implements every territo
     roads: [{ points: [{ x: 20, y: 20 }, { x: 450, y: 300 }, { x: 880, y: 580 }] }]
   });
   const references = [...system.cells];
+  const unitReferences = [...system.units];
+  assert.equal(system.unitsFor("red").length, 10);
+  assert.equal(system.unitsFor("blue").length, 10);
   assert.deepEqual(new Set(system.cells.map(cell => cell.objective)), new Set([null, ...OBJECTIVE_TYPES]));
   const redBase = system.fieldFor("red")[0];
   const neutral = redBase.neighbors.map(id => system.byId.get(id)).find(cell => !cell.owner);
@@ -45,15 +48,65 @@ test("Phase 12 allocates one irregular polygon pool and implements every territo
   assert.equal(system.abandonCell(neutral.id), true);
   assert.equal(system.claimCell(neutral.id, "red"), true);
   assert.equal(system.contestCell(neutral.id, "blue", { attackerStrength: 10000 }), true);
-  assert.ok(system.casualties.get("red") > 0);
+  assert.equal(neutral.owner, "blue");
   assert.equal(system.assertNoNewObjects(), true);
+  assert.equal(system.assertNoNewUnits(), true);
   assert.ok(system.cells.every((cell, index) => cell === references[index]));
+  assert.ok(system.units.every((unit, index) => unit === unitReferences[index]));
   const saved = JSON.stringify(system.toJSON());
   const restored = new TerritorySystem(new SpatialPartition({ width: 900, height: 600, cellCount: 48, seed: 42 }), [
     { id: "red", base: { x: 30, y: 30 } }, { id: "blue", base: { x: 870, y: 570 } }
   ]);
   restored.loadState(saved);
   assert.equal(restored.territoryCount("blue"), system.territoryCount("blue"));
+  assert.equal(restored.units.length, system.units.length);
+});
+
+test("Phase 12 unit sieges take one minute alone and gain 20 percent per additional unit", () => {
+  const createSystem = () => {
+    const partition = new SpatialPartition({ width: 900, height: 600, cellCount: 48, seed: 24 });
+    return new TerritorySystem(partition, [
+      { id: "red", base: { x: 30, y: 30 } },
+      { id: "blue", base: { x: 870, y: 570 } }
+    ]);
+  };
+  const measureCapture = attackerCount => {
+    const system = createSystem();
+    const target = system.rankSiegeTargets("red")[0].cell;
+    const attackers = system.unitsFor("red").slice(0, attackerCount);
+    for (const unit of system.units) unit.state = "idle";
+    for (const unit of attackers) {
+      unit.cellId = target.id;
+      unit.targetCellId = target.id;
+      unit.path.length = 0;
+      unit.state = "capturing";
+    }
+    let seconds = 0;
+    while (target.owner !== "red" && seconds < 200) {
+      system._updateSieges(1);
+      seconds += 1;
+    }
+    return seconds;
+  };
+  assert.ok(Math.abs(measureCapture(1) - 60) <= 2);
+  assert.ok(Math.abs(measureCapture(4) - 37.5) <= 2);
+});
+
+test("Phase 12 AI expands only through movement and timed frontier sieges", () => {
+  const partition = new SpatialPartition({ width: 1000, height: 700, cellCount: 60, seed: 42 });
+  const system = new TerritorySystem(partition, [
+    { id: "red", base: { x: 20, y: 20 } },
+    { id: "blue", base: { x: 980, y: 680 } }
+  ]);
+  const initialCells = system.cells.length;
+  const initialUnits = system.units.length;
+  for (let second = 0; second < 240; second += 1) system.advance(1, { aggression: 1 });
+  assert.ok(system.territoryCount("red") > 1 || system.territoryCount("blue") > 1);
+  assert.ok(system.log.some(entry => entry.type === "claim"));
+  assert.equal(system.cells.length, initialCells);
+  assert.equal(system.units.length, initialUnits);
+  assert.equal(system.assertNoNewObjects(), true);
+  assert.equal(system.assertNoNewUnits(), true);
 });
 
 test("Phase 12 annihilate combat captures bases, eliminates factions, and respects game over", () => {

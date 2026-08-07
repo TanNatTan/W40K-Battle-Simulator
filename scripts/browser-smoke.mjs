@@ -118,7 +118,12 @@ try {
     document.querySelector('#awt-create-map').click();
     document.querySelector('#awt-configure-players').click();
     const objective = document.querySelector('#awt-player-battle-objective');
+    const race = document.querySelector('#awt-player-race');
+    const subfaction = document.querySelector('#awt-player-subfaction');
     const result = {
+      raceCount: race?.options?.length || 0,
+      selectedRace: race?.value || null,
+      subfactionCount: subfaction?.options?.length || 0,
       objectiveCount: objective?.options?.length || 0,
       selectedObjective: objective?.value || null,
       objectiveName: document.querySelector('#awt-objective-name')?.textContent || null,
@@ -127,9 +132,33 @@ try {
       presetControl: Boolean(document.querySelector('#awt-player-ai-preset')),
       temperamentControls: document.querySelectorAll('[id^="awt-ai-aggression"], [id^="awt-ai-caution"], [id^="awt-ai-expansion"], [id^="awt-ai-economy"]').length
     };
+    document.querySelector('[data-player-tab="1"]').click();
+    result.secondPlayer = {
+      title: document.querySelector('#awt-player-panel-title')?.textContent || null,
+      race: race.value,
+      faction: document.querySelector('#awt-player-faction').value,
+      subfaction: subfaction.value,
+      objective: objective.value
+    };
+    race.value = 'Chaos';
+    race.dispatchEvent(new Event('change', { bubbles: true }));
+    result.changedRace = {
+      race: race.value,
+      faction: document.querySelector('#awt-player-faction').value,
+      subfactionCount: subfaction.options.length,
+      hasNightLords: [...subfaction.options].some(option => option.value === 'Night Lords'),
+      objectiveCount: objective.options.length,
+      objectiveName: document.querySelector('#awt-objective-name')?.textContent || null
+    };
+    document.querySelector('[data-player-tab="0"]').click();
     return result;
   })()`);
-  if (playerSetup.objectiveCount !== 18 || !playerSetup.selectedObjective || !playerSetup.objectiveName || !playerSetup.objectiveMethod
+  if (playerSetup.raceCount !== 6 || playerSetup.selectedRace !== 'Imperium' || playerSetup.subfactionCount < 9
+    || playerSetup.objectiveCount !== 18 || !playerSetup.selectedObjective || !playerSetup.objectiveName || !playerSetup.objectiveMethod
+    || playerSetup.secondPlayer?.title !== 'Player 2 configuration' || playerSetup.secondPlayer?.race !== 'Orks'
+    || playerSetup.changedRace?.race !== 'Chaos' || playerSetup.changedRace?.faction !== 'Chaos Space Marines'
+    || playerSetup.changedRace?.subfactionCount < 9 || !playerSetup.changedRace?.hasNightLords
+    || playerSetup.changedRace?.objectiveCount !== 18 || playerSetup.changedRace?.objectiveName !== "Slaughter in the Gods' Name"
     || playerSetup.doctrineControl || playerSetup.presetControl || playerSetup.temperamentControls) {
     throw new Error(`Battle objective setup failed: ${JSON.stringify(playerSetup)}`);
   }
@@ -272,6 +301,26 @@ try {
   if (resumedEnd.paused || resumedEnd.time <= resumedStart.time + 2 || resumedEnd.frames <= resumedStart.frames) {
     throw new Error(`Resume/8x lifecycle failed: ${JSON.stringify({ resumedStart, resumedEnd })}`);
   }
+  await new Promise(resolve => setTimeout(resolve, 1500));
+  const builderHealth = await evaluate(`(() => {
+    const root = document.querySelector('#autonomous-war-theater');
+    const state = root.awtDebugState;
+    const builders = state.units.filter(unit => unit.role === 'builder');
+    return {
+      paused: state.paused,
+      failures: Number(root.dataset.frameFailures || 0),
+      builderCount: builders.length,
+      livingBuilders: builders.filter(unit => unit.alive).length,
+      activeProjects: builders.filter(unit => unit.buildProject).length,
+      statuses: builders.map(unit => unit.status),
+      structures: state.structures.length,
+      completedStructures: state.structures.filter(structure => structure.progress >= 1).length
+    };
+  })()`);
+  if (builderHealth.paused || builderHealth.failures !== 0 || builderHealth.builderCount < 2
+    || builderHealth.livingBuilders !== builderHealth.builderCount || builderHealth.structures < builderHealth.builderCount) {
+    throw new Error(`Builder lifecycle failed: ${JSON.stringify(builderHealth)}`);
+  }
   const faultStart = await sampleLifecycle();
   await evaluate("document.querySelector('#autonomous-war-theater').awtDebugControls.injectSimulationFault('smoke fault')");
   await new Promise(resolve => setTimeout(resolve, 500));
@@ -281,7 +330,7 @@ try {
   }
   const lifecycle = { runningStart, runningEnd, pausedStart, pausedEnd, resumedStart, resumedEnd, faultStart, faultEnd };
 
-  console.log(JSON.stringify({ startup, playerSetup, editor: { ...editor, cameraAfter }, simulation, lifecycle }, null, 2));
+  console.log(JSON.stringify({ startup, playerSetup, editor: { ...editor, cameraAfter }, simulation, builderHealth, lifecycle }, null, 2));
 } finally {
   socket?.close();
   if (browser && browser.exitCode === null) {

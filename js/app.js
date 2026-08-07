@@ -3024,11 +3024,13 @@ import {
             objectives,
             resourceZones: state.resourceZones,
             roads: state.roads,
-            startingGarrison: 40,
-            combatSeed: seed ^ 0x9E3779B9,
-            strengthProvider: (cell, faction) => state.units
-              .filter(unit => unit.alive && unit.faction === faction && distance(unit, cell.centroid) <= 150)
-              .reduce((sum, unit) => sum + combatPowerScore(unit), 0)
+            unitConfig: {
+              unitsPerPlayer: 10,
+              baseCaptureSeconds: 60,
+              perUnitBonus: 0.2,
+              maxUnitsPerTarget: 5,
+              moveSecondsPerHop: 3.5
+            }
           }
         );
         state.strategicTerritoryVictoryReported = false;
@@ -3677,7 +3679,7 @@ import {
         }
 
         const damaged = urgentRepair || nearbyCombatObjects(unit, 260).structures
-          .filter(item => item.alive !== false && areAllies(item.faction, unit.faction) && item.progress >= 1 && item.condition < (repairDoctrine ? 0.82 : 0.5))
+          .filter(item => item.alive !== false && areAllies(item.faction, unit.faction) && item.progress >= 1 && item.condition < (repairPriority ? 0.82 : 0.5))
           .sort((a, b) => a.condition - b.condition || distance(unit, a) - distance(unit, b))[0];
         if (damaged) {
           if (distance(unit, damaged) > 13) moveToward(unit, damaged, dt);
@@ -8254,8 +8256,9 @@ import {
         }
         if (state.strategicTerritory && !state.strategicTerritory.gameOver) {
           const aggression = state.players.reduce((sum, player) => sum + aiBehaviorFor(player).aggression, 0) / Math.max(1, state.players.length * 100);
-          state.strategicTerritory.step({ maxClaimsPerTick: 1, aggression });
+          state.strategicTerritory.step({ dtSeconds: 2, aggression });
           state.strategicTerritory.assertNoNewObjects();
+          state.strategicTerritory.assertNoNewUnits();
         }
         if (state.strategicTerritory?.gameOver && !state.strategicTerritoryVictoryReported) {
           state.strategicTerritoryVictoryReported = true;
@@ -8268,6 +8271,7 @@ import {
         root.dataset.territoryObjects = String(state.territories.filter(item => item.cellBacked).length);
         root.dataset.territoryCells = String(state.territories.reduce((sum, territory) => sum + (territory.claimedCells?.size || 0), 0));
         root.dataset.strategicTerritoryCells = String(state.strategicTerritory?.cells.filter(cell => cell.owner).length || 0);
+        root.dataset.strategicTerritorySieges = String(state.strategicTerritory?.cells.filter(cell => cell.siege).length || 0);
         root.dataset.strategicTerritoryGameOver = String(Boolean(state.strategicTerritory?.gameOver));
       }
 
@@ -11069,10 +11073,10 @@ import {
         }).join(" · ");
         els.forceContext.textContent = `${visibleForces}${state.players.length > 6 ? ` · +${state.players.length - 6} players` : ""}`;
         if (state.strategicTerritory) {
-          const garrisonSummary = state.players.slice(0, 4)
-            .map(player => `P${player.index + 1} G${Math.round(state.strategicTerritory.garrisons.get(player.id) || 0)}`)
+          const territoryAgentSummary = state.players.slice(0, 4)
+            .map(player => `P${player.index + 1} A${state.strategicTerritory.unitsFor(player.id).length}`)
             .join(" / ");
-          els.forceContext.textContent += ` / ${garrisonSummary}`;
+          els.forceContext.textContent += ` / ${territoryAgentSummary}`;
         }
         els.playerCount.textContent = `${state.players.length} players`;
         const completeBuildings = (snapshot?.structures || state.structures).filter(item => item.progress >= 1 && item.alive !== false).length;
@@ -11764,8 +11768,8 @@ import {
         const bounds = cameraBounds(80);
         ctx.save();
         for (const cell of state.strategicTerritory.cells) {
-          if (!cell.owner || !pointsVisible(cell.polygon, 20, bounds)) continue;
-          const color = playerColor(cell.owner);
+          if ((!cell.owner && !cell.siege) || !pointsVisible(cell.polygon, 20, bounds)) continue;
+          const color = playerColor(cell.siege?.attackerId || cell.owner);
           ctx.beginPath();
           ctx.moveTo(cell.polygon[0].x, cell.polygon[0].y);
           for (let index = 1; index < cell.polygon.length; index += 1) ctx.lineTo(cell.polygon[index].x, cell.polygon[index].y);
@@ -11785,6 +11789,15 @@ import {
             ctx.beginPath();
             ctx.arc(cell.centroid.x, cell.centroid.y, (cell.isBase ? 5 : 3.5) / state.camera.zoom, 0, Math.PI * 2);
             ctx.fill();
+          }
+          if (cell.siege) {
+            const radius = 8 / state.camera.zoom;
+            ctx.globalAlpha = 0.95;
+            ctx.strokeStyle = colors.foreground;
+            ctx.lineWidth = 2 / state.camera.zoom;
+            ctx.beginPath();
+            ctx.arc(cell.centroid.x, cell.centroid.y, radius, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * cell.siege.progress);
+            ctx.stroke();
           }
         }
         ctx.restore();

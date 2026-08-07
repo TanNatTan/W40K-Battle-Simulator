@@ -32,6 +32,15 @@ test("all universal objectives receive race-specific names and plans", () => {
   assert.ok(plan.signals.attack > plan.signals.expansion);
 });
 
+test("Chaos Space Marines keep the Chaos branch and objective language", () => {
+  const chaos = { race: "Chaos", faction: "Chaos Space Marines", subfaction: "Night Lords", battleObjective: "annihilation" };
+  const profile = resolveFactionAIProfile(chaos, factions);
+  const plan = resolveBattleObjectivePlan(chaos, profile, objectives);
+  assert.equal(profile.branch, "Chaos");
+  assert.equal(plan.name, "Slaughter in the Gods' Name");
+  assert.equal(plan.method, "terror_isolation_assassination");
+});
+
 test("subfactions pursue the same objective through different methods", () => {
   const imperialFist = { race: "Imperium", faction: "Space Marines", subfaction: "Imperial Fists", battleObjective: "stronghold_assault" };
   const bloodAngel = { race: "Imperium", faction: "Space Marines", subfaction: "Blood Angels", battleObjective: "stronghold_assault" };
