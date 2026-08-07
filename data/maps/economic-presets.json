@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "presets": {
+    "iron": {
+      "resourceZones": [
+        { "id": "iron-north-ore", "name": "Northern Valley Ore", "resourceType": "materials", "capacity": 25000, "gatherRate": 20, "regeneration": 0, "requiresBuilding": true, "points": [[0.20,0.18],[0.34,0.16],[0.37,0.30],[0.22,0.33]] },
+        { "id": "iron-promethium", "name": "Promethium Field", "resourceType": "fuel", "capacity": 12000, "gatherRate": 14, "regeneration": 0, "requiresBuilding": true, "points": [[0.60,0.62],[0.76,0.60],[0.80,0.76],[0.63,0.79]] },
+        { "id": "iron-rations", "name": "Western Agri Reserve", "resourceType": "food", "capacity": 1000, "infinite": true, "gatherRate": 12, "regeneration": 0, "requiresBuilding": false, "points": [[0.08,0.55],[0.20,0.51],[0.24,0.70],[0.10,0.73]] }
+      ],
+      "economicNodes": [
+        { "id": "iron-hive", "name": "Hive City Alpha", "type": "hive-city", "x": 0.18, "y": 0.44 },
+        { "id": "iron-forge", "name": "Manufactorum Delta", "type": "manufactorum", "x": 0.42, "y": 0.38 },
+        { "id": "iron-mechanicus", "name": "Mechanicus Enclave", "type": "mechanicus-enclave", "x": 0.66, "y": 0.44 },
+        { "id": "iron-fortress", "name": "Fortress Monastery", "type": "fortress-monastery", "x": 0.84, "y": 0.58 }
+      ],
+      "tradeRoutes": [
+        { "id": "iron-spine", "name": "Iron Economic Spine", "type": "rail", "fromNodeId": "iron-hive", "toNodeId": "iron-fortress", "capacity": 160, "resources": ["food","requisition","materials","parts","energy","ammunition"], "allowedFactions": ["*"], "roadRequired": false, "bidirectional": true, "points": [[0.18,0.44],[0.42,0.38],[0.66,0.44],[0.84,0.58]] }
+      ]
+    },
+    "verdant": {
+      "resourceZones": [
+        { "id": "verdant-food", "name": "Western Forest Produce", "resourceType": "food", "capacity": 1000, "infinite": true, "gatherRate": 12, "regeneration": 0, "requiresBuilding": false, "points": [[0.12,0.22],[0.31,0.18],[0.35,0.38],[0.16,0.42]] },
+        { "id": "verdant-biomass", "name": "Great Biomass Basin", "resourceType": "biomass", "capacity": 30000, "gatherRate": 22, "regeneration": 0.5, "requiresBuilding": false, "points": [[0.56,0.48],[0.73,0.45],[0.77,0.67],[0.59,0.70]] },
+        { "id": "verdant-energy", "name": "Hydro-Energy Catchment", "resourceType": "energy", "capacity": 18000, "gatherRate": 15, "regeneration": 0.2, "requiresBuilding": true, "points": [[0.38,0.70],[0.49,0.66],[0.53,0.83],[0.40,0.86]] }
+      ],
+      "economicNodes": [
+        { "id": "verdant-agri", "name": "Agri Complex Eos", "type": "agri-complex", "x": 0.20, "y": 0.52 },
+        { "id": "verdant-city", "name": "Civilian Settlement Greenfall", "type": "civilian-settlement", "x": 0.46, "y": 0.48 },
+        { "id": "verdant-port", "name": "Space Port Canopy", "type": "space-port", "x": 0.76, "y": 0.34 }
+      ],
+      "tradeRoutes": [
+        { "id": "verdant-river-route", "name": "Greenfall River Exchange", "type": "river", "fromNodeId": "verdant-agri", "toNodeId": "verdant-port", "capacity": 110, "resources": ["food","medical","fuel","requisition"], "allowedFactions": ["*"], "roadRequired": false, "bidirectional": true, "points": [[0.20,0.52],[0.46,0.48],[0.62,0.40],[0.76,0.34]] }
+      ]
+    },
+    "ash": {
+      "resourceZones": [
+        { "id": "ash-scrap", "name": "Ash Wastes Salvage", "resourceType": "scrap", "capacity": 22000, "gatherRate": 18, "regeneration": 0, "requiresBuilding": false, "points": [[0.15,0.58],[0.31,0.53],[0.35,0.72],[0.18,0.76]] },
+        { "id": "ash-fuel", "name": "Black Promethium Wells", "resourceType": "fuel", "capacity": 15000, "gatherRate": 16, "regeneration": 0, "requiresBuilding": true, "points": [[0.61,0.18],[0.77,0.20],[0.79,0.37],[0.63,0.39]] },
+        { "id": "ash-ore", "name": "Obsidian Mining Shelf", "resourceType": "materials", "capacity": 28000, "gatherRate": 20, "regeneration": 0, "requiresBuilding": true, "points": [[0.48,0.62],[0.66,0.59],[0.70,0.80],[0.51,0.82]] }
+      ],
+      "economicNodes": [
+        { "id": "ash-mine", "name": "Mining Complex Cinder", "type": "mining-colony", "x": 0.24, "y": 0.30 },
+        { "id": "ash-refinery", "name": "Promethium Refinery IX", "type": "fuel-refinery", "x": 0.50, "y": 0.48 },
+        { "id": "ash-elevator", "name": "Orbital Elevator Terminus", "type": "orbital-elevator", "x": 0.78, "y": 0.66 }
+      ],
+      "tradeRoutes": [
+        { "id": "ash-underground", "name": "Cinder Subsurface Artery", "type": "underground", "fromNodeId": "ash-mine", "toNodeId": "ash-elevator", "capacity": 130, "resources": ["materials","scrap","fuel","energy","requisition"], "allowedFactions": ["*"], "roadRequired": false, "bidirectional": true, "points": [[0.24,0.30],[0.50,0.48],[0.78,0.66]] }
+      ]
+    }
+  }
+}

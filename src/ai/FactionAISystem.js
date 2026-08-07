@@ -7,6 +7,7 @@ export const STRATEGIC_CHOICES = Object.freeze(["attack", "defend", "expand", "r
 export const FALLBACK_FACTION_BRANCHES = Object.freeze({
   "Space Marines": { behavior: { aggression: 58, caution: 54, expansion: 44, economy: 48 }, weights: { attack: 1.05, defend: 1, expand: 0.82, research: 1.05, logistics: 0.9, melee: 0.85, ranged: 1.1, vehicles: 0.95, swarm: 0.25 }, identity: { elite: 0.9, discipline: 0.9 } },
   "Imperial Guard": { behavior: { aggression: 46, caution: 62, expansion: 56, economy: 68 }, weights: { attack: 0.92, defend: 1.15, expand: 1, research: 0.8, logistics: 1.25, melee: 0.45, ranged: 1.15, vehicles: 1.2, swarm: 0.72 }, identity: { attrition: 0.82, artillery: 0.85 } },
+  "Adeptus Mechanicus": { behavior: { aggression: 48, caution: 66, expansion: 52, economy: 78 }, weights: { attack: 0.94, defend: 1.12, expand: 0.92, research: 1.4, logistics: 1.18, melee: 0.52, ranged: 1.22, vehicles: 1.32, swarm: 0.35 }, identity: { technology: 1, machinePreservation: 0.94, noosphere: 0.96 } },
   Chaos: { behavior: { aggression: 72, caution: 34, expansion: 54, economy: 42 }, weights: { attack: 1.22, defend: 0.72, expand: 0.98, research: 0.88, logistics: 0.7, melee: 1.18, ranged: 0.9, vehicles: 0.9, swarm: 0.62 }, identity: { ritual: 0.86, aggression: 0.84 } },
   Orks: { behavior: { aggression: 88, caution: 18, expansion: 68, economy: 28 }, weights: { attack: 1.38, defend: 0.52, expand: 1.12, research: 0.45, logistics: 0.62, melee: 1.4, ranged: 0.72, vehicles: 1.08, swarm: 1.25 }, identity: { waaagh: 1, melee: 0.95 } },
   Necrons: { behavior: { aggression: 52, caution: 68, expansion: 42, economy: 66 }, weights: { attack: 0.96, defend: 1.2, expand: 0.75, research: 1.32, logistics: 0.72, melee: 0.72, ranged: 1.12, vehicles: 1.1, swarm: 0.45 }, identity: { reanimation: 1, durability: 0.94 } },
@@ -22,6 +23,7 @@ export function raceBranchFor(player = {}) {
   const faction = normalize(player.faction);
   if (faction.includes("spacemarine")) return "Space Marines";
   if (faction.includes("imperialguard")) return "Imperial Guard";
+  if (faction.includes("machinecult") || faction.includes("mechanicus")) return "Adeptus Mechanicus";
   if (race.includes("chaos")) return "Chaos";
   if (race.includes("ork")) return "Orks";
   if (race.includes("necron")) return "Necrons";
@@ -70,7 +72,7 @@ export function scoreStrategicChoices(profile, context = {}, learnedWeights = {}
   const territory = clamp(context.territoryOpportunity ?? 0.5, 0, 1);
   const routeRisk = clamp(context.routeRisk ?? 0, 0, 1);
   const casualtyRatio = clamp(context.casualtyRatio ?? 0, 0, 1);
-  return {
+  const scores = {
     attack: (38 + ownStrength * 42 - enemyStrength * 18 - casualtyRatio * 22) * weights.attack,
     defend: (24 + pressure * 58 + enemyStrength * 18 + casualtyRatio * 12) * weights.defend,
     expand: (26 + territory * 48 - pressure * 20) * weights.expand,
@@ -78,6 +80,9 @@ export function scoreStrategicChoices(profile, context = {}, learnedWeights = {}
     logistics: (20 + shortage * 62 + routeRisk * 42) * weights.logistics,
     regroup: 12 + casualtyRatio * 78 + Math.max(0, enemyStrength - ownStrength) * 54
   };
+  const objectiveBias = context.objectiveBias || {};
+  for (const choice of STRATEGIC_CHOICES) scores[choice] *= clamp(objectiveBias[choice] ?? 1, 0.35, 1.8);
+  return scores;
 }
 
 export function selectStrategicChoice(profile, context = {}, learnedWeights = {}) {

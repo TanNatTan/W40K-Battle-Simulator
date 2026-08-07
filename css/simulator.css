@@ -570,6 +570,21 @@
       gap: 8px;
     }
 
+    #autonomous-war-theater .awt-editor-overlay-tools {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px 14px;
+      padding: 8px 12px;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      background: color-mix(in srgb, var(--card) 86%, transparent);
+    }
+
+    #autonomous-war-theater .awt-editor-overlay-tools .awt-panel-title {
+      margin: 0 6px 0 0;
+    }
+
     #autonomous-war-theater #awt-paint-controls,
     #autonomous-war-theater #awt-territory-controls {
       display: grid;
@@ -613,6 +628,17 @@
       display: grid;
       gap: 8px;
       margin-top: 10px;
+    }
+
+    #autonomous-war-theater .awt-objective-brief {
+      flex: 1 1 100%;
+      display: grid;
+      gap: 4px;
+      min-width: min(100%, 320px);
+      padding: 10px 12px;
+      border: 1px solid color-mix(in srgb, var(--primary) 30%, var(--border));
+      border-radius: var(--radius);
+      background: color-mix(in srgb, var(--primary) 7%, var(--card));
     }
 
     #autonomous-war-theater .awt-color-line {
@@ -816,6 +842,39 @@
       margin-top: 0;
       grid-template-columns: 1fr;
       z-index: 3;
+    }
+
+    #autonomous-war-theater .awt-victory-screen {
+      position: absolute;
+      inset: 0;
+      z-index: 30;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      background: color-mix(in srgb, var(--background) 78%, transparent);
+      backdrop-filter: blur(5px);
+    }
+
+    #autonomous-war-theater .awt-victory-screen[hidden] {
+      display: none;
+    }
+
+    #autonomous-war-theater .awt-victory-card {
+      width: min(440px, 100%);
+      padding: 28px;
+      border-color: color-mix(in srgb, var(--primary) 65%, var(--border));
+      box-shadow: 0 22px 70px rgb(0 0 0 / 0.55);
+      text-align: center;
+    }
+
+    #autonomous-war-theater .awt-victory-card h2 {
+      margin: 8px 0;
+      font-size: clamp(1.8rem, 5vw, 3rem);
+    }
+
+    #autonomous-war-theater .awt-victory-card .viz-row {
+      justify-content: center;
+      margin-top: 20px;
     }
 
     @media (max-width: 680px) {

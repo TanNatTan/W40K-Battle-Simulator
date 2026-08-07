@@ -52,6 +52,7 @@ export function createResourceZone(id, center, overrides = {}) {
     resourceType: RESOURCE_TYPES.includes(overrides.resourceType) ? overrides.resourceType : "materials",
     points,
     capacity,
+    infinite: Boolean(overrides.infinite),
     remaining,
     reserve: remaining,
     maxReserve: capacity,
@@ -83,6 +84,7 @@ export function syncResourceZone(zone) {
 
 export function regenerateResourceZone(zone, dt) {
   syncResourceZone(zone);
+  if (zone.infinite) return 0;
   if (zone.regeneration <= 0 || zone.remaining >= zone.capacity) return 0;
   const amount = Math.min(zone.capacity - zone.remaining, zone.regeneration * dt);
   zone.remaining += amount;
@@ -94,6 +96,7 @@ export function regenerateResourceZone(zone, dt) {
 export function drainResourceZone(zone, requested) {
   syncResourceZone(zone);
   const amount = Math.min(zone.remaining, Math.max(0, requested), zone.gatherRate);
+  if (zone.infinite) return Math.min(Math.max(0, requested), zone.gatherRate);
   zone.remaining -= amount;
   zone.reserve = zone.remaining;
   return amount;
@@ -105,6 +108,7 @@ export function serializeResourceZone(zone, scaleX = 1, scaleY = 1) {
     name: zone.name,
     resourceType: zone.resourceType,
     capacity: zone.capacity,
+    infinite: Boolean(zone.infinite),
     remaining: zone.remaining,
     gatherRate: zone.gatherRate,
     regeneration: zone.regeneration,

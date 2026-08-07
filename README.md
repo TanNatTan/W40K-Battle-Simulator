@@ -1,6 +1,6 @@
 # Autonomous War Theater — local edition
 
-A browser-based top-view battle and map simulator with a four-layer economy, physical logistics, AI construction, building hitboxes and HP, territory capture, editable spawn areas, fog, an independent pan/zoom camera, chunked terrain painting, random maps, a minimap, and optional lighting.
+A browser-based top-view battle and map simulator with a map-authored economy, physical logistics, AI construction, building hitboxes and HP, territory capture, editable spawn areas, fog, an independent pan/zoom camera, chunked terrain painting, random terrain, a minimap, and optional lighting.
 
 ## Run it
 
@@ -29,6 +29,9 @@ js/
 src/
   main.js                ES-module application entry point
   config/                Application constants and explicit runtime configuration exports
+  economy/               Authored polygon zones and economic landmarks
+  territory/             Fixed irregular cell pool, objectives, combat, and victory
+  logistics/             Road graph, temporary supply routes, convoys, Route AI, and audit history
   utilities/             Shared math, formatting, and deterministic random helpers
 test/
   foundation.test.js     Module-boundary and utility regression checks
@@ -59,14 +62,17 @@ npm.cmd run smoke
 
 The migration is intentionally incremental: `js/app.js` remains operational while engine, simulation, rendering, AI, and UI systems are extracted behind stable module APIs.
 
-The current Phase 0-13 implementation matrix is maintained in [`docs/phase-audit.md`](docs/phase-audit.md).
+The current Phase 0-19 implementation matrix is maintained in [`docs/phase-audit.md`](docs/phase-audit.md).
 
-## Economy rules in this build
+## Map-authored economy rules
 
 - Every player starts with the larger stockpile defined in both `economy-config.js` and `003_starting_stockpiles.sql`.
-- A trade partner can exist on the map without a route.
-- The AI must first complete a headquarters and warehouse, then spend 40 Influence and 25 Materials to establish its route.
-- No trade road or trade convoy is created before that establishment succeeds.
+- The map designer places all resource polygons, economic landmarks, and trade routes. Terrain randomization never creates or moves economic assets.
+- Resource zones remain separate from terrain and define type, finite or infinite capacity, gather rate, regeneration, owner, building requirement, and collector roles.
+- Economic landmarks define imports, exports, storage capacity, strategic value, and starting ownership. Built-in maps use authored Hive City, Manufactorum, Mechanicus, Agri, Mining, Refinery, Space Port, Fortress, and related nodes.
+- Trade routes connect authored landmarks with map-authored waypoints. Supported types are road, rail, sea, river, air, orbital, underground, and warp.
+- The AI cannot create trade routes. It may use, defend, sabotage, abandon, or reroute along the links the designer supplied.
+- AI logistics may create temporary supply routes for a specific delivery. These expire and never become permanent map trade routes.
 - Production, storage, transportation, and consumption are modeled separately. Warehouse loss, convoy jobs, rerouting, shortage priorities, and logistics officers are part of the runtime simulation.
 - Builders continuously choose economy, research, army, gathering, storage, and defense projects while funding and valid collision-free sites remain.
 - Faction-specific research centers consume physically delivered energy, materials, influence, and parts; completed research levels improve newly deployed units.
@@ -78,7 +84,9 @@ The current Phase 0-13 implementation matrix is maintained in [`docs/phase-audit
 
 The AI resolves decisions through a hierarchy: army goal → commander order → squad order and formation → individual choice. Emergency retreat and immediate survival remain individual overrides.
 
-- Player setup includes editable aggression, caution, expansion, and economy behavior values plus balanced, offensive, defensive, expansion, and economic presets. These values affect construction scoring, army goals, route orders, fire discipline, and territory expansion/capture.
+- Player setup selects a universal Battle Objective. AI doctrine, behavior presets, and temperament sliders are intentionally absent: race and subfaction identity determine the method, while casualties, morale, supply, resources, territory, time, observed enemy behavior, and battlefield pressure continuously recalculate aggression, caution, expansion, and economy tendencies.
+- Eighteen data-driven objectives cover annihilation, headquarters destruction, territory, strategic points, resources, breakthrough, stronghold assault/defense, convoy escort/interdiction, extraction, survival, delay, assassination, sabotage, relic recovery, evacuation, and last stand. Each race presents its own name and interpretation without changing the shared victory rule.
+- Subfaction objective signals influence strategic attack/defend/expand/research/logistics/regroup scoring, target selection, construction, repairs, formations, deployments, route behavior, and territory pressure. The objective determines victory; the subfaction determines how the army attempts it.
 - The theater clock runs independently from battle pause at 1×, 4×, 12×, or 24×. Dynamic lighting, shadows, detection, and saved snapshots read the clock state.
 - Built-in scenarios and the local test-map save/load slot use an exact 1920 × 1080 world for repeatable testing. Larger custom worlds can still be authored, and saving scales them into the 1920 × 1080 test slot.
 
@@ -87,13 +95,14 @@ The AI resolves decisions through a hierarchy: army goal → commander order →
 - Combatants cache a kill-confidence assessment built from readiness, nearby support, target vulnerability, morale, aggression, weapon advantage, threat, distance, ammunition, fatigue, and isolation. Their intent becomes eliminate, force retreat, suppress, or ignore, with a bounded pursuit leash.
 - Squads own their target, objective, route order, formation, heading, cohesion, and reinforcement state. Supported formations are line, column, wedge, triangle, circle, staggered, flanking, and escort; collision and terrain checks let them deform rather than lock units into exact slots.
 - Imperial Guard barracks deploy complete named squads in a single atomic wave. Standard infantry, heavy weapons, command, veteran, and conscript templates include leaders, weapons, specialists, and attachments. Damaged Guard squads can receive a locked replacement manifest, rendezvous with its physical detachment, use an acting officer, return to base, merge, reconstitute after annihilation, or disband and redistribute compatible survivors.
-- Generated roads now retain stable IDs and segment-level type, condition, width, capacity, traffic, control, visibility, cover, supply importance, ambush risk, and operational flags across network rebuilds. Convoys use these routes and inherit their condition, congestion, damage, and threat costs.
+- Local service roads and map-authored trade routes retain stable IDs and segment-level type, condition, width, capacity, traffic, control, visibility, cover, supply importance, ambush risk, and operational flags across network rebuilds. Convoys use these routes and inherit their condition, congestion, damage, and threat costs.
 - Commanders can hold, block, patrol, observe, escort, keep open, delay on, demolish if overrun, or ambush routes. Orders pin a tactical segment and advance through distinct phases; patrols follow road waypoints, checkpoints and observation posts persist, roadblocks can be overrun, Guard mine ambushes strike convoys, and demolition guards collapse a bridge or crater a segment once before regrouping.
 
 ## Territory, faction ecology, and environmental collision
 
-- Each army owns one cell-backed primary territory. Strategic AI expands or contracts that shape by transferring 96 px cells; it does not create a new polygon object for every frontier step.
-- Cells distinguish influence, supplied control, contested pressure, capture, and disconnected land. Unsupported disconnected cells can be abandoned, while outposts secure cells into the same primary shape.
+- Each army competes over a fixed pool of irregular Voronoi-style polygon cells. Claiming, losing, reclaiming, contesting, and abandoning mutate that pool; expansion never allocates a replacement territory object.
+- Strategic point, critical location, trade station, bridge, relay, spaceport, high ground, and resource hub objectives alter control value, road access, supply, resources, or defense.
+- Territory contests consume faction garrisons, record casualties, and raise the stakes around objectives and bases. Their aggression follows the armies' live objective-derived behavior; the territory layer no longer declares victory independently from the selected battle objective.
 - Ork armies begin with Gretchin builders. Their camps use Ork names, mobs become more confident around fights, deaths seed Orkoid spore patches, and the strongest surviving contender can take over as Warboss.
 - Tyranid forces arrive through Mycetic Spores, Tyrannocytes, Brood Nests, and infestation organisms. Lesser organisms coordinate under synapse, fall back to instinctive behavior when isolated, and reclaim battlefield biomass.
 - Space Marine Drop Pods are optional strategic transport. The AI scores candidate landing zones across friendly, allied, neutral, and hostile ground for terrain, collision clearance, anti-air risk, local danger, objectives, cover, and escape routes.
@@ -107,7 +116,7 @@ The AI resolves decisions through a hierarchy: army goal → commander order →
 - Extractors now depend on visible or map-authored resource zones. The editor supports polygon pen/add/delete/move/bend/close tools plus type, capacity, gather rate, regeneration, owner, building requirement, and allowed collectors. AI territory scoring recognizes these zones, constructs extractors or sends physical collectors, and depleting deposits still force outward expansion.
 - Army food, fuel, ammunition, morale, and logistics pressure scale above the support capacity of controlled territory and completed infrastructure. The logistics panel reports operational forces, production, reinforcement routes, and territory pressure.
 - Barracks deploy atomic faction formations: five- or ten-member Space Marine combat squads, Ork mobs, Tyranid broods, Necron phalanxes, Tau Fire Warrior teams, and the existing detailed Imperial Guard squad manifests. Faction specialists still deploy individually.
-- Victory follows military capability rather than painted map area. The evaluator checks combat-capable units, rebuilding production, reinforcement routes, commanders with forces, and allied rescue capacity; faction temperament determines withdrawal, surrender, or a last stand.
+- Victory follows the selected Battle Objective. The evaluator tracks authored territory, strategic/resource nodes, headquarters, breakthrough distance, convoy outcomes, commanders, infrastructure, extraction/relic locations, evacuation, and timed holds; military capability still determines defeat, withdrawal, surrender, or a last stand during that pursuit.
 - `unit-sprite-forge.js` adapts the supplied Aegis, Iron Legion, and Ork forge silhouettes into live recolorable Space Marine, Imperial Guard, and Ork infantry, character, walker, vehicle, and aircraft sprites.
 
 ## Initialize a SQLite database
@@ -119,6 +128,9 @@ sqlite3 awt.db ".read sql/migrations/001_core.sql"
 sqlite3 awt.db ".read sql/migrations/002_economy_logistics.sql"
 sqlite3 awt.db ".read sql/migrations/003_indexes.sql"
 sqlite3 awt.db ".read sql/migrations/004_construction_combat.sql"
+sqlite3 awt.db ".read sql/migrations/005_ai_relationship_learning.sql"
+sqlite3 awt.db ".read sql/migrations/006_authored_economic_map.sql"
+sqlite3 awt.db ".read sql/migrations/007_route_and_territory_history.sql"
 sqlite3 awt.db ".read sql/seeds/001_resources.sql"
 sqlite3 awt.db ".read sql/seeds/002_buildings.sql"
 sqlite3 awt.db ".read sql/seeds/003_starting_stockpiles.sql"

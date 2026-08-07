@@ -84,7 +84,7 @@
       <div class="card viz-stat">
         <div class="awt-faction-line text-small">
           <span>Active forces</span>
-          <span id="awt-a-doctrine">2 players</span>
+          <span id="awt-a-player-count">2 players</span>
         </div>
         <div class="viz-stat-value" id="awt-a-strength">2 builders</div>
         <div class="awt-stat-context text-small" id="awt-a-context">P1 1 · P2 1</div>
@@ -97,7 +97,7 @@
       <div class="card viz-stat">
         <div class="awt-faction-line text-small">
           <span>World theater</span>
-          <span id="awt-b-doctrine">16384 × 16384</span>
+          <span id="awt-b-resolution">16384 × 16384</span>
         </div>
         <div class="viz-stat-value" id="awt-b-strength">0 buildings</div>
         <div class="awt-stat-context text-small" id="awt-b-context">0 squads · Fog enabled</div>
@@ -157,7 +157,11 @@
           <button type="button" class="awt-editor-tab" data-editor-layer="Elevation" data-editor-brush="raise">Elevation</button>
           <button type="button" class="awt-editor-tab" data-editor-layer="Vegetation" data-editor-brush="trees">Objects</button>
           <button type="button" class="awt-editor-tab" data-editor-layer="Roads" data-editor-brush="dirtroad">Roads</button>
+          <button type="button" class="awt-editor-tab" data-editor-tool-target="territory">Territories</button>
           <button type="button" class="awt-editor-tab" data-editor-tool-target="resource">Resources</button>
+          <button type="button" class="awt-editor-tab" data-editor-tool-target="trade-route">Trade Routes</button>
+          <button type="button" class="awt-editor-tab" data-editor-tool-target="economic-node">Economic Nodes</button>
+          <button type="button" class="awt-editor-tab" data-editor-tool-target="spawn">Bases</button>
         </nav>
         <button type="button" class="btn btn-primary awt-editor-save" id="awt-editor-save"><i data-lucide="save" aria-hidden="true"></i>Save</button>
       </div>
@@ -170,6 +174,8 @@
             <option value="zone">Custom spawn zone</option>
             <option value="territory">Territory anchors</option>
             <option value="resource">Resource zones</option>
+            <option value="trade-route">Trade routes</option>
+            <option value="economic-node">Economic nodes</option>
             <option value="lighting">Lighting &amp; shadows</option>
           </select>
         </label>
@@ -189,6 +195,19 @@
           Zone size <span id="awt-zone-size-value">84</span> px
           <input class="form-range" id="awt-zone-size" type="range" min="36" max="180" value="84" step="4">
         </label>
+      </div>
+
+      <div class="awt-editor-overlay-tools" id="awt-economic-overlay-controls">
+        <span class="awt-panel-title">Economic overlay</span>
+        <label class="form-check"><input class="form-check-input" data-economic-overlay="food" type="checkbox" checked><span class="form-check-label">Food</span></label>
+        <label class="form-check"><input class="form-check-input" data-economic-overlay="fuel" type="checkbox" checked><span class="form-check-label">Fuel</span></label>
+        <label class="form-check"><input class="form-check-input" data-economic-overlay="energy" type="checkbox" checked><span class="form-check-label">Energy</span></label>
+        <label class="form-check"><input class="form-check-input" data-economic-overlay="minerals" type="checkbox" checked><span class="form-check-label">Minerals</span></label>
+        <label class="form-check"><input class="form-check-input" data-economic-overlay="requisition" type="checkbox" checked><span class="form-check-label">Requisition</span></label>
+        <label class="form-check"><input class="form-check-input" data-economic-overlay="medical" type="checkbox" checked><span class="form-check-label">Medical</span></label>
+        <label class="form-check"><input class="form-check-input" data-economic-overlay="trade" type="checkbox" checked><span class="form-check-label">Trade</span></label>
+        <label class="form-check"><input class="form-check-input" data-economic-overlay="territory" type="checkbox" checked><span class="form-check-label">Territory</span></label>
+        <label class="form-check"><input class="form-check-input" data-economic-overlay="supply" type="checkbox" checked><span class="form-check-label">Supply radius</span></label>
       </div>
 
       <div id="awt-paint-controls">
@@ -319,6 +338,7 @@
         <div class="viz-row">
           <label class="form-check"><input class="form-check-input" id="awt-resource-requires-building" type="checkbox" checked><span class="form-check-label">Requires building</span></label>
           <label class="form-check"><input class="form-check-input" id="awt-resource-strategic" type="checkbox"><span class="form-check-label">Strategic objective</span></label>
+          <label class="form-check"><input class="form-check-input" id="awt-resource-infinite" type="checkbox"><span class="form-check-label">Infinite capacity</span></label>
         </div>
         <div class="viz-row">
           <button type="button" class="btn btn-primary" id="awt-new-resource-zone">New zone</button>
@@ -326,6 +346,51 @@
           <button type="button" class="btn" id="awt-duplicate-resource-zone">Duplicate</button>
           <button type="button" class="btn btn-ghost" id="awt-delete-resource-zone">Delete</button>
         </div>
+      </div>
+
+      <div id="awt-trade-route-controls" hidden>
+        <div class="awt-panel-title">Authored trade-route editor</div>
+        <div class="awt-territory-properties">
+          <label class="form-label text-small" for="awt-trade-route-select">Route<select class="form-select" id="awt-trade-route-select"></select></label>
+          <label class="form-label text-small" for="awt-trade-route-name">Route name<input class="form-control" id="awt-trade-route-name" type="text" value="New trade route"></label>
+          <label class="form-label text-small" for="awt-trade-route-type">Route type<select class="form-select" id="awt-trade-route-type"></select></label>
+          <label class="form-label text-small" for="awt-trade-route-from">Origin node<select class="form-select" id="awt-trade-route-from"></select></label>
+          <label class="form-label text-small" for="awt-trade-route-to">Destination node<select class="form-select" id="awt-trade-route-to"></select></label>
+          <label class="form-label text-small" for="awt-trade-route-capacity">Capacity / dispatch<input class="form-control" id="awt-trade-route-capacity" type="number" min="1" max="10000" value="100"></label>
+          <label class="form-label text-small" for="awt-trade-route-resources">Allowed resources<input class="form-control" id="awt-trade-route-resources" type="text" placeholder="fuel, food, materials"></label>
+          <label class="form-label text-small" for="awt-trade-route-factions">Allowed factions<input class="form-control" id="awt-trade-route-factions" type="text" value="*" placeholder="* or faction names"></label>
+        </div>
+        <div class="viz-row">
+          <label class="form-check"><input class="form-check-input" id="awt-trade-route-road-required" type="checkbox"><span class="form-check-label">Road required</span></label>
+          <label class="form-check"><input class="form-check-input" id="awt-trade-route-bidirectional" type="checkbox" checked><span class="form-check-label">Bidirectional</span></label>
+          <label class="form-check"><input class="form-check-input" id="awt-trade-route-active" type="checkbox" checked><span class="form-check-label">Active</span></label>
+        </div>
+        <div class="viz-row">
+          <button type="button" class="btn btn-primary" id="awt-new-trade-route">New route</button>
+          <button type="button" class="btn" id="awt-clear-trade-route">Clear waypoints</button>
+          <button type="button" class="btn btn-ghost" id="awt-delete-trade-route">Delete</button>
+        </div>
+        <p class="text-small">Click an economic node for the origin, add optional waypoints, then click another node for the destination. The AI cannot create routes.</p>
+      </div>
+
+      <div id="awt-economic-node-controls" hidden>
+        <div class="awt-panel-title">Economic landmark editor</div>
+        <div class="awt-territory-properties">
+          <label class="form-label text-small" for="awt-economic-node-select">Landmark<select class="form-select" id="awt-economic-node-select"></select></label>
+          <label class="form-label text-small" for="awt-economic-node-name">Name<input class="form-control" id="awt-economic-node-name" type="text" value="New economic node"></label>
+          <label class="form-label text-small" for="awt-economic-node-type">Landmark type<select class="form-select" id="awt-economic-node-type"></select></label>
+          <label class="form-label text-small" for="awt-economic-node-owner">Starting owner<select class="form-select" id="awt-economic-node-owner"><option value="">Neutral</option></select></label>
+          <label class="form-label text-small" for="awt-economic-node-exports">Produces / exports<input class="form-control" id="awt-economic-node-exports" type="text" placeholder="food:12, requisition:8"></label>
+          <label class="form-label text-small" for="awt-economic-node-imports">Consumes / imports<input class="form-control" id="awt-economic-node-imports" type="text" placeholder="fuel:6, medical:4"></label>
+          <label class="form-label text-small" for="awt-economic-node-capacity">Storage capacity<input class="form-control" id="awt-economic-node-capacity" type="number" min="1" max="1000000" value="1000"></label>
+          <label class="form-label text-small" for="awt-economic-node-value">Strategic value<input class="form-control" id="awt-economic-node-value" type="number" min="0" max="100" value="70"></label>
+        </div>
+        <div class="viz-row">
+          <label class="form-check"><input class="form-check-input" id="awt-economic-node-active" type="checkbox" checked><span class="form-check-label">Operational</span></label>
+          <button type="button" class="btn btn-primary" id="awt-new-economic-node">New landmark</button>
+          <button type="button" class="btn btn-ghost" id="awt-delete-economic-node">Delete</button>
+        </div>
+        <p class="text-small">Select a landmark, then click the map to place or move it. Imports and exports use resource:amount pairs.</p>
       </div>
 
       <div id="awt-lighting-controls" hidden>
@@ -393,7 +458,7 @@
             <div class="awt-menu-copy">
               <div class="awt-kicker text-small">Autonomous war ecology</div>
               <h2>Build the conditions. Watch the history.</h2>
-              <p class="awt-panel-copy">Armies interpret doctrine, remember losses, adapt to terrain, and act without battlefield orders.</p>
+              <p class="awt-panel-copy">Armies pursue battle objectives through their own race and subfaction identity, remember losses, and adapt without battlefield orders.</p>
             </div>
             <div class="awt-menu-actions" id="awt-main-actions">
               <button type="button" class="btn btn-primary btn-block" id="awt-create-map">
@@ -496,7 +561,7 @@
             </div>
             <div id="awt-player-panel" hidden>
               <div class="awt-panel-title" id="awt-player-panel-title">Player 1 configuration</div>
-              <p class="awt-panel-copy text-small">Race, faction, team, doctrine, and color influence every autonomous decision.</p>
+              <p class="awt-panel-copy text-small">Choose what each army must accomplish. Race, subfaction, battlefield conditions, morale, and supply determine how it responds.</p>
               <div class="awt-player-config">
                 <div class="awt-player-tabs" id="awt-player-tabs">
                   <button type="button" class="btn btn-primary" data-player-tab="0" aria-pressed="true">P1</button>
@@ -538,32 +603,16 @@
                       <option value="4">Team 4</option>
                     </select>
                   </label>
-                  <label class="form-label" for="awt-player-doctrine">
-                    AI doctrine
-                    <select class="form-select" id="awt-player-doctrine">
-                      <option>Balanced</option>
-                      <option>Fortress</option>
-                      <option>Expansion</option>
-                      <option>Rush tech</option>
-                      <option>Repair first</option>
-                      <option>Aggressive</option>
-                    </select>
+                  <label class="form-label" for="awt-player-battle-objective">
+                    Battle objective
+                    <select class="form-select" id="awt-player-battle-objective"></select>
                   </label>
-                  <label class="form-label" for="awt-player-ai-preset">
-                    AI behavior preset
-                    <select class="form-select" id="awt-player-ai-preset">
-                      <option value="balanced">Balanced command</option>
-                      <option value="offensive">Offensive pressure</option>
-                      <option value="defensive">Defensive hold</option>
-                      <option value="expansion">Territory expansion</option>
-                      <option value="economic">Economic buildup</option>
-                      <option value="custom">Custom behavior</option>
-                    </select>
-                  </label>
-                  <label class="form-label" for="awt-ai-aggression">Aggression <span id="awt-ai-aggression-value">50%</span><input class="form-range" id="awt-ai-aggression" type="range" min="0" max="100" step="5" value="50"></label>
-                  <label class="form-label" for="awt-ai-caution">Caution <span id="awt-ai-caution-value">50%</span><input class="form-range" id="awt-ai-caution" type="range" min="0" max="100" step="5" value="50"></label>
-                  <label class="form-label" for="awt-ai-expansion">Expansion <span id="awt-ai-expansion-value">50%</span><input class="form-range" id="awt-ai-expansion" type="range" min="0" max="100" step="5" value="50"></label>
-                  <label class="form-label" for="awt-ai-economy">Economy <span id="awt-ai-economy-value">50%</span><input class="form-range" id="awt-ai-economy" type="range" min="0" max="100" step="5" value="50"></label>
+                  <div class="awt-objective-brief" id="awt-objective-brief" aria-live="polite">
+                    <strong id="awt-objective-name">Purge the Enemy</strong>
+                    <span class="text-small text-muted" id="awt-objective-summary">Destroy hostile forces and their ability to recover.</span>
+                    <span class="text-small" id="awt-objective-method">Ultramarines method: adaptive combined arms.</span>
+                    <span class="text-small text-muted" id="awt-objective-signals">AI temperament is calculated during battle.</span>
+                  </div>
                   <label class="form-label" for="awt-player-color">
                     Primary color <span id="awt-player-color-value">#3B82F6</span>
                     <input class="form-control form-control-color" id="awt-player-color" type="color" value="#3b82f6">
@@ -583,7 +632,7 @@
             </div>
             <div id="awt-load-panel" hidden>
               <div class="awt-panel-title">Saved theaters</div>
-              <p class="awt-panel-copy text-small">Each scenario preserves terrain, weather, doctrine, and starting logistics.</p>
+              <p class="awt-panel-copy text-small">Each scenario preserves terrain, weather, battle objectives, and starting logistics.</p>
               <div class="awt-load-list">
                 <button type="button" class="btn btn-primary btn-block" id="awt-load-saved-map">Load local test map · 1920 × 1080</button>
                 <div class="text-small text-muted" id="awt-saved-map-status">No local test map checked yet.</div>
@@ -687,10 +736,21 @@
       <span class="awt-legend-item"><span class="awt-glyph">⌂</span>AI building</span>
       <span class="awt-legend-item"><span class="awt-glyph">◫</span>Fog layer</span>
     </div>
+
+    <section class="awt-victory-screen" id="awt-victory-screen" role="dialog" aria-modal="true" aria-labelledby="awt-victory-title" hidden>
+      <div class="card awt-victory-card">
+        <div class="awt-kicker text-small">Territorial war concluded</div>
+        <h2 id="awt-victory-title">Victory</h2>
+        <p class="text-muted" id="awt-victory-copy">One force controls the theater.</p>
+        <div class="viz-row">
+          <button type="button" class="btn btn-primary" id="awt-rematch-button">Rematch</button>
+          <button type="button" class="btn" id="awt-victory-menu-button">Main menu</button>
+        </div>
+      </div>
+    </section>
   </div>
 
-  
-  
+
 </div>
 
   </main>

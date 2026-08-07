@@ -1,0 +1,267 @@
+{
+  "version": 1,
+  "defaultObjective": "annihilation",
+  "objectives": {
+    "annihilation": {
+      "name": "Annihilation",
+      "category": "elimination",
+      "summary": "Destroy enemy combat forces and remove their ability to recover.",
+      "metric": "enemyElimination",
+      "threshold": 1,
+      "aiSignals": { "attack": 1, "defense": 0.3, "expansion": 0.15, "economy": 0.25, "logistics": 0.5, "scouting": 0.85, "preservation": 0.25, "mobility": 0.65, "fortification": 0.2, "targetCommand": 0.75, "targetInfrastructure": 0.9 }
+    },
+    "headquarters_destruction": {
+      "name": "Headquarters Destruction",
+      "category": "elimination",
+      "summary": "Find, breach, and destroy the enemy primary command structure.",
+      "metric": "headquartersDestruction",
+      "threshold": 1,
+      "aiSignals": { "attack": 0.95, "defense": 0.25, "expansion": 0.2, "economy": 0.3, "logistics": 0.65, "scouting": 0.95, "preservation": 0.35, "mobility": 0.65, "fortification": 0.25, "targetCommand": 1, "targetInfrastructure": 1 }
+    },
+    "territorial_domination": {
+      "name": "Territorial Domination",
+      "category": "control",
+      "summary": "Control 65% of the connected battlefield for three minutes.",
+      "metric": "territoryControl",
+      "threshold": 0.65,
+      "holdSeconds": 180,
+      "aiSignals": { "attack": 0.55, "defense": 0.65, "expansion": 0.9, "economy": 0.6, "logistics": 0.75, "scouting": 0.6, "preservation": 0.55, "mobility": 0.7, "fortification": 0.65, "targetCommand": 0.25, "targetInfrastructure": 0.45 }
+    },
+    "strategic_point_control": {
+      "name": "Strategic Point Control",
+      "category": "control",
+      "summary": "Capture and hold the majority of authored strategic objectives.",
+      "metric": "strategicPointControl",
+      "threshold": 0.6,
+      "holdSeconds": 120,
+      "aiSignals": { "attack": 0.62, "defense": 0.78, "expansion": 0.72, "economy": 0.45, "logistics": 0.8, "scouting": 0.7, "preservation": 0.6, "mobility": 0.7, "fortification": 0.8, "targetCommand": 0.35, "targetInfrastructure": 0.5 }
+    },
+    "resource_supremacy": {
+      "name": "Resource Supremacy",
+      "category": "economy",
+      "summary": "Capture and maintain control of critical resource and economic nodes.",
+      "metric": "resourceControl",
+      "threshold": 0.65,
+      "holdSeconds": 120,
+      "aiSignals": { "attack": 0.48, "defense": 0.68, "expansion": 0.82, "economy": 1, "logistics": 0.95, "scouting": 0.72, "preservation": 0.6, "mobility": 0.65, "fortification": 0.7, "targetCommand": 0.15, "targetInfrastructure": 0.55 }
+    },
+    "breakthrough": {
+      "name": "Breakthrough",
+      "category": "movement",
+      "summary": "Breach the enemy line and reach the opposing destination or map edge.",
+      "metric": "breakthroughProgress",
+      "threshold": 0.95,
+      "aiSignals": { "attack": 0.86, "defense": 0.28, "expansion": 0.48, "economy": 0.28, "logistics": 0.7, "scouting": 0.9, "preservation": 0.42, "mobility": 1, "fortification": 0.18, "targetCommand": 0.45, "targetInfrastructure": 0.65 }
+    },
+    "stronghold_assault": {
+      "name": "Stronghold Assault",
+      "category": "assault",
+      "summary": "Reconnoiter, suppress, breach, capture, and consolidate an enemy stronghold.",
+      "metric": "strongholdAssault",
+      "threshold": 1,
+      "aiSignals": { "attack": 0.92, "defense": 0.42, "expansion": 0.35, "economy": 0.42, "logistics": 0.9, "scouting": 0.9, "preservation": 0.48, "mobility": 0.5, "fortification": 0.68, "targetCommand": 0.68, "targetInfrastructure": 1 }
+    },
+    "stronghold_defense": {
+      "name": "Stronghold Defense",
+      "category": "defense",
+      "summary": "Hold the designated base or fortress while maintaining its supply network.",
+      "metric": "defenseDuration",
+      "threshold": 1,
+      "durationSeconds": 300,
+      "aiSignals": { "attack": 0.38, "defense": 1, "expansion": 0.18, "economy": 0.62, "logistics": 0.92, "scouting": 0.72, "preservation": 0.9, "mobility": 0.28, "fortification": 1, "targetCommand": 0.3, "targetInfrastructure": 0.4 }
+    },
+    "convoy_escort": {
+      "name": "Convoy Escort",
+      "category": "logistics",
+      "summary": "Scout and secure a route while keeping the designated convoy alive.",
+      "metric": "convoyEscort",
+      "threshold": 1,
+      "aiSignals": { "attack": 0.42, "defense": 0.8, "expansion": 0.25, "economy": 0.55, "logistics": 1, "scouting": 1, "preservation": 1, "mobility": 0.75, "fortification": 0.45, "targetCommand": 0.15, "targetInfrastructure": 0.25 }
+    },
+    "convoy_interdiction": {
+      "name": "Convoy Interdiction",
+      "category": "raid",
+      "summary": "Locate and destroy or capture an enemy convoy before delivery.",
+      "metric": "convoyInterdiction",
+      "threshold": 1,
+      "aiSignals": { "attack": 0.75, "defense": 0.2, "expansion": 0.28, "economy": 0.25, "logistics": 0.48, "scouting": 1, "preservation": 0.48, "mobility": 0.95, "fortification": 0.1, "targetCommand": 0.1, "targetInfrastructure": 0.45 }
+    },
+    "extraction": {
+      "name": "Extraction",
+      "category": "recovery",
+      "summary": "Secure the designated person or object and return it to controlled territory.",
+      "metric": "extractionProgress",
+      "threshold": 1,
+      "aiSignals": { "attack": 0.4, "defense": 0.72, "expansion": 0.2, "economy": 0.35, "logistics": 0.92, "scouting": 0.9, "preservation": 1, "mobility": 0.88, "fortification": 0.3, "targetCommand": 0.2, "targetInfrastructure": 0.2 }
+    },
+    "survival": {
+      "name": "Survival",
+      "category": "defense",
+      "summary": "Preserve a functioning force for the required duration against superior enemies.",
+      "metric": "survivalDuration",
+      "threshold": 1,
+      "durationSeconds": 360,
+      "aiSignals": { "attack": 0.28, "defense": 0.92, "expansion": 0.16, "economy": 0.7, "logistics": 0.9, "scouting": 0.75, "preservation": 1, "mobility": 0.5, "fortification": 0.85, "targetCommand": 0.12, "targetInfrastructure": 0.25 }
+    },
+    "delaying_action": {
+      "name": "Delaying Action",
+      "category": "defense",
+      "summary": "Trade ground for time and prevent the enemy reaching its destination.",
+      "metric": "delayDuration",
+      "threshold": 1,
+      "durationSeconds": 300,
+      "aiSignals": { "attack": 0.45, "defense": 0.85, "expansion": 0.08, "economy": 0.42, "logistics": 0.82, "scouting": 0.9, "preservation": 0.78, "mobility": 0.68, "fortification": 0.72, "targetCommand": 0.2, "targetInfrastructure": 0.4 }
+    },
+    "assassination": {
+      "name": "Assassination",
+      "category": "elimination",
+      "summary": "Locate and eliminate an enemy commander or equivalent priority leader.",
+      "metric": "assassination",
+      "threshold": 1,
+      "aiSignals": { "attack": 0.82, "defense": 0.18, "expansion": 0.12, "economy": 0.22, "logistics": 0.5, "scouting": 1, "preservation": 0.5, "mobility": 0.92, "fortification": 0.08, "targetCommand": 1, "targetInfrastructure": 0.15 }
+    },
+    "sabotage": {
+      "name": "Sabotage",
+      "category": "raid",
+      "summary": "Destroy selected power, communication, production, bridge, or supply infrastructure.",
+      "metric": "sabotageProgress",
+      "threshold": 1,
+      "aiSignals": { "attack": 0.68, "defense": 0.18, "expansion": 0.12, "economy": 0.22, "logistics": 0.48, "scouting": 1, "preservation": 0.62, "mobility": 0.92, "fortification": 0.08, "targetCommand": 0.35, "targetInfrastructure": 1 }
+    },
+    "relic_recovery": {
+      "name": "Relic Recovery",
+      "category": "recovery",
+      "summary": "Capture authored relics and transport them to a controlled location.",
+      "metric": "relicRecovery",
+      "threshold": 1,
+      "aiSignals": { "attack": 0.48, "defense": 0.72, "expansion": 0.28, "economy": 0.35, "logistics": 0.9, "scouting": 0.92, "preservation": 0.95, "mobility": 0.78, "fortification": 0.4, "targetCommand": 0.2, "targetInfrastructure": 0.25 }
+    },
+    "evacuation": {
+      "name": "Evacuation",
+      "category": "protection",
+      "summary": "Protect designated friendly forces or civilians while they escape.",
+      "metric": "evacuationProgress",
+      "threshold": 1,
+      "aiSignals": { "attack": 0.3, "defense": 0.88, "expansion": 0.05, "economy": 0.38, "logistics": 0.95, "scouting": 0.8, "preservation": 1, "mobility": 0.72, "fortification": 0.45, "targetCommand": 0.12, "targetInfrastructure": 0.18 }
+    },
+    "last_stand": {
+      "name": "Last Stand",
+      "category": "defense",
+      "summary": "Hold a decisive position with limited reinforcement until destroyed or relieved.",
+      "metric": "lastStandDuration",
+      "threshold": 1,
+      "durationSeconds": 300,
+      "aiSignals": { "attack": 0.62, "defense": 1, "expansion": 0, "economy": 0.3, "logistics": 0.55, "scouting": 0.55, "preservation": 0.35, "mobility": 0.1, "fortification": 1, "targetCommand": 0.42, "targetInfrastructure": 0.4 }
+    }
+  },
+  "raceInterpretations": {
+    "Space Marines": {
+      "defaultMethod": "disciplined_elite_operation",
+      "names": { "annihilation": "Purge the Enemy", "headquarters_destruction": "Command Decapitation", "territorial_domination": "Reclaim Imperial Territory", "stronghold_assault": "Fortress Breach", "stronghold_defense": "Hold the Line", "resource_supremacy": "Secure Supply Network", "assassination": "Decapitation Strike", "relic_recovery": "Gene-Seed or Relic Recovery", "breakthrough": "Spearhead Assault" },
+      "methods": { "territorial_domination": "connected_advance", "stronghold_assault": "recon_breach_consolidate", "assassination": "precision_decapitation", "relic_recovery": "honor_guard_recovery", "breakthrough": "elite_spearhead" },
+      "signalModifiers": { "preservation": 0.08, "scouting": 0.08, "fortification": 0.05 }
+    },
+    "Imperial Guard": {
+      "defaultMethod": "layered_operational_warfare",
+      "names": { "annihilation": "Attrition Victory", "territorial_domination": "Infantry Advance", "stronghold_assault": "Siege and Capture", "stronghold_defense": "Hold Defensive Sector", "breakthrough": "Armored Breakthrough", "convoy_escort": "Reinforcement Corridor", "evacuation": "Evacuation Operation", "delaying_action": "Delay the Enemy" },
+      "methods": { "territorial_domination": "sequential_firing_lines", "stronghold_assault": "artillery_suppression", "stronghold_defense": "defense_in_depth", "breakthrough": "armored_corridor", "delaying_action": "trade_ground_for_time" },
+      "signalModifiers": { "logistics": 0.12, "fortification": 0.1, "preservation": 0.05 }
+    },
+    "Adeptus Mechanicus": {
+      "defaultMethod": "noospheric_machine_warfare",
+      "names": { "resource_supremacy": "Technological Acquisition", "strategic_point_control": "Noospheric Control", "stronghold_defense": "Forge Complex Defense", "relic_recovery": "Archaeotech Recovery", "extraction": "Data Extraction" },
+      "methods": { "resource_supremacy": "machine_preservation", "strategic_point_control": "sensor_network_control", "relic_recovery": "cohort_recovery_screen" },
+      "signalModifiers": { "economy": 0.15, "logistics": 0.08, "preservation": 0.08, "targetInfrastructure": 0.08 }
+    },
+    "Orks": {
+      "defaultMethod": "momentum_and_loot",
+      "names": { "annihilation": "Biggest Scrap", "headquarters_destruction": "Smash Da Fort", "territorial_domination": "Take Da Land", "stronghold_assault": "Smash Da Fort", "stronghold_defense": "Defend Da Stash", "resource_supremacy": "Loot Everyfing", "assassination": "Krump Da Biggest", "relic_recovery": "Take Da Shiny Bit", "breakthrough": "Race Across Da Battlefield" },
+      "methods": { "territorial_domination": "momentum_expansion", "stronghold_assault": "massed_krumpin", "assassination": "boss_hunt", "resource_supremacy": "loot_and_salvage", "breakthrough": "speed_freek_race" },
+      "signalModifiers": { "attack": 0.14, "preservation": -0.14, "fortification": -0.08 }
+    },
+    "Tau": {
+      "defaultMethod": "mobile_fire_control",
+      "names": { "annihilation": "Neutralize Hostile Forces", "territorial_domination": "Expansion Zone", "strategic_point_control": "For the Greater Good", "stronghold_assault": "Mont'ka Strike", "stronghold_defense": "Kauyon Defense", "resource_supremacy": "Resource Expansion", "assassination": "Precision Elimination", "relic_recovery": "Technology Recovery", "evacuation": "Fire Caste Evacuation" },
+      "methods": { "stronghold_assault": "concentrated_montka", "stronghold_defense": "patient_kauyon", "territorial_domination": "marker_coordinated_control", "assassination": "ranged_precision" },
+      "signalModifiers": { "scouting": 0.12, "preservation": 0.14, "mobility": 0.08, "fortification": -0.03 }
+    },
+    "Necrons": {
+      "defaultMethod": "sequential_reclamation",
+      "names": { "annihilation": "Purge the Vermin", "headquarters_destruction": "Destroy the Usurper", "territorial_domination": "Reclaim the Dynasty", "strategic_point_control": "Restore the Network", "stronghold_defense": "Tomb Defense", "resource_supremacy": "Planetary Harvest", "relic_recovery": "Recover Dynastic Artifact" },
+      "methods": { "territorial_domination": "sequential_reclamation", "strategic_point_control": "restore_tomb_network", "stronghold_defense": "reanimation_wall", "relic_recovery": "relentless_retrieval" },
+      "signalModifiers": { "defense": 0.08, "preservation": 0.05, "fortification": 0.08, "mobility": -0.04 }
+    },
+    "Tyranids": {
+      "defaultMethod": "synaptic_swarm_adaptation",
+      "names": { "annihilation": "Consume All Biomass", "headquarters_destruction": "Silence the Signal", "territorial_domination": "Establish the Feeding Grounds", "stronghold_assault": "Break the Defensive Line", "stronghold_defense": "Protect the Synapse", "resource_supremacy": "Biomass Harvest", "assassination": "Eliminate Synaptic Threats", "relic_recovery": "Capture Genetic Material", "sabotage": "Seed the Planet" },
+      "methods": { "territorial_domination": "infestation_expansion", "stronghold_assault": "synaptic_breach", "assassination": "synapse_targeting", "resource_supremacy": "consumption_network", "sabotage": "spore_infestation" },
+      "signalModifiers": { "expansion": 0.12, "attack": 0.08, "economy": -0.08, "preservation": -0.05 }
+    },
+    "Chaos": {
+      "defaultMethod": "corruption_and_ritual_warfare",
+      "names": { "annihilation": "Slaughter in the Gods' Name", "headquarters_destruction": "Break Their Faith", "territorial_domination": "Corrupt the Territory", "strategic_point_control": "Complete the Ritual", "stronghold_assault": "Break Their Stronghold", "stronghold_defense": "Defend the Ritual", "resource_supremacy": "Gather Offerings", "assassination": "Slay the Champion", "relic_recovery": "Claim the Relic", "sabotage": "Desecrate the Shrine" },
+      "methods": { "territorial_domination": "corruption_expansion", "strategic_point_control": "ritual_node_control", "stronghold_assault": "siege_and_desecration", "assassination": "champion_hunt" },
+      "signalModifiers": { "attack": 0.1, "preservation": -0.08, "targetCommand": 0.1 }
+    }
+  },
+  "subfactionModifiers": {
+    "Ultramarines": { "method": "adaptive_combined_arms", "behavior": { "aggression": 0, "caution": 6, "expansion": 2, "economy": 4 }, "signals": { "preservation": 0.08, "logistics": 0.08, "fortification": 0.06 } },
+    "Blood Angels": { "method": "rapid_decisive_assault", "behavior": { "aggression": 15, "caution": -12, "expansion": 3, "economy": -8 }, "signals": { "attack": 0.14, "mobility": 0.1, "targetCommand": 0.1 } },
+    "Imperial Fists": { "method": "bombard_breach_fortify", "behavior": { "aggression": 2, "caution": 12, "expansion": -3, "economy": 4 }, "signals": { "scouting": 0.08, "logistics": 0.1, "fortification": 0.18, "targetInfrastructure": 0.12 } },
+    "Salamanders": { "method": "protective_close_counterattack", "behavior": { "aggression": -2, "caution": 14, "expansion": -4, "economy": 5 }, "signals": { "preservation": 0.2, "defense": 0.1 } },
+    "White Scars": { "method": "mobile_encirclement", "behavior": { "aggression": 8, "caution": -3, "expansion": 12, "economy": -4 }, "signals": { "mobility": 0.2, "scouting": 0.1, "fortification": -0.12 } },
+    "Raven Guard": { "method": "infiltrate_sabotage_isolate", "behavior": { "aggression": 3, "caution": 5, "expansion": 1, "economy": -2 }, "signals": { "scouting": 0.2, "mobility": 0.12, "targetCommand": 0.14, "targetInfrastructure": 0.14 } },
+    "Iron Hands": { "method": "machine_preserving_elimination", "behavior": { "aggression": 4, "caution": 8, "expansion": -2, "economy": 10 }, "signals": { "preservation": 0.1, "targetInfrastructure": 0.12, "logistics": 0.1 } },
+    "Space Wolves": { "method": "priority_hunt_counterattack", "behavior": { "aggression": 12, "caution": -5, "expansion": 1, "economy": -6 }, "signals": { "attack": 0.12, "targetCommand": 0.16 } },
+    "Black Templars": { "method": "relentless_close_advance", "behavior": { "aggression": 17, "caution": -14, "expansion": 4, "economy": -10 }, "signals": { "attack": 0.15, "mobility": 0.06, "preservation": -0.1 } },
+    "Cadian 8th": { "method": "firing_line_counterattack", "behavior": { "aggression": 0, "caution": 10, "expansion": 3, "economy": 6 }, "signals": { "defense": 0.12, "fortification": 0.1 } },
+    "Steel Legion": { "method": "mechanized_corridor", "behavior": { "aggression": 6, "caution": 0, "expansion": 8, "economy": 5 }, "signals": { "mobility": 0.16, "logistics": 0.12 } },
+    "Krieg": { "method": "siege_attrition", "behavior": { "aggression": 10, "caution": -6, "expansion": 0, "economy": 2 }, "signals": { "attack": 0.1, "fortification": 0.14, "preservation": -0.14 } },
+    "Tempestus Scions": { "method": "precision_insertion", "behavior": { "aggression": 8, "caution": 2, "expansion": -8, "economy": -5 }, "signals": { "scouting": 0.16, "mobility": 0.16, "targetCommand": 0.16 } },
+    "Catachan Jungle Fighters": { "method": "ambush_sabotage_hunt", "behavior": { "aggression": 7, "caution": 1, "expansion": 4, "economy": -3 }, "signals": { "scouting": 0.2, "mobility": 0.1, "targetCommand": 0.12, "targetInfrastructure": 0.12 } },
+    "Tallarn Desert Raiders": { "method": "mobile_flank_interdiction", "behavior": { "aggression": 5, "caution": -1, "expansion": 11, "economy": 1 }, "signals": { "mobility": 0.2, "scouting": 0.12, "logistics": 0.08 } },
+    "Mars Forge": { "method": "combined_arms_noosphere", "behavior": { "aggression": 0, "caution": 7, "expansion": 2, "economy": 13 }, "signals": { "economy": 0.12, "logistics": 0.1 } },
+    "Ryza Forge": { "method": "plasma_armor_destruction", "behavior": { "aggression": 9, "caution": 0, "expansion": -2, "economy": 9 }, "signals": { "targetInfrastructure": 0.16 } },
+    "Lucius Forge": { "method": "teleport_linked_industry", "behavior": { "aggression": -2, "caution": 11, "expansion": 2, "economy": 10 }, "signals": { "fortification": 0.12, "preservation": 0.1 } },
+    "Graia Forge": { "method": "unyielding_system_defense", "behavior": { "aggression": 1, "caution": 13, "expansion": -5, "economy": 9 }, "signals": { "defense": 0.16, "fortification": 0.16, "preservation": -0.04 } },
+    "Stygies VIII Forge": { "method": "covert_technology_acquisition", "behavior": { "aggression": -2, "caution": 8, "expansion": 4, "economy": 12 }, "signals": { "scouting": 0.2, "mobility": 0.1, "targetInfrastructure": 0.16 } },
+    "Goff Mob": { "method": "largest_direct_scrap", "behavior": { "aggression": 14, "caution": -12, "expansion": 0, "economy": -8 }, "signals": { "attack": 0.16, "preservation": -0.12 } },
+    "Speed Freeks": { "method": "maximum_speed_raiding", "behavior": { "aggression": 9, "caution": -10, "expansion": 15, "economy": -7 }, "signals": { "mobility": 0.22, "fortification": -0.14 } },
+    "Deathskull Mob": { "method": "exposed_attack_loot_capture", "behavior": { "aggression": 4, "caution": 0, "expansion": 8, "economy": 12 }, "signals": { "economy": 0.14, "targetInfrastructure": 0.12 } },
+    "Bad Moon Mob": { "method": "resource_heavy_firepower", "behavior": { "aggression": 1, "caution": 5, "expansion": 5, "economy": 15 }, "signals": { "economy": 0.16, "fortification": 0.08 } },
+    "Freebooter Fleet": { "method": "profitable_contract_raid", "behavior": { "aggression": 6, "caution": 1, "expansion": 4, "economy": 10 }, "signals": { "mobility": 0.1, "targetInfrastructure": 0.1 } },
+    "Ironjaw Mob": { "method": "boss_led_breakthrough", "behavior": { "aggression": 14, "caution": -11, "expansion": 3, "economy": -7 }, "signals": { "attack": 0.14, "targetCommand": 0.1 } },
+    "T'au Sept": { "method": "balanced_marker_coordination", "behavior": { "aggression": 0, "caution": 7, "expansion": 3, "economy": 5 }, "signals": { "scouting": 0.1, "preservation": 0.08 } },
+    "Vior'la Sept": { "method": "rapid_montka_seizure", "behavior": { "aggression": 13, "caution": -8, "expansion": 7, "economy": -4 }, "signals": { "attack": 0.12, "mobility": 0.14 } },
+    "Sa'cea Sept": { "method": "urban_kauyon_control", "behavior": { "aggression": -5, "caution": 14, "expansion": 0, "economy": 4 }, "signals": { "defense": 0.14, "fortification": 0.1 } },
+    "Bork'an Sept": { "method": "long_range_technology_screen", "behavior": { "aggression": -3, "caution": 10, "expansion": 1, "economy": 13 }, "signals": { "scouting": 0.1, "economy": 0.14, "preservation": 0.1 } },
+    "Dal'yth Sept": { "method": "auxiliary_flexible_expansion", "behavior": { "aggression": -2, "caution": 8, "expansion": 9, "economy": 7 }, "signals": { "defense": 0.08, "expansion": 0.1, "preservation": 0.12 } },
+    "Farsight Enclaves": { "method": "independent_close_battlesuit_strike", "behavior": { "aggression": 12, "caution": -6, "expansion": 2, "economy": -3 }, "signals": { "attack": 0.12, "targetCommand": 0.1 } },
+    "Sautekh": { "method": "sequential_commanded_conquest", "behavior": { "aggression": 3, "caution": 8, "expansion": 6, "economy": 4 }, "signals": { "fortification": 0.08, "targetCommand": 0.08 } },
+    "Mephrit": { "method": "dense_target_annihilation", "behavior": { "aggression": 10, "caution": -2, "expansion": 0, "economy": 0 }, "signals": { "attack": 0.12, "targetInfrastructure": 0.12 } },
+    "Novokh": { "method": "melee_purge_capture", "behavior": { "aggression": 15, "caution": -12, "expansion": 4, "economy": -7 }, "signals": { "attack": 0.16, "preservation": -0.1 } },
+    "Nihilakh": { "method": "relic_fortress_ownership", "behavior": { "aggression": -4, "caution": 16, "expansion": 2, "economy": 8 }, "signals": { "defense": 0.16, "fortification": 0.16, "preservation": 0.12 } },
+    "Nephrekh": { "method": "rapid_distant_redeployment", "behavior": { "aggression": 5, "caution": -2, "expansion": 13, "economy": 0 }, "signals": { "mobility": 0.2, "scouting": 0.1 } },
+    "Szarekhan": { "method": "command_preserving_restoration", "behavior": { "aggression": -1, "caution": 13, "expansion": 4, "economy": 8 }, "signals": { "preservation": 0.16, "defense": 0.1, "targetCommand": 0.08 } },
+    "Leviathan": { "method": "multidirectional_synaptic_encirclement", "behavior": { "aggression": 2, "caution": 3, "expansion": 12, "economy": 0 }, "signals": { "expansion": 0.14, "preservation": 0.05 } },
+    "Kraken": { "method": "infiltrate_sever_surround", "behavior": { "aggression": 7, "caution": -2, "expansion": 13, "economy": -5 }, "signals": { "mobility": 0.18, "scouting": 0.14 } },
+    "Behemoth": { "method": "frontal_biomass_breakthrough", "behavior": { "aggression": 15, "caution": -12, "expansion": 5, "economy": -8 }, "signals": { "attack": 0.16, "targetInfrastructure": 0.1 } },
+    "Jormungandr": { "method": "subterranean_fortified_infestation", "behavior": { "aggression": 2, "caution": 8, "expansion": 8, "economy": 0 }, "signals": { "scouting": 0.1, "fortification": 0.14, "mobility": 0.08 } },
+    "Kronos": { "method": "ranged_synapse_suppression", "behavior": { "aggression": 5, "caution": 5, "expansion": 3, "economy": -2 }, "signals": { "targetCommand": 0.2, "preservation": 0.08 } },
+    "Gorgon": { "method": "toxin_adaptation_acquisition", "behavior": { "aggression": 3, "caution": 4, "expansion": 8, "economy": 5 }, "signals": { "scouting": 0.12, "economy": 0.1, "targetCommand": 0.08 } },
+    "Hydra": { "method": "replenishing_swarm_consumption", "behavior": { "aggression": 9, "caution": -5, "expansion": 12, "economy": 1 }, "signals": { "expansion": 0.14, "attack": 0.08, "preservation": -0.06 } },
+    "Black Legion": { "method": "elite_spear_tip_decaptitation", "behavior": { "aggression": 9, "caution": -2, "expansion": 2, "economy": 0 }, "signals": { "targetCommand": 0.14, "attack": 0.1 } },
+    "Iron Warriors": { "method": "systematic_siege_forward_base", "behavior": { "aggression": 6, "caution": 5, "expansion": 0, "economy": 6 }, "signals": { "targetInfrastructure": 0.2, "fortification": 0.16, "logistics": 0.12 } },
+    "Word Bearers": { "method": "ritual_corruption_summoning", "behavior": { "aggression": 3, "caution": 2, "expansion": 8, "economy": 8 }, "signals": { "fortification": 0.1, "economy": 0.1 } },
+    "Night Lords": { "method": "terror_isolation_assassination", "behavior": { "aggression": 6, "caution": -1, "expansion": 3, "economy": -4 }, "signals": { "scouting": 0.16, "targetCommand": 0.18, "mobility": 0.1 } },
+    "Alpha Legion": { "method": "deceptive_infiltration_sabotage", "behavior": { "aggression": -1, "caution": 8, "expansion": 4, "economy": 3 }, "signals": { "scouting": 0.2, "targetInfrastructure": 0.18, "targetCommand": 0.1 } },
+    "Emperor's Children": { "method": "champion_hunt_excess", "behavior": { "aggression": 11, "caution": -8, "expansion": 0, "economy": -3 }, "signals": { "targetCommand": 0.18, "attack": 0.12 } },
+    "World Eaters": { "method": "continuous_melee_annihilation", "behavior": { "aggression": 20, "caution": -18, "expansion": 2, "economy": -13 }, "signals": { "attack": 0.2, "preservation": -0.18 } },
+    "Death Guard": { "method": "contaminated_attrition_occupation", "behavior": { "aggression": 1, "caution": 14, "expansion": 8, "economy": 4 }, "signals": { "defense": 0.14, "fortification": 0.14, "preservation": 0.1 } },
+    "Thousand Sons": { "method": "psychic_knowledge_recovery", "behavior": { "aggression": -1, "caution": 9, "expansion": 4, "economy": 14 }, "signals": { "scouting": 0.14, "economy": 0.14, "targetCommand": 0.12 } },
+    "Khorne Host": { "method": "continuous_blood_tithe", "behavior": { "aggression": 20, "caution": -18, "expansion": 0, "economy": -12 }, "signals": { "attack": 0.2, "preservation": -0.18 } },
+    "Tzeentch Coven": { "method": "deceptive_multi_objective_ritual", "behavior": { "aggression": 0, "caution": 8, "expansion": 4, "economy": 12 }, "signals": { "scouting": 0.14, "targetCommand": 0.1 } },
+    "Nurgle Host": { "method": "contaminated_attrition_hold", "behavior": { "aggression": -2, "caution": 15, "expansion": 7, "economy": 5 }, "signals": { "defense": 0.15, "fortification": 0.15 } },
+    "Slaanesh Host": { "method": "champion_capture_morale_collapse", "behavior": { "aggression": 10, "caution": -7, "expansion": 2, "economy": -1 }, "signals": { "targetCommand": 0.18, "mobility": 0.1, "attack": 0.1 } }
+  }
+}

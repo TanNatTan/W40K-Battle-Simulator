@@ -7,7 +7,6 @@ import {
   economyConfig,
   environmentConfig,
   factionConfig,
-  tradeRouteConfig,
   unitSpriteForge
 } from "../src/config/runtime-config.js";
 import { formatElapsed } from "../src/utilities/format.js";
@@ -22,7 +21,6 @@ test("foundation configuration exports are available and immutable", () => {
   assert.ok(Object.isFrozen(economyConfig));
   assert.ok(Object.isFrozen(environmentConfig));
   assert.ok(Object.isFrozen(factionConfig));
-  assert.equal(typeof tradeRouteConfig.canEstablish, "function");
   assert.equal(typeof unitSpriteForge.draw, "function");
 });
 

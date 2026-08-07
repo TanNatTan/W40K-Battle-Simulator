@@ -4,6 +4,7 @@
   "races": {
     "Space Marines": { "behavior": { "aggression": 58, "caution": 54, "expansion": 44, "economy": 48 }, "weights": { "attack": 1.05, "defend": 1.0, "expand": 0.82, "research": 1.05, "logistics": 0.9, "melee": 0.85, "ranged": 1.1, "vehicles": 0.95, "swarm": 0.25 }, "identity": { "elite": 0.9, "discipline": 0.9, "mobility": 0.72 } },
     "Imperial Guard": { "behavior": { "aggression": 46, "caution": 62, "expansion": 56, "economy": 68 }, "weights": { "attack": 0.92, "defend": 1.15, "expand": 1.0, "research": 0.8, "logistics": 1.25, "melee": 0.45, "ranged": 1.15, "vehicles": 1.2, "swarm": 0.72 }, "identity": { "attrition": 0.82, "artillery": 0.85, "discipline": 0.74 } },
+    "Adeptus Mechanicus": { "behavior": { "aggression": 48, "caution": 66, "expansion": 52, "economy": 78 }, "weights": { "attack": 0.94, "defend": 1.12, "expand": 0.92, "research": 1.4, "logistics": 1.18, "melee": 0.52, "ranged": 1.22, "vehicles": 1.32, "swarm": 0.35 }, "identity": { "technology": 1.0, "machinePreservation": 0.94, "noosphere": 0.96 } },
     "Chaos": { "behavior": { "aggression": 72, "caution": 34, "expansion": 54, "economy": 42 }, "weights": { "attack": 1.22, "defend": 0.72, "expand": 0.98, "research": 0.88, "logistics": 0.7, "melee": 1.18, "ranged": 0.9, "vehicles": 0.9, "swarm": 0.62 }, "identity": { "ritual": 0.86, "corruption": 0.9, "aggression": 0.84 } },
     "Orks": { "behavior": { "aggression": 88, "caution": 18, "expansion": 68, "economy": 28 }, "weights": { "attack": 1.38, "defend": 0.52, "expand": 1.12, "research": 0.45, "logistics": 0.62, "melee": 1.4, "ranged": 0.72, "vehicles": 1.08, "swarm": 1.25 }, "identity": { "waaagh": 1.0, "melee": 0.95, "improvisation": 0.88 } },
     "Necrons": { "behavior": { "aggression": 52, "caution": 68, "expansion": 42, "economy": 66 }, "weights": { "attack": 0.96, "defend": 1.2, "expand": 0.75, "research": 1.32, "logistics": 0.72, "melee": 0.72, "ranged": 1.12, "vehicles": 1.1, "swarm": 0.45 }, "identity": { "reanimation": 1.0, "durability": 0.94, "technology": 0.95 } },
@@ -23,5 +24,8 @@
     "Kraken": { "weights": { "expand": 1.25, "attack": 1.12 }, "identity": { "mobility": 0.96 } },
     "Sautekh": { "weights": { "defend": 1.18, "research": 1.2, "ranged": 1.08 } },
     "Farsight Enclaves": { "weights": { "attack": 1.18, "melee": 0.48, "ranged": 1.28, "defend": 0.82 } }
+    ,"Mars Forge": { "weights": { "research": 1.2, "logistics": 1.12, "vehicles": 1.08 }, "identity": { "noosphere": 1.0 } }
+    ,"Ryza Forge": { "weights": { "attack": 1.08, "ranged": 1.18, "vehicles": 1.14 }, "identity": { "plasma": 1.0 } }
+    ,"Lucius Forge": { "weights": { "defend": 1.18, "research": 1.1 }, "identity": { "machinePreservation": 1.0 } }
   }
 }

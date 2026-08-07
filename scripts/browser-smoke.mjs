@@ -110,13 +110,34 @@ try {
 
   const startup = await evaluate(`(() => {
     const root = document.querySelector('#autonomous-war-theater');
-    return { ready: root?.dataset.foundryReady, error: root?.dataset.runtimeError || null, moduleEntry: document.querySelector('script[type=module]')?.getAttribute('src') };
+    return { ready: root?.dataset.foundryReady, error: root?.dataset.runtimeError || null, moduleEntry: document.querySelector('script[type=module]')?.getAttribute('src'), economicMapDataVersion: globalThis.AWTData?.economicMaps?.version || null };
   })()`);
-  if (startup.ready !== "true" || startup.error) throw new Error(`Startup failed: ${JSON.stringify(startup)}`);
+  if (startup.ready !== "true" || startup.economicMapDataVersion !== 1 || startup.error) throw new Error(`Startup failed: ${JSON.stringify(startup)}`);
 
-  await evaluate(`(() => {
+  const playerSetup = await evaluate(`(() => {
     document.querySelector('#awt-create-map').click();
     document.querySelector('#awt-configure-players').click();
+    const objective = document.querySelector('#awt-player-battle-objective');
+    const result = {
+      objectiveCount: objective?.options?.length || 0,
+      selectedObjective: objective?.value || null,
+      objectiveName: document.querySelector('#awt-objective-name')?.textContent || null,
+      objectiveMethod: document.querySelector('#awt-objective-method')?.textContent || null,
+      doctrineControl: Boolean(document.querySelector('#awt-player-doctrine')),
+      presetControl: Boolean(document.querySelector('#awt-player-ai-preset')),
+      temperamentControls: document.querySelectorAll('[id^="awt-ai-aggression"], [id^="awt-ai-caution"], [id^="awt-ai-expansion"], [id^="awt-ai-economy"]').length
+    };
+    return result;
+  })()`);
+  if (playerSetup.objectiveCount !== 18 || !playerSetup.selectedObjective || !playerSetup.objectiveName || !playerSetup.objectiveMethod
+    || playerSetup.doctrineControl || playerSetup.presetControl || playerSetup.temperamentControls) {
+    throw new Error(`Battle objective setup failed: ${JSON.stringify(playerSetup)}`);
+  }
+  if (process.env.AWT_SMOKE_SETUP_SCREENSHOT) {
+    const screenshot = await command("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
+    await writeFile(process.env.AWT_SMOKE_SETUP_SCREENSHOT, Buffer.from(screenshot.data, "base64"));
+  }
+  await evaluate(`(() => {
     document.querySelector('#awt-shape-map').click();
     document.querySelector('#awt-zoom-in').click();
     document.querySelector('#awt-minimap').scrollIntoView({ block: 'center' });
@@ -131,6 +152,25 @@ try {
     const type = document.querySelector('#awt-resource-type');
     type.value = 'biomass';
     type.dispatchEvent(new Event('change', { bubbles: true }));
+    document.querySelector('[data-editor-tool-target="economic-node"]').click();
+    document.querySelector('#awt-new-economic-node').click();
+    const firstName = document.querySelector('#awt-economic-node-name');
+    firstName.value = 'Hive City Alpha';
+    firstName.dispatchEvent(new Event('change', { bubbles: true }));
+    document.querySelector('#awt-new-economic-node').click();
+    const secondName = document.querySelector('#awt-economic-node-name');
+    secondName.value = 'Manufactorum Delta';
+    secondName.dispatchEvent(new Event('change', { bubbles: true }));
+    document.querySelector('[data-editor-tool-target="trade-route"]').click();
+    document.querySelector('#awt-new-trade-route').click();
+    const state = document.querySelector('#autonomous-war-theater').awtDebugState;
+    const from = document.querySelector('#awt-trade-route-from');
+    const to = document.querySelector('#awt-trade-route-to');
+    from.value = state.economicNodes[0].id;
+    from.dispatchEvent(new Event('change', { bubbles: true }));
+    to.value = state.economicNodes[1].id;
+    to.dispatchEvent(new Event('change', { bubbles: true }));
+    document.querySelector('#awt-randomize-map').click();
   })()`);
 
   const editor = await evaluate(`(() => {
@@ -145,12 +185,16 @@ try {
       resourcePanelVisible: !document.querySelector('#awt-resource-controls').hidden,
       resourceZones: root.awtDebugState?.resourceZones?.length || 0,
       resourceType: root.awtDebugState?.resourceZones?.[0]?.resourceType || null,
+      economicNodes: root.awtDebugState?.economicNodes?.length || 0,
+      tradeRoutes: root.awtDebugState?.tradeRoutes?.length || 0,
+      generatedTradeRoutes: Number(root.dataset.generatedTradeRoutes || 0),
       minimap: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
       cameraBefore: root.dataset.camera,
       error: root.dataset.runtimeError || null
     };
   })()`);
-  if (!editor.editing || !editor.editorVisible || !editor.inspectorVisible || editor.tabs !== 5 || !editor.resourcePanelVisible || editor.resourceZones !== 1 || editor.resourceType !== "biomass" || editor.error) {
+  if (!editor.editing || !editor.editorVisible || !editor.inspectorVisible || editor.tabs !== 9 || editor.resourceZones !== 1
+    || editor.resourceType !== "biomass" || editor.economicNodes !== 2 || editor.tradeRoutes !== 1 || editor.generatedTradeRoutes !== 0 || editor.error) {
     throw new Error(`Editor smoke check failed: ${JSON.stringify(editor)}`);
   }
 
@@ -182,16 +226,62 @@ try {
       factionAIDataVersion: globalThis.AWTData?.factionAI?.version || null,
       factionAIProfiles: Object.keys(root.awtDebugState?.factionAIProfiles || {}).length,
       factionAIChoices: root.awtDebugState?.players?.map(player => player.factionAIChoice),
+      battleObjectives: root.dataset.battleObjectives || null,
+      objectiveMethods: root.dataset.objectiveMethods || null,
+      dynamicBehaviors: root.awtDebugState?.players?.map(player => player.dynamicAIBehavior),
       error: root.dataset.runtimeError || null
     };
   })()`);
   if (simulation.mode !== "sim" || simulation.paused || simulation.units < 2 || simulation.unsourcedUnits !== 0
     || simulation.factionAIDataVersion !== 1 || simulation.factionAIProfiles < 2
-    || simulation.factionAIChoices.some(choice => !choice || choice === "establish") || simulation.error) {
+    || simulation.factionAIChoices.some(choice => !choice || choice === "establish") || !simulation.battleObjectives || !simulation.objectiveMethods
+    || simulation.dynamicBehaviors.some(behavior => !behavior || !Number.isFinite(behavior.aggression)) || simulation.error) {
     throw new Error(`Simulation smoke check failed: ${JSON.stringify(simulation)}`);
   }
 
-  console.log(JSON.stringify({ startup, editor: { ...editor, cameraAfter }, simulation }, null, 2));
+  const sampleLifecycle = () => evaluate(`(() => {
+    const root = document.querySelector('#autonomous-war-theater');
+    return {
+      time: root.awtDebugState.time,
+      paused: root.awtDebugState.paused,
+      frames: Number(root.dataset.frameCount || 0),
+      failures: Number(root.dataset.frameFailures || 0),
+      failurePhase: root.awtDebugState.lastFrameFailure?.phase || null
+    };
+  })()`);
+  const runningStart = await sampleLifecycle();
+  await new Promise(resolve => setTimeout(resolve, 900));
+  const runningEnd = await sampleLifecycle();
+  if (runningEnd.time <= runningStart.time || runningEnd.frames <= runningStart.frames || runningEnd.paused) {
+    throw new Error(`Simulation did not advance continuously: ${JSON.stringify({ runningStart, runningEnd })}`);
+  }
+  await evaluate("document.querySelector('#awt-pause-button').click()");
+  const pausedStart = await sampleLifecycle();
+  await new Promise(resolve => setTimeout(resolve, 500));
+  const pausedEnd = await sampleLifecycle();
+  if (!pausedEnd.paused || Math.abs(pausedEnd.time - pausedStart.time) > 0.001 || pausedEnd.frames <= pausedStart.frames) {
+    throw new Error(`Pause stopped the frame scheduler or advanced simulation: ${JSON.stringify({ pausedStart, pausedEnd })}`);
+  }
+  await evaluate(`(() => {
+    document.querySelector('#awt-pause-button').click();
+    document.querySelector('[data-speed="8"]').click();
+  })()`);
+  const resumedStart = await sampleLifecycle();
+  await new Promise(resolve => setTimeout(resolve, 900));
+  const resumedEnd = await sampleLifecycle();
+  if (resumedEnd.paused || resumedEnd.time <= resumedStart.time + 2 || resumedEnd.frames <= resumedStart.frames) {
+    throw new Error(`Resume/8x lifecycle failed: ${JSON.stringify({ resumedStart, resumedEnd })}`);
+  }
+  const faultStart = await sampleLifecycle();
+  await evaluate("document.querySelector('#autonomous-war-theater').awtDebugControls.injectSimulationFault('smoke fault')");
+  await new Promise(resolve => setTimeout(resolve, 500));
+  const faultEnd = await sampleLifecycle();
+  if (!faultEnd.paused || faultEnd.failures !== faultStart.failures + 1 || faultEnd.failurePhase !== "simulation" || faultEnd.frames <= faultStart.frames) {
+    throw new Error(`Frame failure boundary failed: ${JSON.stringify({ faultStart, faultEnd })}`);
+  }
+  const lifecycle = { runningStart, runningEnd, pausedStart, pausedEnd, resumedStart, resumedEnd, faultStart, faultEnd };
+
+  console.log(JSON.stringify({ startup, playerSetup, editor: { ...editor, cameraAfter }, simulation, lifecycle }, null, 2));
 } finally {
   socket?.close();
   if (browser && browser.exitCode === null) {

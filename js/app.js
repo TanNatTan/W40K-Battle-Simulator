@@ -21,7 +21,6 @@ import {
   factionConfig,
   orkSpriteForge,
   storageAdapter,
-  tradeRouteConfig,
   unitSpriteForge
 } from "../src/config/runtime-config.js";
 import { clamp, distance } from "../src/utilities/math.js";
@@ -48,10 +47,19 @@ import {
   validateDeploymentRecord
 } from "../src/deployment/DeploymentSystem.js";
 import {
-  branchBehaviorFor,
   resolveFactionAIProfile,
   selectStrategicChoice
 } from "../src/ai/FactionAISystem.js";
+import {
+  DEFAULT_BATTLE_OBJECTIVE,
+  deriveDynamicAIBehavior,
+  evaluateBattleObjective,
+  normalizeBattleObjectiveId,
+  objectiveOptionsFor,
+  objectiveStrategicBias,
+  objectiveTargetBias,
+  resolveBattleObjectivePlan
+} from "../src/ai/BattleObjectiveSystem.js";
 import {
   relationshipBandFor,
   relationshipEffect,
@@ -88,6 +96,20 @@ import {
   serializeResourceZone,
   syncResourceZone
 } from "../src/economy/ResourceZones.js";
+import {
+  ECONOMIC_NODE_TYPES,
+  ECONOMY_OVERLAY_GROUPS,
+  TRADE_ROUTE_TYPES,
+  createEconomicNode,
+  createTradeRoute,
+  factionCanUseRoute,
+  formatResourceMap,
+  parseResourceMap,
+  routeIsAuthoredAndComplete,
+  scoreAuthoredTradeRoute,
+  serializeEconomicNode,
+  serializeTradeRoute
+} from "../src/economy/EconomicMap.js";
 
     (() => {
       const root = document.getElementById("autonomous-war-theater");
@@ -102,7 +124,6 @@ import {
 
       const canvas = root.querySelector("#awt-canvas");
       const ctx = canvas.getContext("2d");
-      const tradeRouteRules = tradeRouteConfig;
       root.dataset.spriteForge = unitSpriteForge ? "marine-guard-ork" : "fallback";
       const VW = VIEWPORT_WIDTH;
       const VH = VIEWPORT_HEIGHT;
@@ -145,6 +166,11 @@ import {
         editorTip: root.querySelector("#awt-editor-tip"),
         battleName: root.querySelector("#awt-battle-name"),
         pause: root.querySelector("#awt-pause-button"),
+        victoryScreen: root.querySelector("#awt-victory-screen"),
+        victoryTitle: root.querySelector("#awt-victory-title"),
+        victoryCopy: root.querySelector("#awt-victory-copy"),
+        rematchButton: root.querySelector("#awt-rematch-button"),
+        victoryMenuButton: root.querySelector("#awt-victory-menu-button"),
         inspector: root.querySelector("#awt-inspector"),
         inspectorButton: root.querySelector("#awt-inspector-button"),
         fullscreenButton: root.querySelector("#awt-fullscreen-button"),
@@ -177,10 +203,10 @@ import {
         weather: root.querySelector("#awt-weather"),
         forceValue: root.querySelector("#awt-a-strength"),
         forceContext: root.querySelector("#awt-a-context"),
-        playerCount: root.querySelector("#awt-a-doctrine"),
+        playerCount: root.querySelector("#awt-a-player-count"),
         buildingValue: root.querySelector("#awt-b-strength"),
         buildingContext: root.querySelector("#awt-b-context"),
-        resolutionBadge: root.querySelector("#awt-b-doctrine"),
+        resolutionBadge: root.querySelector("#awt-b-resolution"),
         unitName: root.querySelector("#awt-unit-name"),
         unitRole: root.querySelector("#awt-unit-role"),
         unitState: root.querySelector("#awt-unit-state"),
@@ -216,16 +242,11 @@ import {
         playerFaction: root.querySelector("#awt-player-faction"),
         playerSubfaction: root.querySelector("#awt-player-subfaction"),
         playerTeam: root.querySelector("#awt-player-team"),
-        playerDoctrine: root.querySelector("#awt-player-doctrine"),
-        playerAiPreset: root.querySelector("#awt-player-ai-preset"),
-        aiAggression: root.querySelector("#awt-ai-aggression"),
-        aiAggressionValue: root.querySelector("#awt-ai-aggression-value"),
-        aiCaution: root.querySelector("#awt-ai-caution"),
-        aiCautionValue: root.querySelector("#awt-ai-caution-value"),
-        aiExpansion: root.querySelector("#awt-ai-expansion"),
-        aiExpansionValue: root.querySelector("#awt-ai-expansion-value"),
-        aiEconomy: root.querySelector("#awt-ai-economy"),
-        aiEconomyValue: root.querySelector("#awt-ai-economy-value"),
+        playerBattleObjective: root.querySelector("#awt-player-battle-objective"),
+        objectiveName: root.querySelector("#awt-objective-name"),
+        objectiveSummary: root.querySelector("#awt-objective-summary"),
+        objectiveMethod: root.querySelector("#awt-objective-method"),
+        objectiveSignals: root.querySelector("#awt-objective-signals"),
         playerColor: root.querySelector("#awt-player-color"),
         playerColorValue: root.querySelector("#awt-player-color-value"),
         playerSecondaryColor: root.querySelector("#awt-player-secondary-color"),
@@ -297,6 +318,30 @@ import {
         resourceCollectors: root.querySelector("#awt-resource-collectors"),
         resourceRequiresBuilding: root.querySelector("#awt-resource-requires-building"),
         resourceStrategic: root.querySelector("#awt-resource-strategic"),
+        resourceInfinite: root.querySelector("#awt-resource-infinite"),
+        tradeRouteControls: root.querySelector("#awt-trade-route-controls"),
+        tradeRouteSelect: root.querySelector("#awt-trade-route-select"),
+        tradeRouteName: root.querySelector("#awt-trade-route-name"),
+        tradeRouteType: root.querySelector("#awt-trade-route-type"),
+        tradeRouteFrom: root.querySelector("#awt-trade-route-from"),
+        tradeRouteTo: root.querySelector("#awt-trade-route-to"),
+        tradeRouteCapacity: root.querySelector("#awt-trade-route-capacity"),
+        tradeRouteResources: root.querySelector("#awt-trade-route-resources"),
+        tradeRouteFactions: root.querySelector("#awt-trade-route-factions"),
+        tradeRouteRoadRequired: root.querySelector("#awt-trade-route-road-required"),
+        tradeRouteBidirectional: root.querySelector("#awt-trade-route-bidirectional"),
+        tradeRouteActive: root.querySelector("#awt-trade-route-active"),
+        economicNodeControls: root.querySelector("#awt-economic-node-controls"),
+        economicNodeSelect: root.querySelector("#awt-economic-node-select"),
+        economicNodeName: root.querySelector("#awt-economic-node-name"),
+        economicNodeType: root.querySelector("#awt-economic-node-type"),
+        economicNodeOwner: root.querySelector("#awt-economic-node-owner"),
+        economicNodeExports: root.querySelector("#awt-economic-node-exports"),
+        economicNodeImports: root.querySelector("#awt-economic-node-imports"),
+        economicNodeCapacity: root.querySelector("#awt-economic-node-capacity"),
+        economicNodeValue: root.querySelector("#awt-economic-node-value"),
+        economicNodeActive: root.querySelector("#awt-economic-node-active"),
+        economicOverlayControls: root.querySelector("#awt-economic-overlay-controls"),
         lightingControls: root.querySelector("#awt-lighting-controls"),
         timeMode: root.querySelector("#awt-time-mode"),
         clockRunning: root.querySelector("#awt-clock-running"),
@@ -356,15 +401,15 @@ import {
         "Imperium": {
           builder: "Servitor",
           factions: {
-            "Space Marines": ["Ultramarines", "Blood Angels", "Imperial Fists"],
-            "Imperial Guard": ["Cadian 8th", "Steel Legion", "Tempestus Scions"],
-            "Machine Cult": ["Mars Forge", "Ryza Forge", "Lucius Forge"]
+            "Space Marines": ["Ultramarines", "Blood Angels", "Imperial Fists", "Salamanders", "White Scars", "Raven Guard", "Iron Hands", "Space Wolves", "Black Templars"],
+            "Imperial Guard": ["Cadian 8th", "Steel Legion", "Tempestus Scions", "Death Korps of Krieg", "Catachan Jungle Fighters", "Tallarn Desert Raiders"],
+            "Machine Cult": ["Mars Forge", "Ryza Forge", "Lucius Forge", "Graia Forge", "Stygies VIII Forge"]
           }
         },
         "T'au": {
           builder: "Earth Caste Engineer",
           factions: {
-            "Frontier Cadre": ["T'au Sept", "Vior'la Sept", "Sa'cea Sept"],
+            "Frontier Cadre": ["T'au Sept", "Vior'la Sept", "Sa'cea Sept", "Bork'an Sept", "Dal'yth Sept", "Farsight Enclaves"],
             "Drone Collective": ["Marker Network", "Guardian Web", "Recon Swarm"]
           }
         },
@@ -378,22 +423,22 @@ import {
         "Necrons": {
           builder: "Canoptek Scarab",
           factions: {
-            "Dynastic Host": ["Sautekh", "Mephrit", "Novokh"],
+            "Dynastic Host": ["Sautekh", "Mephrit", "Novokh", "Nihilakh", "Nephrekh", "Szarekhan"],
             "Canoptek Swarm": ["Tomb Watch", "Repair Cohort", "Hunter Matrix"]
           }
         },
         "Tyranids": {
           builder: "Ripper Tendril",
           factions: {
-            "Hive Fleet": ["Leviathan", "Kraken", "Behemoth"],
+            "Hive Fleet": ["Leviathan", "Kraken", "Behemoth", "Jormungandr", "Kronos", "Gorgon", "Hydra"],
             "Vanguard Organisms": ["Lictor Brood", "Spore Web", "Genestealer Vanguard"]
           }
         },
         "Chaos": {
           builder: "Dark Servitor",
           factions: {
-            "Chaos Space Marines": ["Black Legion", "Word Bearers", "Iron Warriors"],
-            "Daemon Host": ["Khorne Host", "Tzeentch Coven", "Nurgle Host"]
+            "Chaos Space Marines": ["Black Legion", "Word Bearers", "Iron Warriors", "Night Lords", "Alpha Legion", "Emperor's Children", "World Eaters", "Death Guard", "Thousand Sons"],
+            "Daemon Host": ["Khorne Host", "Tzeentch Coven", "Nurgle Host", "Slaanesh Host"]
           }
         }
       };
@@ -532,7 +577,7 @@ import {
       }
 
       const economyResourceKeys = [...economyConfig.resources];
-      const economyResourceLabels = { requisition: "Req", materials: "Mat", fuel: "Fuel", energy: "Power", ammunition: "Ammo", medical: "Med", food: "Food", faith: "Faith", influence: "Influence", scrap: "Scrap", biomass: "Biomass", parts: "Parts" };
+      const economyResourceLabels = { requisition: "Req", materials: "Ore / materials", fuel: "Fuel", energy: "Energy", ammunition: "Ammo", medical: "Medical", food: "Food", faith: "Faith", influence: "Influence", scrap: "Scrap", biomass: "Biomass", parts: "Parts" };
       const economySpriteSourceData = {
         ork: "assets/buildings/ork.svg",
         marine: "assets/buildings/marine.svg",
@@ -673,50 +718,36 @@ import {
       };
 
       const setupPlayers = [
-        { id: "a", index: 0, race: "Imperium", faction: "Space Marines", subfaction: "Ultramarines", team: "1", color: defaultColors[0], doctrine: "Fortress" },
-        { id: "b", index: 1, race: "Orks", faction: "Redfang Horde", subfaction: "Ironjaw Mob", team: "2", color: defaultColors[1], doctrine: "Aggressive" },
-        { id: "c", index: 2, race: "T'au", faction: "Frontier Cadre", subfaction: "T'au Sept", team: "3", color: defaultColors[2], doctrine: "Balanced" },
-        { id: "d", index: 3, race: "Necrons", faction: "Dynastic Host", subfaction: "Sautekh", team: "4", color: defaultColors[3], doctrine: "Rush tech" },
-        { id: "e", index: 4, race: "Tyranids", faction: "Hive Fleet", subfaction: "Leviathan", team: "1", color: defaultColors[4], doctrine: "Expansion" },
-        { id: "f", index: 5, race: "Imperium", faction: "Imperial Guard", subfaction: "Cadian 8th", team: "2", color: defaultColors[5], doctrine: "Balanced" },
-        { id: "g", index: 6, race: "Orks", faction: "Scrap Legion", subfaction: "Goff Mob", team: "3", color: defaultColors[6], doctrine: "Aggressive" },
-        { id: "h", index: 7, race: "T'au", faction: "Drone Collective", subfaction: "Recon Swarm", team: "4", color: defaultColors[7], doctrine: "Repair first" },
-        { id: "i", index: 8, race: "Necrons", faction: "Canoptek Swarm", subfaction: "Tomb Watch", team: "1", color: defaultColors[8], doctrine: "Fortress" },
-        { id: "j", index: 9, race: "Tyranids", faction: "Vanguard Organisms", subfaction: "Lictor Brood", team: "2", color: defaultColors[9], doctrine: "Expansion" },
-        { id: "k", index: 10, race: "Imperium", faction: "Machine Cult", subfaction: "Mars Forge", team: "3", color: defaultColors[10], doctrine: "Rush tech" },
-        { id: "l", index: 11, race: "T'au", faction: "Frontier Cadre", subfaction: "Vior'la Sept", team: "4", color: defaultColors[11], doctrine: "Balanced" }
+        { id: "a", index: 0, race: "Imperium", faction: "Space Marines", subfaction: "Ultramarines", team: "1", color: defaultColors[0], battleObjective: "stronghold_assault" },
+        { id: "b", index: 1, race: "Orks", faction: "Redfang Horde", subfaction: "Ironjaw Mob", team: "2", color: defaultColors[1], battleObjective: "annihilation" },
+        { id: "c", index: 2, race: "T'au", faction: "Frontier Cadre", subfaction: "T'au Sept", team: "3", color: defaultColors[2], battleObjective: "strategic_point_control" },
+        { id: "d", index: 3, race: "Necrons", faction: "Dynastic Host", subfaction: "Sautekh", team: "4", color: defaultColors[3], battleObjective: "territorial_domination" },
+        { id: "e", index: 4, race: "Tyranids", faction: "Hive Fleet", subfaction: "Leviathan", team: "1", color: defaultColors[4], battleObjective: "resource_supremacy" },
+        { id: "f", index: 5, race: "Imperium", faction: "Imperial Guard", subfaction: "Cadian 8th", team: "2", color: defaultColors[5], battleObjective: "stronghold_defense" },
+        { id: "g", index: 6, race: "Orks", faction: "Scrap Legion", subfaction: "Goff Mob", team: "3", color: defaultColors[6], battleObjective: "annihilation" },
+        { id: "h", index: 7, race: "T'au", faction: "Drone Collective", subfaction: "Recon Swarm", team: "4", color: defaultColors[7], battleObjective: "convoy_escort" },
+        { id: "i", index: 8, race: "Necrons", faction: "Canoptek Swarm", subfaction: "Tomb Watch", team: "1", color: defaultColors[8], battleObjective: "stronghold_defense" },
+        { id: "j", index: 9, race: "Tyranids", faction: "Vanguard Organisms", subfaction: "Lictor Brood", team: "2", color: defaultColors[9], battleObjective: "assassination" },
+        { id: "k", index: 10, race: "Imperium", faction: "Machine Cult", subfaction: "Mars Forge", team: "3", color: defaultColors[10], battleObjective: "relic_recovery" },
+        { id: "l", index: 11, race: "T'au", faction: "Frontier Cadre", subfaction: "Vior'la Sept", team: "4", color: defaultColors[11], battleObjective: "breakthrough" }
       ];
       const identificationPatterns = ["solid", "vertical", "diagonal", "split", "checker", "border", "quartered"];
-      const fallbackBehaviorPresets = {
-        balanced: { aggression: 50, caution: 50, expansion: 50, economy: 50 },
-        offensive: { aggression: 85, caution: 25, expansion: 60, economy: 35 },
-        defensive: { aggression: 25, caution: 85, expansion: 25, economy: 55 },
-        expansion: { aggression: 55, caution: 40, expansion: 90, economy: 65 },
-        economic: { aggression: 30, caution: 65, expansion: 55, economy: 90 }
-      };
-      const behaviorPresets = aiConfig.behaviorPresets || fallbackBehaviorPresets;
-      const behaviorPresetForDoctrine = doctrine => ({ Fortress: "defensive", Aggressive: "offensive", Expansion: "expansion", "Rush tech": "economic", "Repair first": "defensive" }[doctrine] || "balanced");
-      const behaviorFromPreset = preset => ({ ...(behaviorPresets[preset] || behaviorPresets.balanced || fallbackBehaviorPresets.balanced) });
       setupPlayers.forEach((player, index) => {
         player.name = `Player ${index + 1}`;
         player.secondaryColor = defaultColors[(index + 5) % defaultColors.length];
         player.pattern = identificationPatterns[index % identificationPatterns.length];
-        player.aiPreset = behaviorPresetForDoctrine(player.doctrine);
-        player.aiBehavior = behaviorFromPreset(player.aiPreset);
       });
+
+      function battleObjectivePlanFor(playerOrFaction) {
+        const player = typeof playerOrFaction === "string" ? playerFor(playerOrFaction) : playerOrFaction;
+        if (!player) return resolveBattleObjectivePlan({ battleObjective: DEFAULT_BATTLE_OBJECTIVE });
+        return player.battleObjectivePlan ||= resolveBattleObjectivePlan(player, resolveFactionAIProfile(player));
+      }
 
       function aiBehaviorFor(playerOrFaction) {
         const player = typeof playerOrFaction === "string" ? playerFor(playerOrFaction) : playerOrFaction;
-        const fallback = behaviorFromPreset(player?.aiPreset || behaviorPresetForDoctrine(player?.doctrine));
-        const configured = player?.aiBehavior || fallback;
-        const branch = branchBehaviorFor(player);
-        const combined = key => Number(configured[key] ?? fallback[key]) + (Number(branch[key] ?? 50) - 50) * 0.35;
-        return {
-          aggression: clamp(combined("aggression"), 0, 100),
-          caution: clamp(combined("caution"), 0, 100),
-          expansion: clamp(combined("expansion"), 0, 100),
-          economy: clamp(combined("economy"), 0, 100)
-        };
+        if (!player) return { aggression: 50, caution: 50, expansion: 50, economy: 50 };
+        return player.dynamicAIBehavior || deriveDynamicAIBehavior(resolveFactionAIProfile(player), battleObjectivePlanFor(player));
       }
 
       const spriteCatalog = {
@@ -991,6 +1022,7 @@ import {
         projectilePool: [],
         features: [],
         resourceZones: [],
+        economyZoneManager: null,
         casualtyPoints: [],
         incidents: [],
         snapshots: [],
@@ -1015,6 +1047,8 @@ import {
         erasing: false,
         brushDown: false,
         territories: [],
+        strategicTerritory: null,
+        strategicTerritoryVictoryReported: false,
         territoryOverlay: true,
         lighting: {
           enabled: true,
@@ -1045,12 +1079,20 @@ import {
         resourceZoneDragIndex: -1,
         resourceZoneDragStart: null,
         nextResourceZoneId: 1,
+        economicNodes: [],
+        tradeRoutes: [],
+        selectedEconomicNodeId: null,
+        selectedTradeRouteId: null,
+        nextEconomicNodeId: 1,
+        nextTradeRouteId: 1,
+        economicOverlay: { food: true, fuel: true, energy: true, minerals: true, requisition: true, medical: true, trade: true, territory: true, supply: true },
         nextTerritoryTick: 0,
         resources: {},
         economies: {},
         convoys: [],
+        supplyRoutes: [],
+        routeHistory: null,
         dropPods: [],
-        tradePartners: [],
         roads: [],
         roadSpatialIndex: new Map(),
         roadRevision: 0,
@@ -1091,6 +1133,10 @@ import {
         spatialGrid: new Map(),
         spatialMembership: new WeakMap(),
         lastFrame: performance.now(),
+        frameCount: 0,
+        lastSuccessfulSimulationAt: performance.now(),
+        frameFailures: 0,
+        lastFrameFailure: null,
         uiAccumulator: 0,
         renderAccumulator: 0,
         fastStepAccumulator: 0,
@@ -1110,9 +1156,21 @@ import {
         teamFogVisibility: new Map(),
         activeSetupPlayer: 0
       };
+      state.economyZoneManager = new globalThis.AWTSystems.EconomyZoneManager();
+      state.routeHistory = new globalThis.AWTSystems.RouteHistory();
       const navigationPlanner = new NavigationPlanner({ cellSize: 32, maxVisited: 5200, maxCacheEntries: 256 });
       root.awtDebugState = state;
       window.awtDebugState = state;
+      root.awtDebugControls = {
+        injectSimulationFault(message = "Injected simulation fault") {
+          state.debugSimulationFault = String(message);
+        },
+        resume() {
+          state.paused = false;
+          state.lastFrame = performance.now();
+          updatePauseButton();
+        }
+      };
 
       const worldWidth = () => state.world.width;
       const worldHeight = () => state.world.height;
@@ -1703,8 +1761,10 @@ import {
           units: state.units.length,
           structures: state.structures.length,
           projectiles: state.projectiles.length,
-          resourceNodes: state.features.filter(feature => feature.resourceNode).length,
-          depletedNodes: state.features.filter(feature => feature.resourceNode && feature.reserve <= 0).length,
+          resourceNodes: state.resourceZones.length,
+          economicNodes: state.economicNodes.length,
+          tradeRoutes: state.tradeRoutes.length,
+          depletedNodes: state.resourceZones.filter(zone => zone.remaining <= 0).length,
           squads: state.squads.length
         },
         wounds: state.units.reduce((summary, unit) => { summary[unit.woundState || "Healthy"] = (summary[unit.woundState || "Healthy"] || 0) + 1; return summary; }, {}),
@@ -1730,8 +1790,6 @@ import {
         const behavior = aiBehaviorFor(player);
         if (behavior.economy >= 72 || behavior.caution >= 76) return "Frugal";
         if (behavior.aggression >= 72 && behavior.economy <= 55) return "Aggressive";
-        if (["Fortress", "Repair first"].includes(player.doctrine)) return "Frugal";
-        if (["Aggressive", "Rush tech"].includes(player.doctrine)) return "Aggressive";
         return "Balanced";
       }
 
@@ -2886,26 +2944,6 @@ import {
         incident(`${playerFor(faction).faction} individuals formed ${squad.name} with one combined health bar.`, leader.id, "info");
       }
 
-      function createTradePartners() {
-        const types = ["Hive City", "Manufactorum", "Mechanicus Enclave", "Imperial Navy", "Orbital Station", "Neutral Settlement"];
-        const routeRadius = Math.max(180, Math.min(2600, Math.min(worldWidth(), worldHeight()) * 0.38));
-        return state.players.map((player, index) => {
-          const angle = index * Math.PI * 2 / Math.max(1, state.players.length) + Math.PI / 4;
-          return {
-            id: `trade-${player.id}`,
-            faction: player.id,
-            name: `${types[index % types.length]} ${index + 1}`,
-            x: clamp(worldWidth() / 2 + Math.cos(angle) * routeRadius, 35, worldWidth() - 35),
-            y: clamp(worldHeight() / 2 + Math.sin(angle) * routeRadius, 35, worldHeight() - 35),
-            exports: index % 3 === 0 ? { food: 18, requisition: 8 } : index % 3 === 1 ? { ammunition: 13, materials: 9 } : { fuel: 12, parts: 8 },
-            established: false,
-            establishedAt: null,
-            establishmentCost: { ...(tradeRouteRules.establishmentCost || { influence: 40, materials: 25 }) },
-            nextDispatch: Infinity
-          };
-        });
-      }
-
       function rebuildLogisticsPlayerSelect() {
         els.logisticsPlayer.textContent = "";
         for (const player of state.players) {
@@ -2918,6 +2956,85 @@ import {
         els.logisticsPlayer.value = state.logisticsPlayerId;
       }
 
+      function loadAuthoredEconomicPreset(presetKey) {
+        const preset = globalThis.AWTData?.economicMaps?.presets?.[presetKey];
+        if (!preset) return;
+        state.resourceZones = (preset.resourceZones || []).map((zone, index) => createResourceZone(
+          zone.id || `resource-zone-${index + 1}`,
+          { x: 0, y: 0 },
+          { ...zone, points: (zone.points || []).map(([x, y]) => ({ x: x * worldWidth(), y: y * worldHeight() })) }
+        ));
+        state.economicNodes = (preset.economicNodes || []).map((node, index) => createEconomicNode(
+          node.id || `economic-node-${index + 1}`,
+          { x: Number(node.x) * worldWidth(), y: Number(node.y) * worldHeight() },
+          { ...node, x: Number(node.x) * worldWidth(), y: Number(node.y) * worldHeight() }
+        ));
+        state.tradeRoutes = (preset.tradeRoutes || []).map((route, index) => createTradeRoute(
+          route.id || `trade-route-${index + 1}`,
+          { ...route, points: (route.points || []).map(([x, y]) => ({ x: x * worldWidth(), y: y * worldHeight() })) }
+        ));
+        state.nextResourceZoneId = state.resourceZones.length + 1;
+        state.nextEconomicNodeId = state.economicNodes.length + 1;
+        state.nextTradeRouteId = state.tradeRoutes.length + 1;
+        state.selectedResourceZoneId = state.resourceZones[0]?.id || null;
+        state.selectedEconomicNodeId = state.economicNodes[0]?.id || null;
+        state.selectedTradeRouteId = state.tradeRoutes[0]?.id || null;
+        state.economyZoneManager.adopt(state.resourceZones);
+      }
+
+      function objectiveTypeForEconomicNode(node) {
+        return {
+          "space-port": "spaceport",
+          "orbital-elevator": "critical-location",
+          "fuel-refinery": "resource-hub",
+          "mining-colony": "resource-hub",
+          "agri-complex": "resource-hub",
+          "mechanicus-enclave": "relay",
+          "manufactorum": "strategic-point",
+          "hive-city": "trade-station",
+          "fortress-monastery": "high-ground",
+          "supply-depot": "trade-station",
+          "forward-operating-base": "strategic-point"
+        }[node.type] || "critical-location";
+      }
+
+      function rebuildStrategicTerritorySystem() {
+        const seed = [...state.battleSeed].reduce((value, character) => Math.imul(value ^ character.charCodeAt(0), 16777619), 2166136261) >>> 0;
+        const cellCount = clamp(Math.round(worldWidth() * worldHeight() / 26000), 48, 120);
+        const partition = new globalThis.AWTSystems.SpatialPartition({
+          width: worldWidth(),
+          height: worldHeight(),
+          cellCount,
+          seed,
+          relaxIterations: 2
+        });
+        const objectives = state.economicNodes.filter(node => node.active !== false).map(node => ({
+          x: node.x,
+          y: node.y,
+          type: objectiveTypeForEconomicNode(node),
+          sourceId: node.id
+        }));
+        for (const feature of state.features.filter(item => ["bridge", "pontoonbridge"].includes(item.type))) {
+          objectives.push({ x: feature.x, y: feature.y, type: "bridge", sourceId: feature.id || null });
+        }
+        state.strategicTerritory = new globalThis.AWTSystems.TerritorySystem(
+          partition,
+          state.players.map(player => ({ id: player.id, color: player.color, base: { ...player.base } })),
+          {
+            objectives,
+            resourceZones: state.resourceZones,
+            roads: state.roads,
+            startingGarrison: 40,
+            combatSeed: seed ^ 0x9E3779B9,
+            strengthProvider: (cell, faction) => state.units
+              .filter(unit => unit.alive && unit.faction === faction && distance(unit, cell.centroid) <= 150)
+              .reduce((sum, unit) => sum + combatPowerScore(unit), 0)
+          }
+        );
+        state.strategicTerritoryVictoryReported = false;
+        root.dataset.territoryCellPool = String(state.strategicTerritory.cells.length);
+      }
+
       function resetBattle(presetKey = "iron", customFeatures = null) {
         const preset = presets[presetKey] || presets.iron;
         state.scenario = presetKey;
@@ -2927,7 +3044,7 @@ import {
         const nextWorld = presetKey === "custom" ? state.world : preset.world;
         setWorldSize(nextWorld.width, nextWorld.height);
         state.world.baseTerrain = presetKey === "ash" ? "ash" : presetKey === "verdant" ? "forestfloor" : "grass";
-        state.battleSeed = `${presetKey}:${worldWidth()}x${worldHeight()}:${state.players.map(player => `${player.race}-${player.doctrine}`).join("|")}`;
+        state.battleSeed = `${presetKey}:${worldWidth()}x${worldHeight()}:${state.players.map(player => `${player.race}-${player.subfaction}-${player.battleObjective}`).join("|")}`;
         battleRandom = seededRandom(state.battleSeed);
         if (presetKey !== "custom") {
           state.lighting.mode = "dynamic";
@@ -2960,6 +3077,16 @@ import {
         state.projectiles = [];
         state.projectilePool = [];
         state.resourceZones = [];
+        state.selectedResourceZoneId = null;
+        state.nextResourceZoneId = 1;
+        state.economicNodes = [];
+        state.tradeRoutes = [];
+        state.selectedEconomicNodeId = null;
+        state.selectedTradeRouteId = null;
+        state.nextEconomicNodeId = 1;
+        state.nextTradeRouteId = 1;
+        if (presetKey !== "custom") loadAuthoredEconomicPreset(presetKey);
+        else state.economyZoneManager.adopt(state.resourceZones);
         state.casualtyPoints = [];
         state.features = (customFeatures ?? preset.features).map(feature => {
           const scaled = presetKey === "custom" ? feature : {
@@ -2972,7 +3099,6 @@ import {
           };
           return { condition: 1, age: 0, ...scaled, visual: scaled.visual || visualForBrush(scaled.type) };
         });
-        seedStrategicResourceNodes(battleRandom);
         markFeatureIndexDirty();
         state.nextTerritoryId = 1;
         state.territories = state.players.map(player => createTerritory(player.id, player.base, spawnZoneFor(player).size, {
@@ -2996,6 +3122,8 @@ import {
         state.resources = {};
         state.economies = {};
         state.convoys = [];
+        state.supplyRoutes = [];
+        state.routeHistory = new globalThis.AWTSystems.RouteHistory();
         state.dropPods = [];
         state.roads = [];
         state.roadSpatialIndex = new Map();
@@ -3038,6 +3166,16 @@ import {
           );
           player.factionAIProfileId = factionAIProfile.id;
           player.factionAIChoice = "establish";
+          player.battleObjective = normalizeBattleObjectiveId(player.battleObjective);
+          player.battleObjectivePlan = resolveBattleObjectivePlan(player, factionAIProfile);
+          player.battleObjectiveState = null;
+          player.dynamicAIBehavior = deriveDynamicAIBehavior(factionAIProfile, player.battleObjectivePlan);
+          player.convoysDelivered = 0;
+          player.enemyConvoysDestroyed = 0;
+          player.unitsEvacuated = 0;
+          player.objectiveTargetIds = new Set();
+          player.maxObservedEnemyInfrastructure = 0;
+          player.hasEstablishedHeadquarters = false;
           state.economies[player.id] = createEconomy(player);
           state.resources[player.id] = state.economies[player.id].inventory.requisition;
           state.casualties[player.id] = 0;
@@ -3064,7 +3202,6 @@ import {
         }
         invalidateLightingCaches();
         updateExploration(0, true);
-        state.tradePartners = createTradePartners();
         state.logisticsPlayerId = state.players[0]?.id || "a";
         rebuildLogisticsPlayerSelect();
         rebuildRoadNetwork();
@@ -3095,6 +3232,9 @@ import {
         state.replay = false;
         state.replayIndex = 0;
         state.ended = false;
+        state.victoriousTeam = null;
+        state.lastOperationalTeam = null;
+        delete root.dataset.victory;
         state.fogPlayer = "observer";
         els.battleName.textContent = `${presetKey === "custom" ? "Untitled theater" : preset.name} / Builder deployment`;
         rebuildUnitSelect();
@@ -3162,7 +3302,6 @@ import {
           }
         });
         state.features = generated;
-        seedStrategicResourceNodes(random);
         markFeatureIndexDirty();
         rebuildSpatialGrid();
         state.minimapMarkerDirty = true;
@@ -3180,12 +3319,12 @@ import {
           return territory;
         });
         state.selectedTerritoryId = state.territories[0]?.id || null;
-        state.tradePartners = createTradePartners();
         rebuildRoadNetwork();
+        rebuildStrategicTerritorySystem();
         state.selectedTerritoryId && rebuildTerritorySelect();
         loadTerritoryForm();
         els.battleName.textContent = `${seedText} / ${els.randomBiome.selectedOptions[0].text}`;
-        els.editorTip.textContent = `${els.randomBiome.selectedOptions[0].text} generated · ${state.terrainChunks.size} terrain chunks · ${generated.length} objects · ${state.territories.length} territories`;
+        els.editorTip.textContent = `${els.randomBiome.selectedOptions[0].text} terrain generated · ${generated.length} objects · authored resources, landmarks, and trade routes preserved`;
         updateUI(true);
         draw();
       }
@@ -3233,14 +3372,20 @@ import {
           fieldhospital: 1 - ratio("medical"), observationtower: 0.28, bunker: threat, turret: threat,
           fueldepot: ratio("fuel"), ammodepot: ratio("ammunition"), dropbay: player.faction === "Space Marines" ? 0.7 : 0.2
         };
-        const doctrineBonus = {
-          Fortress: { bunker: 30, turret: 28, observationtower: 18 },
-          Aggressive: { barracks: 32, turret: 18, workshop: 16 },
-          Expansion: { mine: 30, warehouse: 24, farm: 18, refinery: 18 },
-          "Rush tech": { researchcenter: 42, workshop: 28, generator: 22, refinery: 16 },
-          "Repair first": { fieldhospital: 34, workshop: 16, bunker: 14 },
-          Balanced: {}
-        }[player.doctrine] || {};
+        const signals = battleObjectivePlanFor(player).signals;
+        const objectiveBonus = {
+          bunker: (signals.fortification || 0) * 30,
+          turret: (signals.defense || 0) * 24,
+          observationtower: (signals.scouting || 0) * 20,
+          barracks: (signals.attack || 0) * 28,
+          workshop: ((signals.attack || 0) + (signals.logistics || 0)) * 12,
+          mine: (signals.expansion || 0) * 28,
+          warehouse: (signals.logistics || 0) * 24,
+          farm: (signals.economy || 0) * 18,
+          refinery: (signals.economy || 0) * 18,
+          researchcenter: (signals.economy || 0) * 30,
+          fieldhospital: (signals.preservation || 0) * 30
+        };
         const behavior = aiBehaviorFor(player);
         const scored = Object.keys(buildingCatalog)
           .filter(type => type !== "outpost")
@@ -3254,7 +3399,7 @@ import {
               + (behavior.aggression - 50) * spec.military * 0.08
               + (behavior.caution - 50) * (["bunker", "turret", "observationtower", "fieldhospital"].includes(type) ? 0.42 : 0)
               + (behavior.expansion - 50) * (["mine", "farm", "refinery", "warehouse"].includes(type) ? 0.38 : 0);
-            const score = (dependencyReady ? 0 : -1000) + missing * 38 + need * 55 + resources * 24 + (doctrineBonus[type] || 0) + behaviorBias - spec.risk * (threat * 5 + 1);
+            const score = (dependencyReady ? 0 : -1000) + missing * 38 + need * 55 + resources * 24 + (objectiveBonus[type] || 0) + behaviorBias - spec.risk * (threat * 5 + 1);
             return { type, score };
           })
           .sort((a, b) => b.score - a.score);
@@ -3427,11 +3572,11 @@ import {
           return;
         }
 
-        const repairDoctrine = playerFor(unit.faction).doctrine === "Repair first";
+        const repairPriority = (battleObjectivePlanFor(unit.faction).signals.preservation || 0) >= 0.7 || aiBehaviorFor(unit.faction).caution >= 70;
         const urgentRepair = nearbyCombatObjects(unit, 260).structures
-          .filter(item => item.alive !== false && areAllies(item.faction, unit.faction) && item.progress >= 1 && item.condition < (repairDoctrine ? 0.82 : 0.5))
+          .filter(item => item.alive !== false && areAllies(item.faction, unit.faction) && item.progress >= 1 && item.condition < (repairPriority ? 0.82 : 0.5))
           .sort((a, b) => a.condition - b.condition || distance(unit, a) - distance(unit, b))[0];
-        if (unit.buildProject && urgentRepair && (repairDoctrine || urgentRepair.condition < 0.3)) {
+        if (unit.buildProject && urgentRepair && (repairPriority || urgentRepair.condition < 0.3)) {
           unit.buildProject = null;
           unit.lastAction = `Paused construction to save ${buildingCatalog[urgentRepair.type]?.label || "an allied structure"}.`;
         }
@@ -3863,12 +4008,10 @@ import {
         const enemy = enemyPlayerFor(unit.faction);
         if (!enemy) return worldCenter();
         const player = playerFor(unit.faction);
-        const doctrine = player.doctrine;
         const behavior = aiBehaviorFor(player);
+        const signals = battleObjectivePlanFor(player).signals;
         const phase = clamp(state.time / 120, 0, 1);
-        let progress = 0.38 + phase * 0.3 + (behavior.aggression - 50) * 0.003 - (behavior.caution - 50) * 0.002;
-        if (doctrine === "Fortress" || doctrine === "Repair first") progress = 0.22 + phase * 0.22;
-        if (doctrine === "Aggressive") progress = 0.58 + phase * 0.34;
+        let progress = 0.28 + phase * (0.18 + (signals.attack || 0) * 0.2) + (behavior.aggression - 50) * 0.003 - (behavior.caution - 50) * 0.002;
         progress = clamp(progress, 0.16, 0.94);
         const spread = ((unit.index % 5) - 2) * 18;
         const direct = {
@@ -4047,37 +4190,9 @@ import {
       const resourceExtractorType = { materials: "mine", scrap: "mine", fuel: "refinery", food: "farm", biomass: "farm", energy: "generator", ammunition: "workshop", medical: "fieldhospital", faith: "outpost", influence: "outpost", requisition: "outpost" };
 
       function strategicResourceNodes(resourceType = null) {
-        const generated = state.features.filter(feature => feature.resourceNode && feature.reserve > 0 && (!resourceType || feature.resourceType === resourceType));
-        const authored = state.resourceZones
+        return state.resourceZones
           .map(syncResourceZone)
           .filter(zone => zone.reserve > 0 && (!resourceType || zone.resourceType === resourceType));
-        return [...generated, ...authored];
-      }
-
-      function seedStrategicResourceNodes(random = battleRandom) {
-        state.features = state.features.filter(feature => !feature.resourceNode);
-        const categories = ["materials", "fuel", "food", "energy"];
-        const center = worldCenter();
-        const nearCount = state.players.length * categories.length;
-        const count = clamp(state.players.length * 6 + Math.round(Math.min(worldWidth(), worldHeight()) / 2048), 16, 48);
-        for (let index = 0; index < count; index += 1) {
-          const near = index < nearCount;
-          const category = near ? categories[Math.floor(index / state.players.length) % categories.length] : categories[index % categories.length];
-          const far = !near;
-          const anchor = near ? state.players[index % state.players.length].base : center;
-          const angle = random() * Math.PI * 2;
-          const radius = far ? Math.min(worldWidth(), worldHeight()) * (0.16 + random() * 0.34) : 70 + random() * 110;
-          const richness = far ? 1.35 + random() * 0.65 : 0.75 + random() * 0.45;
-          const capacity = Math.round((far ? 720 : 320) * richness);
-          state.features.push({
-            id: `resource-node-${index}`, type: category === "materials" ? "crystal" : category === "fuel" ? "wreckage" : category === "food" ? "crops" : "powerplant",
-            resourceNode: true, resourceType: category, reserve: capacity, maxReserve: capacity, richness,
-            strategicObjective: far && index % 3 === 0, x: clamp(anchor.x + Math.cos(angle) * radius, 90, worldWidth() - 90),
-            y: clamp(anchor.y + Math.sin(angle) * radius, 90, worldHeight() - 90), r: far ? 28 : 20, shape: "circle", opacity: 0.9,
-            condition: 1, age: 0, visual: category === "food" ? "vegetation" : category === "materials" ? "rock" : "urban"
-          });
-        }
-        markFeatureIndexDirty();
       }
 
       function resourceNodeForStructure(structure) {
@@ -4122,7 +4237,8 @@ import {
 
       function scoreSquadFormations({ squad, members, center, enemies, protectedAsset, nearbyRoad, regrouping }) {
         const terrain = terrainAt(center);
-        const doctrine = playerFor(squad.faction).doctrine;
+        const behavior = aiBehaviorFor(squad.faction);
+        const signals = battleObjectivePlanFor(squad.faction).signals;
         const rangedRatio = members.filter(member => member.role === "vehicle" || /rifle|bolter|plasma|melta|launcher|mortar|cannon|gun/i.test(`${member.weapon || ""} ${member.specialty || ""}`)).length / Math.max(1, members.length);
         const woundedRatio = members.filter(member => member.hp / member.maxHp < 0.58).length / Math.max(1, members.length);
         const threatBins = new Set(enemies.map(enemy => Math.floor((((Math.atan2(enemy.y - center.y, enemy.x - center.x) + Math.PI * 2) % (Math.PI * 2)) / (Math.PI / 2)))));
@@ -4134,12 +4250,12 @@ import {
         const scores = {
           line: 24 + rangedRatio * 24 + openGround * 18 + (["Hold Route", "Block Route", "Delay Enemy", "Destroy Route if Overrun", "Keep Route Open"].includes(squad.orderType) ? 30 : 0),
           column: 20 + (nearbyRoad ? 32 : 0) + narrowTerrain * 18 + (moving ? 10 : 0) + (["Patrol Route", "Regroup"].includes(squad.orderType) ? 32 : 0),
-          wedge: 22 + (moving ? 18 : 0) + (doctrine === "Aggressive" ? 24 : 0) + openGround * 10,
-          triangle: 24 + (moving ? 14 : 0) + members.length * 0.8 + (doctrine === "Balanced" ? 16 : 0),
+          wedge: 22 + (moving ? 18 : 0) + behavior.aggression * 0.24 + (signals.mobility || 0) * 12 + openGround * 10,
+          triangle: 24 + (moving ? 14 : 0) + members.length * 0.8 + behavior.caution * 0.16,
           circle: 12 + (surrounded ? 58 : 0) + woundedRatio * 22 + (squad.orderType === "Hold Route" ? 10 : 0),
           "defensive-ring": 14 + (surrounded ? 112 : 0) + woundedRatio * 26 + (["Hold Route", "Escort Route"].includes(squad.orderType) ? 18 : 0),
           staggered: 20 + concealed * 25 + (squad.orderType === "Observe Route" ? 35 : 0) + (squad.orderType === "Ambush Route" ? 18 : 0) + (["Delay Enemy", "Destroy Route if Overrun"].includes(squad.orderType) ? 12 : 0) + enemies.filter(enemy => enemy.role === "vehicle").length * 4,
-          flanking: 8 + concealed * 22 + (members.length >= 6 ? 24 : -55) + (enemies.length ? 15 : -12) + (squad.orderType === "Ambush Route" ? 44 : 0) + (doctrine === "Aggressive" ? 12 : 0),
+          flanking: 8 + concealed * 22 + (members.length >= 6 ? 24 : -55) + (enemies.length ? 15 : -12) + (squad.orderType === "Ambush Route" ? 44 : 0) + (signals.scouting || 0) * 12,
           escort: (protectedAsset ? 72 : -35) + (squad.orderType === "Escort Route" ? 42 : 0) + woundedRatio * 10
         };
         if (regrouping) scores.column += 80;
@@ -4486,7 +4602,7 @@ import {
             } else squad.objective = squad.routeAnchor || roadTacticalAnchor(assignedRoad, squad.orderType, squad);
           } else if (enemy) {
             const start = baseFor(squad.faction);
-            const aggression = playerFor(squad.faction).doctrine === "Aggressive" ? 0.72 : 0.48;
+            const aggression = aiBehaviorFor(squad.faction).aggression / 100;
             squad.objective = {
               x: start.x + (enemy.base.x - start.x) * clamp(aggression + state.time / 900, 0.35, 0.88),
               y: start.y + (enemy.base.y - start.y) * clamp(aggression + state.time / 900, 0.35, 0.88)
@@ -4604,7 +4720,7 @@ import {
           const enemies = state.players.filter(other => !areAllies(other.id, player.id));
           const target = enemies.sort((a, b) => distance(player.base, a.base) - distance(player.base, b.base))[0] || null;
           const economy = economyFor(player.id);
-          const contestedRoad = state.roads.some(road => areAllies(road.faction, player.id) && ["Contested", "Enemy controlled", "Blocked"].includes(road.status));
+          const contestedRoad = state.roads.some(road => roadUsableByPlayer(road, player) && ["Contested", "Enemy controlled", "Blocked"].includes(road.status));
           const force = operationalUnits.length;
           const branchGoal = {
             attack: "Break enemy routes and eliminate resistance",
@@ -4670,6 +4786,14 @@ import {
         if (leader) addUnitLog(leader, `${type}${road ? ` on ${road.name || road.id}` : ""}.`);
       }
 
+      function roadUsableByPlayer(road, player) {
+        if (road?.authoredRouteId) {
+          const route = state.tradeRoutes.find(item => item.id === road.authoredRouteId);
+          return Boolean(route && factionCanUseRoute(route, player));
+        }
+        return areAllies(road?.faction, player.id);
+      }
+
       function updateCommanderAI() {
         const membersBySquad = livingSquadMemberMap();
         const unitById = new Map(state.units.map(unit => [unit.id, unit]));
@@ -4695,13 +4819,13 @@ import {
             usedSquads.add(squad.id);
           }
           const friendlyRoads = state.roads
-            .filter(road => areAllies(road.faction, player.id))
+            .filter(road => roadUsableByPlayer(road, player))
             .sort((a, b) => {
               const urgency = road => (road.supplyImportance || 0) * 1.2 + (road.ambushRisk || 0)
                 + (["Contested", "Enemy controlled", "Blocked", "Mined", "Flooded"].includes(road.status) ? 1 : 0);
               return urgency(b) - urgency(a);
             });
-          const enemyRoads = state.roads.filter(road => !areAllies(road.faction, player.id)).sort((a, b) => distance(player.base, roadMidpoint(a)) - distance(player.base, roadMidpoint(b)));
+          const enemyRoads = state.roads.filter(road => !roadUsableByPlayer(road, player)).sort((a, b) => distance(player.base, roadMidpoint(a)) - distance(player.base, roadMidpoint(b)));
           for (let index = 0; index < squads.length; index += 1) {
             const squad = squads[index];
             if (usedSquads.has(squad.id)) continue;
@@ -4895,6 +5019,7 @@ import {
 
       function findTarget(unit) {
         const terrain = terrainAt(unit);
+        const objectivePlan = battleObjectivePlanFor(unit.faction);
         const sensor = unit.range * (state.visibility / 100) * terrain.detection * (unit.role === "scout" ? 1.35 : 1);
         const optics = nightVisionFactor(unit.faction);
         const nearby = nearbyCombatObjects(unit, sensor * 1.7);
@@ -4921,7 +5046,8 @@ import {
             : race === "Tyranids"
               ? (unit.underSynapse ? (other.role === "commander" ? 30 : other.role === "vehicle" ? 22 : 8) : distanceValue * 0.35) + weakness * 0.4
               : 0;
-          candidates.push({ target: other, score: threat + distanceValue + weakness + commanderPriority + vengeance + commitmentBias + factionBias });
+          const baseScore = threat + distanceValue + weakness + commanderPriority + vengeance + commitmentBias + factionBias;
+          candidates.push({ target: other, score: baseScore * objectiveTargetBias(objectivePlan, other) });
         }
         for (const structure of nearby.structures) {
           if (structure.alive === false || structure.progress < 0.45 || areAllies(structure.faction, unit.faction)) continue;
@@ -4932,7 +5058,7 @@ import {
           const strategic = structure.type === "outpost" ? 105 : ["generator", "barracks", "workshop", "dropbay"].includes(structure.type) ? 82 : 58;
           const distanceValue = (1 - d / Math.max(1, detectionRadius)) * 64;
           const weakness = (1 - structure.hp / Math.max(1, structure.maxHp)) * 20;
-          candidates.push({ target: structure, score: strategic + distanceValue + weakness });
+          candidates.push({ target: structure, score: (strategic + distanceValue + weakness) * objectiveTargetBias(objectivePlan, structure) });
         }
         candidates.sort((a, b) => b.score - a.score);
         return candidates[0]?.target || null;
@@ -5701,27 +5827,61 @@ import {
 
       function updateSharedFactionBranch(player) {
         const profile = state.factionAIProfiles[player.id] ||= resolveFactionAIProfile(player);
+        const plan = player.battleObjectivePlan ||= resolveBattleObjectivePlan(player, profile);
         const memory = state.factionLearning[player.id] ||= createFactionLearningMemory(profile);
         const ownUnits = state.units.filter(unit => unit.alive && !unit.incapacitated && unit.faction === player.id);
         const observedEnemies = observedEnemiesFor(player);
+        const observedEnemyPlayers = [...new Set(observedEnemies.map(enemy => enemy.faction))].map(playerFor).filter(Boolean);
+        const observedEnemyBehavior = observedEnemyPlayers.length
+          ? observedEnemyPlayers.reduce((sum, enemy) => {
+            const behavior = aiBehaviorFor(enemy);
+            sum.aggression += behavior.aggression;
+            sum.caution += behavior.caution;
+            sum.expansion += behavior.expansion;
+            return sum;
+          }, { aggression: 0, caution: 0, expansion: 0 })
+          : { aggression: 50, caution: 50, expansion: 50 };
+        const enemyBehaviorDivisor = Math.max(1, observedEnemyPlayers.length * 100);
         const economy = economyFor(player.id);
         const hostileNearBase = observedEnemies.filter(enemy => distance(enemy, player.base) < 320).length;
-        const friendlyRoads = state.roads.filter(road => areAllies(road.controllerFaction || road.faction, player.id));
+        const friendlyRoads = state.roads.filter(road => roadUsableByPlayer(road, player));
         const riskyRoads = friendlyRoads.filter(road => ["Contested", "Enemy controlled", "Blocked", "Damaged"].includes(road.status)).length;
         const casualtyCount = state.casualties[player.id] || 0;
+        const morale = ownUnits.reduce((sum, unit) => sum + (unit.morale || 0), 0) / Math.max(1, ownUnits.length);
+        const inventory = economy.inventory || {};
+        const capacity = economyCapacity(player.id);
+        const supplyCondition = ["food", "fuel", "ammunition", "medical"]
+          .reduce((sum, key) => sum + clamp((inventory[key] || 0) / Math.max(1, capacity[key] || 1), 0, 1), 0) / 4;
+        const ownStrength = clamp(ownUnits.length / 24, 0, 1);
+        const observedEnemyStrength = clamp(observedEnemies.length / 24, 0, 1);
+        const duration = plan.durationSeconds || plan.holdSeconds || 600;
         const context = {
-          ownStrength: clamp(ownUnits.length / 24, 0, 1),
-          observedEnemyStrength: clamp(observedEnemies.length / 24, 0, 1),
+          ownStrength,
+          observedEnemyStrength,
           enemyPressure: clamp(hostileNearBase / 7, 0, 1),
           resourceShortage: clamp((economy.shortages?.length || 0) / 4, 0, 1),
-          territoryOpportunity: clamp(state.resourceZones.filter(zone => !zone.owner || !areAllies(zone.owner, player.id)).length / 6, 0.15, 1),
+          territoryOpportunity: clamp((
+            state.resourceZones.filter(zone => !zone.owner || !areAllies(zone.owner, player.id)).length
+            + state.economicNodes.filter(node => node.active && (!node.owner || !areAllies(node.owner, player.id))).length
+          ) / 6, 0.05, 1),
           routeRisk: friendlyRoads.length ? riskyRoads / friendlyRoads.length : 0.35,
-          casualtyRatio: casualtyCount / Math.max(1, casualtyCount + ownUnits.length)
+          casualtyRatio: casualtyCount / Math.max(1, casualtyCount + ownUnits.length),
+          morale: clamp(morale, 0, 1),
+          supplyCondition,
+          enemyWeakness: clamp(ownStrength - observedEnemyStrength + 0.5, 0, 1),
+          enemyAggression: observedEnemyBehavior.aggression / enemyBehaviorDivisor,
+          enemyCaution: observedEnemyBehavior.caution / enemyBehaviorDivisor,
+          enemyExpansion: observedEnemyBehavior.expansion / enemyBehaviorDivisor,
+          timePressure: clamp(state.time / duration, 0, 1),
+          objectiveProgress: player.battleObjectiveState?.progress || 0
         };
+        player.dynamicAIBehavior = deriveDynamicAIBehavior(profile, plan, context);
+        context.objectiveBias = objectiveStrategicBias(plan, context);
         const decision = selectStrategicChoice(profile, context, memory.learnedWeights);
         player.factionAIProfileId = profile.id;
         player.factionAIChoice = decision.choice;
         player.factionAIScores = decision.scores;
+        player.battleObjectiveMethod = plan.method;
 
         if ((player.nextEnemyPatternMemoryAt || 0) <= state.time && observedEnemies.length) {
           const roleCounts = observedEnemies.reduce((counts, enemy) => {
@@ -5849,6 +6009,11 @@ import {
             carrier.patientTransportMode = null;
             unit.carriedById = null;
             unit.evacuated = true;
+            if (!unit.evacuationCounted) {
+              const casualtyOwner = playerFor(unit.faction);
+              casualtyOwner.unitsEvacuated = (casualtyOwner.unitsEvacuated || 0) + 1;
+              unit.evacuationCounted = true;
+            }
             unit.stabilized = true;
             unit.bleeding = 0;
             unit.hp = Math.max(unit.hp, unit.maxHp * 0.22);
@@ -6499,21 +6664,25 @@ import {
               operationalFlags: old?.operationalFlags || []
             });
           }
-          const partner = state.tradePartners?.find(item => item.faction === player.id);
-          if (partner?.established) {
-            const id = `road-${player.id}-${roadEndpointId(partner)}-base-${player.id}`;
-            const old = previousRoads.get(id);
-            const points = strategicRoadPath(partner, player.base, player.index + 91);
-            const segments = buildRoadSegments(id, points, "trade route", old);
-            roads.push({
-              id, name: `${partner.name} trade artery`, faction: player.id, builderFaction: player.id,
-              fromId: partner.id, toId: `base-${player.id}`, kind: "trade route", hierarchy: "strategic supply artery",
-              points, segments, condition: segments.reduce((sum, segment) => sum + segment.condition, 0) / Math.max(1, segments.length),
-              traffic: old?.traffic || 0, control: old?.control || "Unsecured", controllerFaction: old?.controllerFaction || null,
-              visibility: old?.visibility ?? 0.72, ambushRisk: old?.ambushRisk ?? 0.24, cover: old?.cover ?? 0.08,
-              supplyImportance: 1, status: old?.status || "Clear", operationalFlags: old?.operationalFlags || []
-            });
-          }
+        }
+        for (const route of state.tradeRoutes.filter(item => routeIsAuthoredAndComplete(item, state.economicNodes))) {
+          const from = state.economicNodes.find(node => node.id === route.fromNodeId);
+          const to = state.economicNodes.find(node => node.id === route.toNodeId);
+          const points = route.points.map(point => ({ x: point.x, y: point.y }));
+          if (distance(points[0], from) > 1) points.unshift({ x: from.x, y: from.y });
+          if (distance(points[points.length - 1], to) > 1) points.push({ x: to.x, y: to.y });
+          const id = `trade-road-${route.id}`;
+          const old = previousRoads.get(id);
+          const segments = buildRoadSegments(id, points, "trade route", old);
+          const owner = from.owner || to.owner || state.players.find(player => factionCanUseRoute(route, player))?.id || state.players[0]?.id;
+          roads.push({
+            id, authoredRouteId: route.id, authored: true, name: route.name, faction: owner, builderFaction: null,
+            fromId: route.fromNodeId, toId: route.toNodeId, kind: "trade route", routeType: route.type, hierarchy: "strategic supply artery",
+            points, segments, capacity: route.capacity, condition: segments.reduce((sum, segment) => sum + segment.condition, 0) / Math.max(1, segments.length),
+            traffic: old?.traffic || 0, control: old?.control || "Unsecured", controllerFaction: old?.controllerFaction || owner,
+            visibility: old?.visibility ?? 0.72, ambushRisk: old?.ambushRisk ?? 0.24, cover: old?.cover ?? 0.08,
+            supplyImportance: 1, status: old?.status || "Clear", operationalFlags: old?.operationalFlags || []
+          });
         }
         state.roads = roads;
         state.roadRevision += 1;
@@ -6544,10 +6713,11 @@ import {
         const trafficBySegment = new Map();
         const squadById = new Map(state.squads.map(squad => [squad.id, squad]));
         for (const convoy of state.convoys) {
-          if (convoy.finished || convoy.mode === "cargo aircraft" || !convoy.activeSegmentId) continue;
+          if (convoy.finished || !convoyUsesGroundRoads(convoy) || !convoy.activeSegmentId) continue;
           trafficBySegment.set(convoy.activeSegmentId, (trafficBySegment.get(convoy.activeSegmentId) || 0) + 1);
         }
         for (const road of state.roads) {
+          const previousRoadStatus = road.status;
           let trafficTotal = 0;
           let riskTotal = 0;
           let visibilityTotal = 0;
@@ -6664,6 +6834,9 @@ import {
                           : statuses.includes("Secured") ? "Secured" : "Clear";
           road.control = road.status === "Contested" ? "Contested" : road.controllerFaction ? areAllies(road.controllerFaction, road.faction) ? "Secured" : "Enemy controlled" : "Unsecured";
           road.operationalFlags = [...new Set((road.segments || []).flatMap(segment => segment.operationalFlags))];
+          if (road.status !== previousRoadStatus) {
+            state.routeHistory.roadEvent(road.id, state.time, "state-changed", { from: previousRoadStatus, to: road.status });
+          }
         }
         state.aiDiagnostics.securedRoads = state.roads.filter(road => road.status === "Secured").length;
         state.aiDiagnostics.checkpoints = state.roads.reduce((sum, road) => sum + (road.segments || []).filter(segment => segment.checkpoint).length, 0);
@@ -6708,6 +6881,7 @@ import {
           roadRevision: state.roadRevision,
           activeSegmentId: null,
           memoryRouteId: options.routeId || `${Math.round(origin.x / 128)},${Math.round(origin.y / 128)}>${Math.round(destination.x / 128)},${Math.round(destination.y / 128)}`,
+          routeType: options.routeType || "road",
           trade: Boolean(options.trade),
           training: Boolean(options.training),
           trainingRequestId: options.trainingRequestId || null,
@@ -6716,7 +6890,30 @@ import {
           createdAt: state.time,
           finished: false
         };
+        if (!convoy.trade) {
+          const kind = convoy.destinationKind === "unit" ? "depot-to-unit"
+            : convoy.destinationKind === "structure" ? "warehouse-to-base"
+              : Object.hasOwn(validCargo, "fuel") ? "fuel-depot-to-vehicles" : "base-to-frontline";
+          const supplyRoute = {
+            id: `supply-route-${convoy.id}`,
+            kind,
+            faction,
+            resource: Object.keys(validCargo)[0] || null,
+            originId: options.originId || null,
+            destinationId: options.destinationId || null,
+            points: convoy.route.map(point => ({ x: point.x, y: point.y })),
+            active: true,
+            temporary: true,
+            authored: false,
+            createdAt: state.time,
+            expiresAt: state.time + 180
+          };
+          state.supplyRoutes.push(supplyRoute);
+          convoy.supplyRouteId = supplyRoute.id;
+        }
         state.convoys.push(convoy);
+        state.routeHistory.convoyEvent(convoy.id, state.time, "spawned", { routeId: convoy.supplyRouteId || options.routeId || null, cargo: validCargo });
+        if (convoy.trade) state.routeHistory.tradeEvent(options.routeId, convoy.id, state.time, "dispatched", { cargo: validCargo });
         return convoy;
       }
 
@@ -7092,10 +7289,6 @@ import {
         if (!hasType("barracks")) addEconomyRequest(player.id, "build-barracks", "build", "Build barracks", 74, { buildType: "barracks" });
         if (economy.shortages.includes("food") && !hasType("farm")) addEconomyRequest(player.id, "build-farm", "build", "Build supply farm", 86, { buildType: "farm" });
         if (economy.shortages.includes("materials") && !hasType("mine")) addEconomyRequest(player.id, "build-mine", "build", "Build material mine", 88, { buildType: "mine" });
-        const partner = state.tradePartners.find(item => item.faction === player.id);
-        if (partner && !partner.established && hasType("outpost") && hasType("warehouse")) {
-          addEconomyRequest(player.id, `establish-${partner.id}`, "trade", `Establish route with ${partner.name}`, 93, { partnerId: partner.id });
-        }
         const living = state.units.filter(unit => unit.alive && unit.faction === player.id).length;
         const unitCap = unitCapFor(player);
         if (living < unitCap) {
@@ -7140,7 +7333,8 @@ import {
         const cover = terrain.cover * 42 + environmentalCoverAt(point) * 35;
         const escape = road ? 18 : terrain.speed * 10;
         const scatterRisk = Math.abs(terrain.elevation || 0) * 8 + closeAllies.length * 18;
-        const dangerTolerance = player.doctrine === "Aggressive" ? 0.72 : player.doctrine === "Fortress" ? 0.38 : 0.52;
+        const behavior = aiBehaviorFor(player);
+        const dangerTolerance = clamp(0.32 + behavior.aggression * 0.005 - behavior.caution * 0.002, 0.24, 0.78);
         const impactDanger = immediate.length * 24 * (1 - dangerTolerance * 0.55);
         const score = objective + reinforcementImpact + cover + escape - scatterRisk - antiAir * 24 - impactDanger;
         return { point, score, objective, enemyCount: enemies.length, antiAir, ownership: territoryAt(point)?.owner || "neutral" };
@@ -7279,29 +7473,7 @@ import {
           } else if (request.type === "dropPod") {
             if (!state.dropPods.some(item => item.faction === player.id && !item.deployed)) startDropPod(player, request);
           } else if (request.type === "trade") {
-            const partner = state.tradePartners.find(item => item.id === request.partnerId && item.faction === player.id);
-            const warehouse = state.structures.find(item => item.faction === player.id && item.type === "warehouse" && item.progress >= 1 && item.alive !== false);
-            const headquarters = state.structures.find(item => item.faction === player.id && item.type === "outpost" && item.progress >= 1 && item.alive !== false);
-            if (!partner || partner.established) { request.status = "Complete"; continue; }
-            const eligibility = tradeRouteRules.canEstablish
-              ? tradeRouteRules.canEstablish({ partner, economy, warehouse, headquarters })
-              : { allowed: Boolean(warehouse && headquarters) };
-            if (!eligibility.allowed && eligibility.reason === "infrastructure") { request.status = "Delayed · headquarters and warehouse required"; continue; }
-            const cost = partner.establishmentCost || { influence: 40, materials: 25 };
-            if (!eligibility.allowed || !Object.entries(cost).every(([key, value]) => (economy.inventory[key] || 0) >= value)) {
-              request.status = "Delayed · diplomatic materials unavailable";
-              continue;
-            }
-            Object.entries(cost).forEach(([key, value]) => { economy.inventory[key] -= value; });
-            if (tradeRouteRules.activate) tradeRouteRules.activate(partner, state.time, player.index);
-            else {
-              partner.established = true;
-              partner.establishedAt = state.time;
-              partner.nextDispatch = state.time + 28 + player.index * 4;
-            }
-            request.status = "Complete";
-            rebuildRoadNetwork();
-            incident(`${player.faction} established a physical trade route with ${partner.name}.`, player.base.id, "info");
+            request.status = "Denied · trade routes are authored by the map designer";
           } else if (request.type === "train") {
             const barracks = state.structures.find(item => item.faction === player.id && item.type === "barracks" && item.progress >= 1 && item.alive !== false);
             const trainingCargo = isImperialGuard(player)
@@ -7417,6 +7589,7 @@ import {
           defendableForces: Math.floor(supportCapacity),
           reinforcementRoutes: state.roads.filter(road => areAllies(road.controllerFaction || road.faction, player.id) && road.condition > 0.35).length,
           strategicNodes: strategicResourceNodes().filter(feature => feature.strategicObjective && territoryAt(feature)?.owner === player.id).length
+            + state.economicNodes.filter(node => node.active && node.owner === player.id).length
         };
         for (const unit of state.units.filter(item => item.alive && item.faction === player.id)) {
           unit.rations ??= 6;
@@ -7433,16 +7606,59 @@ import {
       }
 
       function dispatchTradeConvoys(player) {
-        const partner = state.tradePartners.find(item => item.faction === player.id);
-        if (!partner?.established || state.time < partner.nextDispatch || state.convoys.some(item => !item.finished && item.trade && item.faction === player.id)) return;
-        const destination = closestStoragePoint(player.id, partner);
-        const convoy = createConvoy(player.id, partner.exports, partner, destination, { trade: true, name: `${partner.name} Trade #${state.nextConvoyId}` });
-        partner.nextDispatch = state.time + (convoy ? 46 + player.index * 2 : 6);
+        if (state.convoys.some(item => !item.finished && item.trade && item.faction === player.id)) return;
+        const economy = economyFor(player.id);
+        const candidates = state.tradeRoutes.map(route => {
+          const road = state.roads.find(item => item.authoredRouteId === route.id);
+          const hasRequiredRoad = !route.roadRequired || route.type === "road" || state.roads.some(item => item.kind !== "trade route" && route.points.some(point => distance(point, roadMidpoint(item)) < 72));
+          const result = scoreAuthoredTradeRoute(route, state.economicNodes, player, {
+            shortages: economy.shortages,
+            danger: road?.ambushRisk || 0,
+            blocked: !hasRequiredRoad || ["Blocked", "Damaged", "Enemy controlled"].includes(road?.status)
+          });
+          route.aiUsage[player.id] = result.action;
+          return { route, road, ...result };
+        }).filter(item => Number.isFinite(item.score)).sort((a, b) => b.score - a.score);
+        const selected = candidates[0];
+        if (!selected || selected.action === "abandon" || state.time < selected.route.nextDispatch) return;
+        let origin = selected.from;
+        let destination = selected.to;
+        if (!origin || !destination) return;
+        const allowed = new Set(selected.route.resources.length ? selected.route.resources : Object.keys(origin.exports || {}));
+        const trackedImports = Object.entries(origin.imports || {}).filter(([resource]) => Object.hasOwn(economy.inventory, resource));
+        const importEfficiency = trackedImports.length
+          ? clamp(Math.min(...trackedImports.map(([resource, amount]) => (economy.inventory[resource] || 0) / Math.max(1, amount))), 0.25, 1)
+          : 1;
+        const cargo = Object.fromEntries(Object.entries(origin.exports || {})
+          .filter(([resource]) => allowed.has(resource) && (!economy.shortages.length || economy.shortages.includes(resource)))
+          .map(([resource, amount]) => [resource, Math.min(amount * importEfficiency, selected.route.capacity, origin.capacity)]));
+        if (!Object.keys(cargo).length) {
+          for (const [resource, amount] of Object.entries(origin.exports || {})) {
+            if (allowed.has(resource)) cargo[resource] = Math.min(amount * importEfficiency, selected.route.capacity, origin.capacity);
+          }
+        }
+        const convoy = createConvoy(player.id, cargo, origin, destination, {
+          trade: true,
+          routeId: selected.route.id,
+          routeType: selected.route.type,
+          mode: { air: "cargo aircraft", orbital: "orbital convoy", underground: "underground convoy", warp: "warp transit", sea: "sea convoy", river: "river convoy", rail: "rail convoy" }[selected.route.type],
+          name: `${selected.route.name} Trade #${state.nextConvoyId}`
+        });
+        if (convoy) {
+          for (const [resource, amount] of trackedImports) economy.inventory[resource] = Math.max(0, (economy.inventory[resource] || 0) - amount * 0.2);
+        }
+        selected.route.nextDispatch = state.time + (convoy ? 46 + player.index * 2 : 8);
       }
 
       function updateAuthoredResourceZones(player) {
         const economy = economyFor(player.id);
         const capacity = economyCapacity(player.id);
+        if (player.index === 0) {
+          for (const node of state.economicNodes) {
+            const territoryOwner = territoryAt(node)?.owner;
+            node.owner = territoryOwner || node.owner || node.startingOwner || "";
+          }
+        }
         for (const zone of state.resourceZones.map(syncResourceZone)) {
           if (player.index === 0) regenerateResourceZone(zone, 5);
           const territoryOwner = territoryAt(zone)?.owner || zone.owner || zone.startingOwner;
@@ -7588,11 +7804,25 @@ import {
         convoy.status = "Delivered";
         convoy.finished = true;
         convoy.finishedAt = state.time;
+        const convoyOwner = playerFor(convoy.faction);
+        convoyOwner.convoysDelivered = (convoyOwner.convoysDelivered || 0) + 1;
+        const supplyRoute = state.supplyRoutes.find(route => route.id === convoy.supplyRouteId);
+        if (supplyRoute) supplyRoute.active = false;
+        state.routeHistory.convoyEvent(convoy.id, state.time, "delivered", { destinationId: convoy.destinationId || null });
+        if (convoy.trade) state.routeHistory.tradeEvent(convoy.memoryRouteId, convoy.id, state.time, "delivered", { cargo: convoy.cargo });
         state.factionLearning[convoy.faction]?.observe("route-safety", {
           routeId: convoy.memoryRouteId || convoy.activeSegmentId || convoy.id,
           safe: true
         }, { visible: true, observedAt: state.time });
         syncLegacyResources(convoy.faction);
+      }
+
+      function convoyUsesGroundRoads(convoy) {
+        return !["air", "orbital", "underground", "warp", "sea", "river"].includes(convoy.routeType);
+      }
+
+      function convoyUsesSpecialTransit(convoy) {
+        return ["air", "orbital", "underground", "warp"].includes(convoy.routeType);
       }
 
       function updateConvoys(dt) {
@@ -7651,6 +7881,13 @@ import {
             convoy.finished = true;
             convoy.status = "Destroyed";
             convoy.finishedAt = state.time;
+            for (const attackerFaction of new Set([...attackerIds].map(id => state.units.find(unit => unit.id === id)?.faction).filter(Boolean))) {
+              const attackerPlayer = playerFor(attackerFaction);
+              attackerPlayer.enemyConvoysDestroyed = (attackerPlayer.enemyConvoysDestroyed || 0) + 1;
+            }
+            const supplyRoute = state.supplyRoutes.find(route => route.id === convoy.supplyRouteId);
+            if (supplyRoute) supplyRoute.active = false;
+            state.routeHistory.convoyEvent(convoy.id, state.time, "destroyed", { segmentId: convoy.activeSegmentId || null });
             const wreckedRoad = nearestRoadSegment(convoy, 34);
             if (wreckedRoad) {
               wreckedRoad.segment.condition = clamp(wreckedRoad.segment.condition - 0.24, 0, 1);
@@ -7665,10 +7902,10 @@ import {
             continue;
           }
           const terrainType = terrainAt(waypoint).type;
-          if (["deepwater", "lava", "cliff"].includes(terrainType) && convoy.mode !== "cargo aircraft") {
+          if (["deepwater", "lava", "cliff"].includes(terrainType) && convoyUsesGroundRoads(convoy)) {
             convoy.reroutes += 1;
             convoy.status = convoy.reroutes >= 2 ? "Road unavailable · cargo aircraft requested" : "Route blocked · rerouting";
-            if (convoy.reroutes >= 2) convoy.mode = "cargo aircraft";
+            if (convoy.reroutes >= 2) { convoy.mode = "cargo aircraft"; convoy.routeType = "air"; }
             convoy.route = routeForLogistics(convoy, destination, convoy.faction, state.nextConvoyId + convoy.reroutes * 19);
             convoy.waypoint = 1;
             continue;
@@ -7679,7 +7916,7 @@ import {
           const activeRoad = nearestRoadSegment(convoy, 24);
           convoy.activeSegmentId = activeRoad && activeRoad.distance <= (activeRoad.segment.width || 7) + 5 ? activeRoad.segment.id : null;
           const activeFlags = activeRoad?.segment?.operationalFlags || [];
-          if (convoy.mode !== "cargo aircraft" && activeRoad && activeFlags.includes("mined") && activeRoad.segment.mineFaction && !areAllies(activeRoad.segment.mineFaction, convoy.faction)) {
+          if (convoyUsesGroundRoads(convoy) && activeRoad && activeFlags.includes("mined") && activeRoad.segment.mineFaction && !areAllies(activeRoad.segment.mineFaction, convoy.faction)) {
             convoy.triggeredMines ||= [];
             if (!convoy.triggeredMines.includes(activeRoad.segment.id)) {
               convoy.triggeredMines.push(activeRoad.segment.id);
@@ -7692,14 +7929,15 @@ import {
               incident(`${convoy.name} struck an enemy mine on ${activeRoad.road.name || activeRoad.road.id}.`, null, "critical");
             }
           }
-          if (convoy.mode !== "cargo aircraft" && activeRoad && state.time >= (convoy.blockedRerouteUntil || 0)
+          if (convoyUsesGroundRoads(convoy) && activeRoad && state.time >= (convoy.blockedRerouteUntil || 0)
             && (activeRoad.segment.status === "Blocked" || activeFlags.some(flag => ["blocked", "collapsed", "cratered", "roadblock"].includes(flag)))) {
             convoy.reroutes += 1;
             convoy.status = convoy.reroutes >= 2 ? "Road unavailable · cargo aircraft requested" : "Blocked segment · rerouting";
-            if (convoy.reroutes >= 2) convoy.mode = "cargo aircraft";
+            if (convoy.reroutes >= 2) { convoy.mode = "cargo aircraft"; convoy.routeType = "air"; }
             convoy.route = routeForLogistics(convoy, destination, convoy.faction, state.nextConvoyId + convoy.reroutes * 29);
             convoy.waypoint = 1;
             convoy.blockedRerouteUntil = state.time + 4;
+            state.routeHistory.convoyEvent(convoy.id, state.time, "rerouted", { reason: "blocked", reroutes: convoy.reroutes });
             continue;
           }
           if (convoy.mode === "cargo aircraft") {
@@ -7721,7 +7959,7 @@ import {
             }
           }
           const roadSpeed = activeRoad ? clamp((activeRoad.segment.condition ?? 0.2) * 1.1 + 0.28 - (activeRoad.segment.traffic || 0) / Math.max(1, activeRoad.segment.capacity) * 0.18, 0.28, 1.35) : 0.72;
-          const speed = convoy.mode === "cargo aircraft" ? 34 : 13 * roadSpeed;
+          const speed = convoyUsesSpecialTransit(convoy) ? 34 : ["sea", "river"].includes(convoy.routeType) ? 18 : convoy.routeType === "rail" ? 24 : 13 * roadSpeed;
           const hold = convoy.status === "Awaiting escort" ? 0.24 : 1;
           convoy.x += dx / d * speed * hold * dt;
           convoy.y += dy / d * speed * hold * dt;
@@ -7733,6 +7971,8 @@ import {
           }
         }
         state.convoys = state.convoys.filter(item => !item.finished || state.time - (item.finishedAt || state.time) < 20);
+        for (const route of state.supplyRoutes) if (route.active && state.time >= route.expiresAt) route.active = false;
+        if (state.supplyRoutes.length > 128) state.supplyRoutes.splice(0, state.supplyRoutes.length - 128);
       }
 
       function updateDropPods() {
@@ -7865,6 +8105,7 @@ import {
         }
         const race = player.race;
         const ecology = state.factionEcology?.[player.id] || {};
+        const shortages = new Set(economyFor(player.id).shortages || []);
         const options = [];
         for (const key of candidates) {
           const point = territoryCellCenter(key);
@@ -7872,14 +8113,17 @@ import {
           if (["deepwater", "lava", "cliff", "mountain"].includes(terrain.type)) continue;
           const road = nearestRoadSegment(point, TERRITORY_CELL_SIZE * 0.78);
           const resourceNodes = strategicResourceNodes().filter(feature => distance(point, feature) < TERRITORY_CELL_SIZE * 0.9);
+          const economicNodes = state.economicNodes.filter(node => node.active && distance(point, node) < TERRITORY_CELL_SIZE * 0.9);
           const localStructures = state.structures.filter(structure => structure.alive !== false && distance(point, structure) < TERRITORY_CELL_SIZE * 0.8);
           const friendly = state.units.filter(unit => unit.alive && unit.faction === player.id && distance(point, unit) < TERRITORY_CELL_SIZE * 1.2);
           const hostile = state.units.filter(unit => unit.alive && !areAllies(unit.faction, player.id) && distance(point, unit) < TERRITORY_CELL_SIZE * 1.4);
-          const objective = localStructures.some(structure => structure.faction === player.id) ? 34 : localStructures.length ? 26 : 0;
+          const objective = economicNodes.reduce((sum, node) => sum + node.strategicValue * 0.45, 0)
+            + (localStructures.some(structure => structure.faction === player.id) ? 34 : localStructures.length ? 26 : 0);
           const routeValue = road ? 28 + (road.road?.supplyImportance || 0) * 28 : 0;
           const resources = resourceNodes.length
-            ? resourceNodes.reduce((sum, node) => sum + 34 * node.richness + (node.strategicObjective ? 24 : 0), 0)
-            : ["rock", "boulders", "crystal", "forestfloor"].includes(terrain.type) ? 22 : terrain.type === "road" ? 16 : 8;
+            ? resourceNodes.reduce((sum, node) => sum + (shortages.has(node.resourceType) ? 76 : 24) * node.richness + (node.strategicObjective ? 24 : 0), 0)
+            : 0;
+          const landmarkResources = economicNodes.reduce((sum, node) => sum + Object.keys(node.exports || {}).reduce((value, resource) => value + (shortages.has(resource) ? 54 : 9), 0), 0);
           const defensibility = terrain.cover * 55 + Math.max(0, terrain.elevation || 0) * 5;
           const connection = neighboringTerritoryCells(key).filter(neighbor => territory.claimedCells.has(neighbor)).length * 18;
           const threat = hostile.reduce((sum, unit) => sum + (unit.role === "vehicle" ? 2.4 : unit.role === "commander" ? 1.7 : 1), 0) * 18;
@@ -7887,7 +8131,10 @@ import {
           let reason = null;
           let culture = 0;
           if (road) reason = "Secure a road and supply route";
-          if (resourceNodes.length) reason = `Secure a ${resourceNodes[0].resourceType} deposit`;
+          const neededDeposit = resourceNodes.find(node => shortages.has(node.resourceType));
+          const neededLandmark = economicNodes.find(node => Object.keys(node.exports || {}).some(resource => shortages.has(resource)));
+          if (resourceNodes.length) reason = neededDeposit ? `Need ${neededDeposit.resourceType}: capture ${neededDeposit.name}` : `Secure authored ${resourceNodes[0].resourceType} zone`;
+          if (economicNodes.length) reason = neededLandmark ? `Need ${Object.keys(neededLandmark.exports).find(resource => shortages.has(resource))}: capture ${neededLandmark.name}` : `Secure economic landmark ${economicNodes[0].name}`;
           if (localStructures.length) reason = "Protect or capture a strategic node";
           if (distance(point, player.base) < 250) reason = "Protect the primary base";
           if (race === "Orks" && (friendly.length >= 2 || hostile.length)) {
@@ -7909,14 +8156,14 @@ import {
           if (race === "Imperium" && player.faction === "Space Marines") {
             const threatenedAlly = friendly.some(unit => unit.hp < unit.maxHp * 0.65) && hostile.length;
             if (threatenedAlly) reason = "Fortify a threatened allied position";
-            if (!reason || (!road && !objective && !resourceNodes.length && !threatenedAlly)) continue;
+            if (!reason || (!road && !objective && !resourceNodes.length && !economicNodes.length && !threatenedAlly)) continue;
             culture -= 20;
           }
           const behavior = aiBehaviorFor(player);
-          if (!reason && behavior.expansion >= 62 && resources >= 20) reason = "Reach valuable resources";
+          if (!reason && behavior.expansion >= 62 && resources + landmarkResources >= 20) reason = "Reach a map-authored economic asset";
           if (!reason && connection >= 36 && territory.disconnectedCells.size) reason = "Reconnect isolated territory";
           if (!reason) continue;
-          const value = resources + objective + routeValue + defensibility + connection + culture
+          const value = resources + landmarkResources + objective + routeValue + defensibility + connection + culture
             + (behavior.expansion - 50) * 0.5 + (behavior.aggression - 50) * (hostile.length ? 0.25 : 0)
             - (behavior.caution - 50) * (hostile.length ? 0.35 : 0) - threat - maintenance;
           options.push({ key, point, reason, value, hostilePower: hostile.length, friendlyPower: friendly.length });
@@ -8005,8 +8252,23 @@ import {
           state.minimapMarkerDirty = true;
           rebuildTerritorySelect();
         }
+        if (state.strategicTerritory && !state.strategicTerritory.gameOver) {
+          const aggression = state.players.reduce((sum, player) => sum + aiBehaviorFor(player).aggression, 0) / Math.max(1, state.players.length * 100);
+          state.strategicTerritory.step({ maxClaimsPerTick: 1, aggression });
+          state.strategicTerritory.assertNoNewObjects();
+        }
+        if (state.strategicTerritory?.gameOver && !state.strategicTerritoryVictoryReported) {
+          state.strategicTerritoryVictoryReported = true;
+          const winner = state.strategicTerritory.winner;
+          root.dataset.territoryWinner = winner || "draw";
+          incident(winner
+            ? `${playerFor(winner).faction} became the last territorial field; selected battle objectives still determine victory.`
+            : "No faction retains a territorial field; selected battle objectives still determine victory.", null, "critical");
+        }
         root.dataset.territoryObjects = String(state.territories.filter(item => item.cellBacked).length);
         root.dataset.territoryCells = String(state.territories.reduce((sum, territory) => sum + (territory.claimedCells?.size || 0), 0));
+        root.dataset.strategicTerritoryCells = String(state.strategicTerritory?.cells.filter(cell => cell.owner).length || 0);
+        root.dataset.strategicTerritoryGameOver = String(Boolean(state.strategicTerritory?.gameOver));
       }
 
       function updateTerritoryControl() {
@@ -8094,13 +8356,13 @@ import {
             changed = true;
           }
           const own = state.territories.filter(territory => territory.owner === player.id);
-          const cooldown = player.doctrine === "Aggressive" ? 16 : player.doctrine === "Fortress" ? 30 : 22;
+          const cooldown = aiBehaviorFor(player).aggression >= 70 ? 16 : aiBehaviorFor(player).caution >= 70 ? 30 : 22;
           if (own.length >= 8 || state.time - (player.lastTerritoryClaim || 0) < cooldown || economyFor(player.id).inventory.requisition < 24) continue;
           const candidate = state.units.filter(unit => unit.alive && unit.faction === player.id && unit.role !== "builder" && !state.territories.some(territory => pointInTerritory(unit, territory)) && !state.units.some(enemy => enemy.alive && !areAllies(enemy.faction, player.id) && distance(unit, enemy) < 70)).sort((a, b) => distance(b, player.base) - distance(a, player.base))[0];
           if (!candidate) continue;
           const connected = own.some(territory => territory.connected && distance(candidate, territoryCenter(territory)) < 190);
-          if (!connected && player.doctrine !== "Aggressive") continue;
-          state.territories.push(createTerritory(player.id, candidate, player.doctrine === "Aggressive" ? 86 : 72, { name: `${player.faction} frontier ${own.length}`, resourceValue: 52, strategicValue: 62, defensibility: player.doctrine === "Fortress" ? 78 : 48, reason: "AI expanded its connected supply perimeter" }));
+          if (!connected && aiBehaviorFor(player).aggression < 70) continue;
+          state.territories.push(createTerritory(player.id, candidate, aiBehaviorFor(player).aggression >= 70 ? 86 : 72, { name: `${player.faction} frontier ${own.length}`, resourceValue: 52, strategicValue: 62, defensibility: aiBehaviorFor(player).caution >= 70 ? 78 : 48, reason: "AI expanded its connected supply perimeter" }));
           economyFor(player.id).inventory.requisition -= 20;
           player.lastTerritoryClaim = state.time;
           changed = true;
@@ -8169,6 +8431,121 @@ import {
         }
       }
 
+      function battleObjectiveContext(player, plan) {
+        const enemies = state.players.filter(other => !areAllies(other.id, player.id));
+        const enemyIds = new Set(enemies.map(enemy => enemy.id));
+        const territoryCells = state.strategicTerritory?.cells || [];
+        const ownedCells = territoryCells.filter(cell => cell.owner === player.id);
+        const objectiveCells = territoryCells.filter(cell => cell.objective);
+        const resourceCells = territoryCells.filter(cell => cell.resourceAccess > 0);
+        const ownedObjectives = objectiveCells.filter(cell => cell.owner === player.id).length;
+        const ownedResources = resourceCells.filter(cell => cell.owner === player.id).length;
+        const ownHq = state.structures.filter(structure => structure.faction === player.id && structure.type === "outpost");
+        const enemyHq = state.structures.filter(structure => enemyIds.has(structure.faction) && structure.type === "outpost");
+        if (ownHq.length) player.hasEstablishedHeadquarters = true;
+        for (const enemy of enemies) {
+          if (enemyHq.some(structure => structure.faction === enemy.id)) enemy.hasEstablishedHeadquarters = true;
+        }
+        const ownHqAlive = !player.hasEstablishedHeadquarters || ownHq.some(structure => structure.alive !== false);
+        const enemyHeadquartersDestroyed = enemies.length > 0 && enemies.every(enemy => {
+          const hq = enemyHq.filter(structure => structure.faction === enemy.id);
+          return enemy.hasEstablishedHeadquarters && !hq.some(structure => structure.alive !== false);
+        });
+        const enemyEliminated = enemies.length > 0 && enemies.every(enemy => state.strategicOutcomes[enemy.id]?.defeated);
+        const ownUnits = state.units.filter(unit => unit.alive && !unit.incapacitated && unit.faction === player.id);
+        const enemyBases = enemies.map(enemy => enemy.base).filter(Boolean);
+        const breakthroughProgress = ownUnits.length && enemyBases.length
+          ? Math.max(...ownUnits.map(unit => Math.max(...enemyBases.map(base => {
+            const startDistance = distance(player.base, base) || 1;
+            return clamp(1 - distance(unit, base) / startDistance, 0, 1);
+          }))))
+          : 0;
+
+        player.objectiveTargetIds ||= new Set();
+        for (const target of observedEnemiesFor(player).filter(unit => unit.role === "commander")) player.objectiveTargetIds.add(target.id);
+        const assassination = player.objectiveTargetIds.size > 0
+          && [...player.objectiveTargetIds].every(id => !state.units.some(unit => unit.id === id && unit.alive));
+
+        const enemyStrategicStructures = state.structures.filter(structure => enemyIds.has(structure.faction) && ["outpost", "generator", "barracks", "workshop", "warehouse", "refinery", "dropbay"].includes(structure.type));
+        player.maxObservedEnemyInfrastructure = Math.max(player.maxObservedEnemyInfrastructure || 0, enemyStrategicStructures.length);
+        const infrastructureBaseline = player.maxObservedEnemyInfrastructure || 0;
+        const sabotageProgress = infrastructureBaseline
+          ? clamp(1 - enemyStrategicStructures.filter(structure => structure.alive !== false).length / infrastructureBaseline, 0, 1)
+          : 0;
+
+        const controlledNode = node => {
+          const cell = state.strategicTerritory?.partition.closestCell(node);
+          return cell && state.strategicTerritory.byId.get(cell.id)?.owner === player.id;
+        };
+        const spaceports = state.economicNodes.filter(node => ["space-port", "orbital-elevator"].includes(node.type));
+        const relicNodes = state.economicNodes.filter(node => ["mechanicus-enclave", "relic", "archaeotech-site"].includes(node.type));
+        const extractionReady = spaceports.some(node => controlledNode(node) && ownUnits.filter(unit => distance(unit, node) < 80).length >= 3);
+        const relicRecovered = relicNodes.some(node => controlledNode(node) && ownUnits.some(unit => distance(unit, node) < 55));
+        const duration = Math.max(1, plan.durationSeconds || plan.holdSeconds || 300);
+        const survivalProgress = ownHqAlive ? clamp(state.time / duration, 0, 1) : 0;
+        const hasConvoyMap = state.tradeRoutes.length > 0 || state.supplyRoutes.length > 0 || state.convoys.length > 0;
+
+        return {
+          valid: !["convoyEscort", "convoyInterdiction", "extractionProgress", "relicRecovery"].includes(plan.metric)
+            || plan.metric === "convoyEscort" && hasConvoyMap
+            || plan.metric === "convoyInterdiction" && hasConvoyMap
+            || plan.metric === "extractionProgress" && spaceports.length > 0
+            || plan.metric === "relicRecovery" && relicNodes.length > 0,
+          elapsedSeconds: state.time,
+          enemyElimination: state.time >= 30 && enemyEliminated ? 1 : 0,
+          headquartersDestruction: enemyHeadquartersDestroyed ? 1 : 0,
+          territoryControl: territoryCells.length ? ownedCells.length / territoryCells.length : 0,
+          strategicPointControl: objectiveCells.length ? ownedObjectives / objectiveCells.length : 0,
+          resourceControl: resourceCells.length ? ownedResources / resourceCells.length : 0,
+          breakthroughProgress,
+          strongholdAssault: enemyHeadquartersDestroyed ? 1 : 0,
+          defenseDuration: survivalProgress,
+          convoyEscort: (player.convoysDelivered || 0) > 0 ? 1 : 0,
+          convoyInterdiction: (player.enemyConvoysDestroyed || 0) > 0 ? 1 : 0,
+          extractionProgress: extractionReady ? 1 : 0,
+          survivalDuration: survivalProgress,
+          delayDuration: survivalProgress,
+          assassination: assassination ? 1 : 0,
+          sabotageProgress,
+          relicRecovery: relicRecovered ? 1 : 0,
+          evacuationProgress: clamp((player.unitsEvacuated || 0) / 3, 0, 1),
+          lastStandDuration: survivalProgress
+        };
+      }
+
+      function evaluateBattleObjectiveOutcomes() {
+        const completed = [];
+        for (const player of state.players) {
+          const plan = battleObjectivePlanFor(player);
+          const previous = player.battleObjectiveState || {};
+          player.battleObjectiveState = evaluateBattleObjective(plan, battleObjectiveContext(player, plan), previous);
+          const outcome = state.strategicOutcomes[player.id] ||= {};
+          outcome.battleObjective = plan.name;
+          outcome.objectiveMethod = plan.method;
+          outcome.objectiveProgress = player.battleObjectiveState.progress;
+          if (player.battleObjectiveState.complete) {
+            outcome.objectiveVictory = true;
+            outcome.status = `Objective complete · ${plan.name}`;
+            completed.push(player);
+          }
+        }
+        if (state.ended || !completed.length) return;
+        const winningTeams = new Set(completed.map(player => String(player.team)));
+        if (winningTeams.size !== 1) return;
+        const winner = completed[0];
+        const plan = battleObjectivePlanFor(winner);
+        state.victoriousTeam = String(winner.team);
+        state.ended = true;
+        state.paused = true;
+        root.dataset.victory = `Team ${state.victoriousTeam} · ${plan.id}`;
+        els.victoryTitle.textContent = `${winner.faction} objective complete`;
+        els.victoryCopy.textContent = `${plan.name}: ${plan.summary} ${winner.subfaction} achieved it through ${prettyObjectiveMethod(plan.method)}.`;
+        els.victoryScreen.hidden = false;
+        incident(`${winner.faction} completed ${plan.name} through ${prettyObjectiveMethod(plan.method)}.`, null, "critical");
+        persistBattleMemory("battle-objective-complete");
+        updatePauseButton();
+      }
+
       function evaluateStrategicOutcomes() {
         const capabilities = new Map();
         for (const player of state.players) {
@@ -8177,7 +8554,7 @@ import {
           const production = state.structures.filter(structure => structure.alive !== false && structure.progress >= 1 && structure.faction === player.id && ["barracks", "dropbay"].includes(structure.type));
           const rebuildSupply = (economy.inventory.requisition || 0) >= 12 && (economy.inventory.materials || 0) >= 4;
           const reinforcementRoutes = state.roads.filter(road => areAllies(road.controllerFaction || road.faction, player.id) && road.condition > 0.35).length
-            + state.tradePartners.filter(route => route.faction === player.id && route.established).length
+            + state.tradeRoutes.filter(route => routeIsAuthoredAndComplete(route, state.economicNodes) && factionCanUseRoute(route, player)).length
             + production.filter(structure => structure.type === "dropbay").length;
           const commanders = combatUnits.filter(unit => unit.role === "commander");
           const operationalForces = combatUnits.filter(unit => unit.role !== "commander").length;
@@ -8207,13 +8584,8 @@ import {
           } else outcome.status = `Operational · ${report.combatUnits} combat, ${report.production} production, ${report.reinforcementRoutes} routes`;
         }
         const activeTeams = new Set(state.players.filter(player => !state.strategicOutcomes[player.id]?.defeated).map(player => String(player.team)));
-        if (activeTeams.size === 1 && state.players.some(player => state.strategicOutcomes[player.id]?.defeated)) {
-          state.victoriousTeam = [...activeTeams][0];
-          root.dataset.victory = `Team ${state.victoriousTeam}`;
-        } else {
-          state.victoriousTeam = null;
-          delete root.dataset.victory;
-        }
+        state.lastOperationalTeam = activeTeams.size === 1 ? [...activeTeams][0] : null;
+        evaluateBattleObjectiveOutcomes();
       }
 
       function updateBattle(dt) {
@@ -8411,6 +8783,7 @@ import {
       function drawRoadNetwork() {
         if (!state.showRoads) return;
         for (const road of state.roads) {
+          if (road.kind === "trade route" && !state.economicOverlay.trade) continue;
           if (!pointsVisible(road.points, 24)) continue;
           if (state.camera.zoom < 0.15 && road.hierarchy === "local access") continue;
           const midpoint = roadMidpoint(road);
@@ -8486,15 +8859,33 @@ import {
           }
           ctx.restore();
         }
+        if (state.mode === "editor" && state.editorTool === "trade-route") {
+          const route = selectedTradeRoute();
+          if (route) {
+            ctx.save();
+            ctx.fillStyle = colors.signal;
+            ctx.strokeStyle = colors.card;
+            ctx.lineWidth = 1 / state.camera.zoom;
+            for (const point of route.points) {
+              ctx.beginPath();
+              ctx.arc(point.x, point.y, 4 / state.camera.zoom, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.stroke();
+            }
+            ctx.restore();
+          }
+        }
       }
 
-      function drawTradePartners() {
-        for (const partner of state.tradePartners || []) {
-          if (!pointVisible(partner, 80)) continue;
+      function drawEconomicNodes() {
+        for (const node of state.economicNodes) {
+          if (!node.active || !pointVisible(node, 80)) continue;
+          const visibleExports = Object.keys(node.exports || {}).filter(resource => resourceOverlayVisible(resource));
+          if (!visibleExports.length && state.mode === "editor") continue;
           ctx.save();
-          ctx.translate(partner.x, partner.y);
+          ctx.translate(node.x, node.y);
           ctx.fillStyle = colors.card;
-          ctx.strokeStyle = playerColor(partner.faction);
+          ctx.strokeStyle = node.owner ? playerColor(node.owner) : colors.signal;
           ctx.globalAlpha = 0.86;
           ctx.lineWidth = 1.5 / state.camera.zoom;
           ctx.beginPath();
@@ -8510,13 +8901,13 @@ import {
           ctx.fillStyle = colors.foreground;
           ctx.font = `${9 / state.camera.zoom}px system-ui, sans-serif`;
           ctx.textAlign = "center";
-          ctx.fillText(partner.established ? partner.name : `${partner.name} · unlinked`, 0, -12 / state.camera.zoom);
+          ctx.fillText(`${node.name} · ${visibleExports.join("/") || "economic node"}`, 0, -12 / state.camera.zoom);
           ctx.restore();
         }
       }
 
       function drawSupplyRadii() {
-        if (!state.showSupplyRadii || state.camera.zoom < 0.15) return;
+        if (!state.showSupplyRadii || !state.economicOverlay.supply || state.camera.zoom < 0.15) return;
         for (const structure of state.structures) {
           const radius = buildingCatalog[structure.type]?.supplyRadius || 0;
           if (!radius || structure.progress < 1 || structure.alive === false) continue;
@@ -8722,7 +9113,7 @@ import {
         if (state.camera.zoom < 0.15) drawFeatureChunkLod(terrainFeatures);
         else for (const feature of terrainFeatures) drawFeature(feature);
         drawRoadNetwork();
-        drawTradePartners();
+        drawEconomicNodes();
         for (const player of state.players) {
           if (!pointVisible(player.base, 48, bounds)) continue;
           ctx.strokeStyle = player.color;
@@ -9088,10 +9479,16 @@ import {
         return { requisition: "#d8dee9", materials: "#d9b45d", fuel: "#d27843", energy: "#62c8eb", ammunition: "#ef6f6c", medical: "#67d5b5", food: "#79b85a", faith: "#f3d36a", influence: "#c084fc", scrap: "#a8a29e", biomass: "#84cc16" }[type] || "#ffffff";
       }
 
+      function resourceOverlayVisible(resourceType) {
+        const group = Object.entries(ECONOMY_OVERLAY_GROUPS).find(([, resources]) => resources.includes(resourceType))?.[0];
+        return group ? state.economicOverlay[group] !== false : true;
+      }
+
       function drawResourceZones() {
         for (const zone of state.resourceZones) {
           syncResourceZone(zone);
           const selected = state.mode === "editor" && state.editorTool === "resource" && zone.id === state.selectedResourceZoneId;
+          if (!selected && !resourceOverlayVisible(zone.resourceType)) continue;
           const color = resourceZoneColor(zone.resourceType);
           ctx.save();
           ctx.strokeStyle = color;
@@ -9121,7 +9518,7 @@ import {
             ctx.fillStyle = colors.foreground;
             ctx.font = `${10 / state.camera.zoom}px system-ui, sans-serif`;
             ctx.textAlign = "center";
-            ctx.fillText(`${zone.name} · ${Math.round(ratio * 100)}%`, zone.x, zone.y);
+            ctx.fillText(`${zone.name} · ${zone.infinite ? "∞" : `${Math.round(ratio * 100)}%`}`, zone.x, zone.y);
           }
           ctx.restore();
         }
@@ -9144,7 +9541,11 @@ import {
       }
 
       function drawTerritories() {
-        if (!state.territoryOverlay) return;
+        if (!state.territoryOverlay || !state.economicOverlay.territory) return;
+        if (state.mode === "sim" && state.strategicTerritory) {
+          drawStrategicTerritory();
+          return;
+        }
         for (const territory of state.territories) {
           if (territory.cellBacked) {
             drawCellTerritory(territory);
@@ -10143,6 +10544,7 @@ import {
           layer.lineWidth = 1;
           for (const road of state.roads) {
             if (!road.points?.length) continue;
+            if (road.kind === "trade route" && !state.economicOverlay.trade) continue;
             layer.strokeStyle = road.kind === "trade route" ? colors.signal : playerColor(road.faction);
             layer.globalAlpha = 0.24;
             layer.beginPath();
@@ -10168,7 +10570,7 @@ import {
           }
         }
         for (const zone of state.resourceZones) {
-          if (zone.points.length < 3) continue;
+          if (zone.points.length < 3 || !resourceOverlayVisible(zone.resourceType)) continue;
           layer.fillStyle = resourceZoneColor(zone.resourceType);
           layer.strokeStyle = resourceZoneColor(zone.resourceType);
           layer.globalAlpha = 0.32;
@@ -10179,9 +10581,16 @@ import {
           layer.fill();
           layer.stroke();
         }
+        for (const node of state.economicNodes) {
+          if (!node.active || !Object.keys(node.exports || {}).some(resourceOverlayVisible)) continue;
+          layer.fillStyle = node.owner ? playerColor(node.owner) : colors.signal;
+          layer.globalAlpha = 0.9;
+          layer.fillRect(node.x * scaleX - 2, node.y * scaleY - 2, 4, 4);
+        }
         layer.globalAlpha = 0.48;
         layer.lineWidth = 1;
         for (const territory of state.territories) {
+          if (!state.economicOverlay.territory) continue;
           if (territory.cellBacked && territory.claimedCells instanceof Set) {
             layer.fillStyle = territory.owner ? playerColor(territory.owner) : colors.border;
             layer.globalAlpha = 0.2;
@@ -10324,6 +10733,9 @@ import {
           const behavior = aiBehaviorFor(player);
           return `${player.id}:${behavior.aggression},${behavior.caution},${behavior.expansion},${behavior.economy}`;
         }).join("|");
+        root.dataset.battleObjectives = state.players.map(player => `${player.id}:${battleObjectivePlanFor(player).id}`).join("|");
+        root.dataset.objectiveMethods = state.players.map(player => `${player.id}:${battleObjectivePlanFor(player).method}`).join("|");
+        root.dataset.objectiveProgress = state.players.map(player => `${player.id}:${Math.round((player.battleObjectiveState?.progress || 0) * 100)}`).join("|");
         root.dataset.camera = `${state.camera.x.toFixed(2)},${state.camera.y.toFixed(2)},${state.camera.zoom.toFixed(3)}`;
         root.dataset.visibleChunks = String(state.visibleChunkCount);
         root.dataset.renderedObjects = String(state.renderedObjectCount);
@@ -10367,9 +10779,17 @@ import {
         root.dataset.navigationRevision = String(state.navigationRevision);
         root.dataset.navigationPlans = String(state.navigationPlans);
         root.dataset.navigationCache = String(navigationPlanner.cache.size);
-        root.dataset.resourceNodes = String(state.features.filter(feature => feature.resourceNode).length + state.resourceZones.length);
+        root.dataset.resourceNodes = String(state.resourceZones.length);
         root.dataset.resourceZones = String(state.resourceZones.length);
-        root.dataset.depletedNodes = String(state.features.filter(feature => feature.resourceNode && feature.reserve <= 0).length + state.resourceZones.filter(zone => zone.remaining <= 0).length);
+        root.dataset.economicNodes = String(state.economicNodes.length);
+        root.dataset.authoredTradeRoutes = String(state.tradeRoutes.filter(route => routeIsAuthoredAndComplete(route, state.economicNodes)).length);
+        root.dataset.generatedTradeRoutes = "0";
+        root.dataset.temporarySupplyRoutes = String(state.supplyRoutes.filter(route => route.active).length);
+        root.dataset.convoyHistory = String(state.routeHistory.convoy.length);
+        root.dataset.roadHistory = String(state.routeHistory.road.length);
+        root.dataset.phase11ZoneManager = "dynamic-polygonal";
+        root.dataset.phase13RouteAuthority = "ai-supply-only;map-authored-trade";
+        root.dataset.depletedNodes = String(state.resourceZones.filter(zone => zone.remaining <= 0).length);
         root.dataset.projectilePool = String(state.projectilePool.length);
         root.dataset.casualtyPoints = String(state.casualtyPoints.filter(point => point.active).length);
         root.dataset.incapacitated = String(state.units.filter(unit => unit.alive && unit.incapacitated).length);
@@ -10574,9 +10994,10 @@ import {
         els.logisticsPlayer.value = player.id;
         const armyPlan = state.armyPlans[player.id] || { goal: "Establish foothold" };
         const behavior = aiBehaviorFor(player);
+        const objectivePlan = battleObjectivePlanFor(player);
         const strategicOutcome = state.strategicOutcomes[player.id]?.status || "Building operational capability";
         const pressureLabel = economy.territoryPressure > 0 ? ` · Territory support pressure ${Math.round(economy.territoryPressure * 100)}%` : "";
-        els.logisticsPersonality.textContent = `${economy.personality} commander · A${behavior.aggression} C${behavior.caution} X${behavior.expansion} E${behavior.economy} · Army goal: ${armyPlan.goal} · ${strategicOutcome}${pressureLabel} · ${economy.emergency}`;
+        els.logisticsPersonality.textContent = `${objectivePlan.name} · ${prettyObjectiveMethod(objectivePlan.method)} · Live tendencies A${Math.round(behavior.aggression)} C${Math.round(behavior.caution)} X${Math.round(behavior.expansion)} E${Math.round(behavior.economy)} · Army goal: ${armyPlan.goal} · ${strategicOutcome}${pressureLabel} · ${economy.emergency}`;
         els.logisticsResources.textContent = "";
         for (const key of economyResourceKeys) {
           const badge = document.createElement("span");
@@ -10601,12 +11022,15 @@ import {
         replaceLogisticsList(els.logisticsQueue, economy.queue.slice(0, 6).map(item => `${item.priority} · ${item.label} · ${item.status}`), "No pending requests");
         const convoyLines = state.convoys.filter(item => item.faction === player.id && (!item.finished || state.time - (item.finishedAt || 0) < 12)).slice(0, 5).map(item => `${item.name} · ${item.mode} · ${item.status}${item.escorts ? ` · ${item.escorts} escort` : ""}`);
         const podLines = state.dropPods.filter(item => item.faction === player.id && !item.deployed).map(item => `Drop pod · ${item.stage}`);
-        const partner = state.tradePartners.find(item => item.faction === player.id);
-        const tradeLine = partner
-          ? partner.established
-            ? `${partner.name} · route established · next trade ${formatElapsed(Math.max(0, partner.nextDispatch - state.time))}`
-            : `${partner.name} · no route · AI must establish it`
-          : "";
+        const authoredRoutes = state.tradeRoutes.filter(route => factionCanUseRoute(route, player));
+        const routeActions = authoredRoutes.reduce((counts, route) => {
+          const action = route.aiUsage[player.id] || "evaluating";
+          counts[action] = (counts[action] || 0) + 1;
+          return counts;
+        }, {});
+        const tradeLine = authoredRoutes.length
+          ? `${authoredRoutes.length} map-authored trade routes · ${Object.entries(routeActions).map(([action, count]) => `${count} ${action}`).join(" · ")}`
+          : "No map-authored trade route available";
         replaceLogisticsList(els.logisticsConvoys, [...convoyLines, ...podLines, tradeLine].filter(Boolean), "No active transport job");
         const selected = state.structures.find(item => item.id === state.selectedStructureId);
         const routeOrders = state.squads.filter(squad => squad.faction === player.id && routeOrderTypes.includes(squad.orderType));
@@ -10644,6 +11068,12 @@ import {
           return `P${player.index + 1} ${count}`;
         }).join(" · ");
         els.forceContext.textContent = `${visibleForces}${state.players.length > 6 ? ` · +${state.players.length - 6} players` : ""}`;
+        if (state.strategicTerritory) {
+          const garrisonSummary = state.players.slice(0, 4)
+            .map(player => `P${player.index + 1} G${Math.round(state.strategicTerritory.garrisons.get(player.id) || 0)}`)
+            .join(" / ");
+          els.forceContext.textContent += ` / ${garrisonSummary}`;
+        }
         els.playerCount.textContent = `${state.players.length} players`;
         const completeBuildings = (snapshot?.structures || state.structures).filter(item => item.progress >= 1 && item.alive !== false).length;
         els.buildingValue.textContent = `${completeBuildings} building${completeBuildings === 1 ? "" : "s"}`;
@@ -10692,6 +11122,7 @@ import {
 
       function showMainMenu() {
         root.classList.remove("is-configuring", "is-editing");
+        els.victoryScreen.hidden = true;
         state.paused = true;
         state.mode = "menu";
         state.replay = false;
@@ -10716,6 +11147,9 @@ import {
       function startSimulation() {
         root.classList.remove("is-configuring", "is-editing");
         canvas.style.cursor = "crosshair";
+        state.economyZoneManager.adopt(state.resourceZones);
+        rebuildStrategicTerritorySystem();
+        els.victoryScreen.hidden = true;
         state.mode = "sim";
         state.paused = false;
         state.replay = false;
@@ -10726,7 +11160,8 @@ import {
         els.editorTip.hidden = true;
         els.editorInspector.hidden = true;
         setInspector(root.getBoundingClientRect().width > 680);
-        els.battleName.textContent = `${state.scenario === "custom" ? "Custom world theater" : presets[state.scenario].name} / Autonomous base growth`;
+        const objectiveSummary = [...new Set(state.players.map(player => battleObjectivePlanFor(player).name))].slice(0, 2).join(" vs ");
+        els.battleName.textContent = `${state.scenario === "custom" ? "Custom world theater" : presets[state.scenario].name} / ${objectiveSummary}`;
         updatePauseButton();
         incident("Builder autonomy released. Buildings will be selected from live priorities.", null, "info");
       }
@@ -10745,12 +11180,13 @@ import {
         const scaleX = TEST_MAP_WIDTH / Math.max(1, worldWidth());
         const scaleY = TEST_MAP_HEIGHT / Math.max(1, worldHeight());
         return {
-          version: 2,
+          version: 3,
           savedAt: new Date().toISOString(),
           name: state.scenario === "custom" ? "Local custom theater" : `${presets[state.scenario]?.name || "Test theater"} copy`,
           world: { width: TEST_MAP_WIDTH, height: TEST_MAP_HEIGHT, baseTerrain: state.world.baseTerrain },
           lighting: { ...state.lighting },
           clock: { running: state.clock.running, rate: state.clock.rate, elapsedSeconds: state.clock.elapsedSeconds },
+          economicOverlay: { ...state.economicOverlay },
           players: state.players.map(player => ({
             id: player.id,
             index: player.index,
@@ -10759,9 +11195,7 @@ import {
             faction: player.faction,
             subfaction: player.subfaction,
             team: player.team,
-            doctrine: player.doctrine,
-            aiPreset: player.aiPreset,
-            aiBehavior: { ...aiBehaviorFor(player) },
+            battleObjective: normalizeBattleObjectiveId(player.battleObjective),
             color: player.color,
             secondaryColor: player.secondaryColor,
             pattern: player.pattern,
@@ -10772,8 +11206,10 @@ import {
               points: (player.spawnZone.points || []).map(point => ({ x: point.x * scaleX, y: point.y * scaleY }))
             } : null
           })),
-          features: state.features.filter(feature => !feature.deleted).map(feature => scaleFeatureToTestMap(feature, scaleX, scaleY)),
-          resourceZones: state.resourceZones.map(zone => serializeResourceZone(zone, scaleX, scaleY))
+          features: state.features.filter(feature => !feature.deleted && !feature.resourceNode).map(feature => scaleFeatureToTestMap(feature, scaleX, scaleY)),
+          resourceZones: state.resourceZones.map(zone => serializeResourceZone(zone, scaleX, scaleY)),
+          economicNodes: state.economicNodes.map(node => serializeEconomicNode(node, scaleX, scaleY)),
+          tradeRoutes: state.tradeRoutes.map(route => serializeTradeRoute(route, scaleX, scaleY))
         };
       }
 
@@ -10790,6 +11226,15 @@ import {
         return true;
       }
 
+      function objectiveFromSavedPlayer(saved = {}) {
+        if (saved.battleObjective) return normalizeBattleObjectiveId(saved.battleObjective);
+        const legacy = `${saved.aiPreset || ""} ${saved.doctrine || ""}`.toLowerCase();
+        if (/fortress|defensive|repair/.test(legacy)) return "stronghold_defense";
+        if (/expansion/.test(legacy)) return "territorial_domination";
+        if (/economic|rush tech/.test(legacy)) return "resource_supremacy";
+        return DEFAULT_BATTLE_OBJECTIVE;
+      }
+
       function loadLocalTestMap() {
         const payload = storageAdapter?.load(TEST_MAP_SLOT);
         if (!payload?.features || !Array.isArray(payload.players) || !payload.players.length) {
@@ -10800,23 +11245,32 @@ import {
         const loadScaleY = TEST_MAP_HEIGHT / Math.max(1, Number(payload.world?.height) || TEST_MAP_HEIGHT);
         setWorldSize(TEST_MAP_WIDTH, TEST_MAP_HEIGHT);
         payload.players.slice(0, 12).forEach((saved, index) => {
-          Object.assign(setupPlayers[index], saved, { id: ids[index], index, aiBehavior: { ...aiBehaviorFor(saved) } });
+          Object.assign(setupPlayers[index], saved, { id: ids[index], index, battleObjective: objectiveFromSavedPlayer(saved) });
+          delete setupPlayers[index].doctrine;
+          delete setupPlayers[index].aiPreset;
+          delete setupPlayers[index].aiBehavior;
         });
         state.players = payload.players.slice(0, 12).map((saved, index) => ({
           ...setupPlayers[index],
           ...saved,
           id: ids[index],
           index,
-          aiBehavior: { ...aiBehaviorFor(saved) },
+          battleObjective: objectiveFromSavedPlayer(saved),
           base: {
             x: clamp(saved.base?.x == null ? deploymentPosition(index, payload.players.length, state.world).x : saved.base.x * loadScaleX, 24, TEST_MAP_WIDTH - 24),
             y: clamp(saved.base?.y == null ? deploymentPosition(index, payload.players.length, state.world).y : saved.base.y * loadScaleY, 24, TEST_MAP_HEIGHT - 24)
           }
         }));
+        for (const player of state.players) {
+          delete player.doctrine;
+          delete player.aiPreset;
+          delete player.aiBehavior;
+        }
         state.world.baseTerrain = payload.world?.baseTerrain || "grass";
         state.lighting = { ...state.lighting, ...(payload.lighting || {}) };
         state.clock = { ...state.clock, ...(payload.clock || {}), elapsedSeconds: Number(payload.clock?.elapsedSeconds) || 0 };
-        resetBattle("custom", payload.features.map(feature => scaleFeatureToTestMap(feature, loadScaleX, loadScaleY)));
+        state.economicOverlay = { ...state.economicOverlay, ...(payload.economicOverlay || {}) };
+        resetBattle("custom", payload.features.filter(feature => !feature.resourceNode).map(feature => scaleFeatureToTestMap(feature, loadScaleX, loadScaleY)));
         state.resourceZones = (payload.resourceZones || []).map((zone, index) => createResourceZone(
           zone.id || `resource-zone-${index + 1}`,
           { x: 0, y: 0 },
@@ -10824,6 +11278,19 @@ import {
         ));
         state.nextResourceZoneId = state.resourceZones.length + 1;
         state.selectedResourceZoneId = state.resourceZones[0]?.id || null;
+        state.economicNodes = (payload.economicNodes || []).map((node, index) => createEconomicNode(
+          node.id || `economic-node-${index + 1}`,
+          { x: clamp((node.x || 0) * loadScaleX, 0, TEST_MAP_WIDTH), y: clamp((node.y || 0) * loadScaleY, 0, TEST_MAP_HEIGHT) },
+          { ...node, x: (node.x || 0) * loadScaleX, y: (node.y || 0) * loadScaleY }
+        ));
+        state.tradeRoutes = (payload.tradeRoutes || []).map((route, index) => createTradeRoute(
+          route.id || `trade-route-${index + 1}`,
+          { ...route, points: (route.points || []).map(point => ({ x: clamp(point.x * loadScaleX, 0, TEST_MAP_WIDTH), y: clamp(point.y * loadScaleY, 0, TEST_MAP_HEIGHT) })) }
+        ));
+        state.nextEconomicNodeId = state.economicNodes.length + 1;
+        state.nextTradeRouteId = state.tradeRoutes.length + 1;
+        state.selectedEconomicNodeId = state.economicNodes[0]?.id || null;
+        state.selectedTradeRouteId = state.tradeRoutes[0]?.id || null;
         state.world.baseTerrain = payload.world?.baseTerrain || "grass";
         state.clock = { ...state.clock, ...(payload.clock || {}), elapsedSeconds: Number(payload.clock?.elapsedSeconds) || 0 };
         payload.players.slice(0, state.players.length).forEach((saved, index) => {
@@ -10862,17 +11329,38 @@ import {
         player.faction = els.playerFaction.value;
         player.subfaction = els.playerSubfaction.value;
         player.team = els.playerTeam.value;
-        player.doctrine = els.playerDoctrine.value;
-        player.aiPreset = els.playerAiPreset.value;
-        player.aiBehavior = {
-          aggression: Number(els.aiAggression.value),
-          caution: Number(els.aiCaution.value),
-          expansion: Number(els.aiExpansion.value),
-          economy: Number(els.aiEconomy.value)
-        };
+        player.battleObjective = normalizeBattleObjectiveId(els.playerBattleObjective.value);
+        delete player.battleObjectivePlan;
+        delete player.dynamicAIBehavior;
         player.color = els.playerColor.value;
         player.secondaryColor = els.playerSecondaryColor.value;
         player.pattern = els.playerPattern.value;
+      }
+
+      function prettyObjectiveMethod(method) {
+        return String(method || "adaptive operation")
+          .replaceAll("_", " ")
+          .replace(/\b\w/g, character => character.toUpperCase());
+      }
+
+      function populateBattleObjectiveSelect(player) {
+        const selected = normalizeBattleObjectiveId(player.battleObjective);
+        els.playerBattleObjective.textContent = "";
+        for (const optionData of objectiveOptionsFor(player)) {
+          const option = document.createElement("option");
+          option.value = optionData.id;
+          option.textContent = `${optionData.name} · ${optionData.category}`;
+          els.playerBattleObjective.append(option);
+        }
+        els.playerBattleObjective.value = selected;
+        player.battleObjective = normalizeBattleObjectiveId(els.playerBattleObjective.value);
+        delete player.battleObjectivePlan;
+        const plan = battleObjectivePlanFor(player);
+        const behavior = deriveDynamicAIBehavior(resolveFactionAIProfile(player), plan);
+        els.objectiveName.textContent = plan.name;
+        els.objectiveSummary.textContent = plan.summary;
+        els.objectiveMethod.textContent = `${player.subfaction} method: ${prettyObjectiveMethod(plan.method)}.`;
+        els.objectiveSignals.textContent = `Opening tendency is calculated, not scripted: attack ${Math.round(behavior.aggression)}, preservation ${Math.round(behavior.caution)}, expansion ${Math.round(behavior.expansion)}, economy ${Math.round(behavior.economy)}. It will adapt during battle.`;
       }
 
       function populateFactionSelect(race, selectedFaction, selectedSubfaction) {
@@ -10903,19 +11391,7 @@ import {
         els.playerRace.value = player.race;
         populateFactionSelect(player.race, player.faction, player.subfaction);
         els.playerTeam.value = player.team;
-        els.playerDoctrine.value = player.doctrine;
-        player.aiPreset ||= behaviorPresetForDoctrine(player.doctrine);
-        player.aiBehavior ||= behaviorFromPreset(player.aiPreset);
-        const behavior = aiBehaviorFor(player);
-        els.playerAiPreset.value = behaviorPresets[player.aiPreset] ? player.aiPreset : "custom";
-        els.aiAggression.value = String(behavior.aggression);
-        els.aiCaution.value = String(behavior.caution);
-        els.aiExpansion.value = String(behavior.expansion);
-        els.aiEconomy.value = String(behavior.economy);
-        els.aiAggressionValue.textContent = `${behavior.aggression}%`;
-        els.aiCautionValue.textContent = `${behavior.caution}%`;
-        els.aiExpansionValue.textContent = `${behavior.expansion}%`;
-        els.aiEconomyValue.textContent = `${behavior.economy}%`;
+        populateBattleObjectiveSelect(player);
         els.playerColor.value = player.color;
         els.playerColorValue.textContent = player.color.toUpperCase();
         els.playerSecondaryColor.value = player.secondaryColor;
@@ -10983,6 +11459,10 @@ import {
         els.resourceOwner.textContent = "";
         for (const option of els.territoryOwner.options) els.resourceOwner.append(option.cloneNode(true));
         if ([...els.resourceOwner.options].some(option => option.value === resourcePrevious)) els.resourceOwner.value = resourcePrevious;
+        const nodePrevious = els.economicNodeOwner.value;
+        els.economicNodeOwner.textContent = "";
+        for (const option of els.territoryOwner.options) els.economicNodeOwner.append(option.cloneNode(true));
+        if ([...els.economicNodeOwner.options].some(option => option.value === nodePrevious)) els.economicNodeOwner.value = nodePrevious;
       }
 
       function rebuildTerritorySelect() {
@@ -11119,6 +11599,7 @@ import {
       }
 
       function rebuildResourceZoneSelect() {
+        state.economyZoneManager.adopt(state.resourceZones);
         if (!els.resourceType.options.length) {
           for (const resource of RESOURCE_TYPES) {
             const option = document.createElement("option");
@@ -11154,6 +11635,8 @@ import {
         els.resourceCollectors.value = zone.allowedCollectors.join(",");
         els.resourceRequiresBuilding.checked = zone.requiresBuilding;
         els.resourceStrategic.checked = zone.strategicObjective;
+        els.resourceInfinite.checked = Boolean(zone.infinite);
+        els.resourceCapacity.disabled = Boolean(zone.infinite);
       }
 
       function saveResourceZoneForm() {
@@ -11171,6 +11654,8 @@ import {
         zone.allowedCollectors = els.resourceCollectors.value.split(",").filter(Boolean);
         zone.requiresBuilding = els.resourceRequiresBuilding.checked;
         zone.strategicObjective = els.resourceStrategic.checked;
+        zone.infinite = els.resourceInfinite.checked;
+        els.resourceCapacity.disabled = zone.infinite;
         syncResourceZone(zone);
         state.minimapMarkerDirty = true;
         rebuildResourceZoneSelect();
@@ -11224,6 +11709,222 @@ import {
         syncResourceZone(zone);
         state.minimapMarkerDirty = true;
         els.editorTip.textContent = `${zone.name} · ${zone.points.length} points · ${mode}`;
+        draw();
+      }
+
+      function selectedEconomicNode() {
+        return state.economicNodes.find(node => node.id === state.selectedEconomicNodeId) || null;
+      }
+
+      function selectedTradeRoute() {
+        return state.tradeRoutes.find(route => route.id === state.selectedTradeRouteId) || null;
+      }
+
+      function rebuildEconomicNodeSelect() {
+        if (!els.economicNodeType.options.length) {
+          for (const type of ECONOMIC_NODE_TYPES) {
+            const option = document.createElement("option");
+            option.value = type;
+            option.textContent = type.split("-").map(word => word[0].toUpperCase() + word.slice(1)).join(" ");
+            els.economicNodeType.append(option);
+          }
+        }
+        const previous = state.selectedEconomicNodeId;
+        els.economicNodeSelect.textContent = "";
+        for (const node of state.economicNodes) {
+          const option = document.createElement("option");
+          option.value = node.id;
+          option.textContent = `${node.name} · ${node.type}`;
+          els.economicNodeSelect.append(option);
+        }
+        state.selectedEconomicNodeId = state.economicNodes.some(node => node.id === previous) ? previous : state.economicNodes[0]?.id || null;
+        els.economicNodeSelect.value = state.selectedEconomicNodeId || "";
+        rebuildTradeRouteNodeOptions();
+      }
+
+      function rebuildTradeRouteNodeOptions() {
+        for (const select of [els.tradeRouteFrom, els.tradeRouteTo]) {
+          const previous = select.value;
+          select.textContent = "";
+          const unset = document.createElement("option");
+          unset.value = "";
+          unset.textContent = "Click a landmark";
+          select.append(unset);
+          for (const node of state.economicNodes) {
+            const option = document.createElement("option");
+            option.value = node.id;
+            option.textContent = node.name;
+            select.append(option);
+          }
+          if ([...select.options].some(option => option.value === previous)) select.value = previous;
+        }
+      }
+
+      function drawStrategicTerritory() {
+        const bounds = cameraBounds(80);
+        ctx.save();
+        for (const cell of state.strategicTerritory.cells) {
+          if (!cell.owner || !pointsVisible(cell.polygon, 20, bounds)) continue;
+          const color = playerColor(cell.owner);
+          ctx.beginPath();
+          ctx.moveTo(cell.polygon[0].x, cell.polygon[0].y);
+          for (let index = 1; index < cell.polygon.length; index += 1) ctx.lineTo(cell.polygon[index].x, cell.polygon[index].y);
+          ctx.closePath();
+          ctx.fillStyle = color;
+          ctx.globalAlpha = cell.state === "contested" ? 0.27 : cell.supplyConnected ? 0.18 : 0.11;
+          ctx.fill();
+          ctx.strokeStyle = color;
+          ctx.globalAlpha = cell.state === "contested" ? 0.95 : 0.58;
+          ctx.lineWidth = (cell.isBase ? 2.8 : 1.1) / state.camera.zoom;
+          if (cell.state === "contested") ctx.setLineDash([5 / state.camera.zoom, 3 / state.camera.zoom]);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          if (cell.objective) {
+            ctx.globalAlpha = 0.88;
+            ctx.fillStyle = colors.foreground;
+            ctx.beginPath();
+            ctx.arc(cell.centroid.x, cell.centroid.y, (cell.isBase ? 5 : 3.5) / state.camera.zoom, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+        ctx.restore();
+      }
+
+      function loadEconomicNodeForm() {
+        const node = selectedEconomicNode();
+        if (!node) return;
+        els.economicNodeSelect.value = node.id;
+        els.economicNodeName.value = node.name;
+        els.economicNodeType.value = node.type;
+        els.economicNodeOwner.value = node.startingOwner || "";
+        els.economicNodeExports.value = formatResourceMap(node.exports);
+        els.economicNodeImports.value = formatResourceMap(node.imports);
+        els.economicNodeCapacity.value = String(node.capacity);
+        els.economicNodeValue.value = String(node.strategicValue);
+        els.economicNodeActive.checked = node.active;
+      }
+
+      function saveEconomicNodeForm() {
+        const node = selectedEconomicNode();
+        if (!node) return;
+        node.name = els.economicNodeName.value.trim() || node.name;
+        node.type = els.economicNodeType.value;
+        node.startingOwner = els.economicNodeOwner.value;
+        node.owner = node.startingOwner;
+        node.exports = parseResourceMap(els.economicNodeExports.value);
+        node.imports = parseResourceMap(els.economicNodeImports.value);
+        node.capacity = clamp(Number(els.economicNodeCapacity.value) || 1, 1, 1000000);
+        node.strategicValue = clamp(Number(els.economicNodeValue.value) || 0, 0, 100);
+        node.active = els.economicNodeActive.checked;
+        rebuildEconomicNodeSelect();
+        rebuildRoadNetwork();
+        state.minimapMarkerDirty = true;
+        draw();
+      }
+
+      function placeEconomicNode(point) {
+        const node = selectedEconomicNode();
+        if (!node) {
+          els.editorTip.textContent = "Create an economic landmark before placing it.";
+          return;
+        }
+        node.x = clamp(Math.round(point.x), 0, worldWidth());
+        node.y = clamp(Math.round(point.y), 0, worldHeight());
+        for (const route of state.tradeRoutes) {
+          if (route.fromNodeId === node.id && route.points.length) route.points[0] = { x: node.x, y: node.y };
+          if (route.toNodeId === node.id && route.points.length) route.points[route.points.length - 1] = { x: node.x, y: node.y };
+        }
+        rebuildRoadNetwork();
+        state.minimapMarkerDirty = true;
+        els.editorTip.textContent = `${node.name} placed at ${node.x}, ${node.y}.`;
+        draw();
+      }
+
+      function rebuildTradeRouteSelect() {
+        if (!els.tradeRouteType.options.length) {
+          for (const type of TRADE_ROUTE_TYPES) {
+            const option = document.createElement("option");
+            option.value = type;
+            option.textContent = type[0].toUpperCase() + type.slice(1);
+            els.tradeRouteType.append(option);
+          }
+        }
+        const previous = state.selectedTradeRouteId;
+        els.tradeRouteSelect.textContent = "";
+        for (const route of state.tradeRoutes) {
+          const option = document.createElement("option");
+          option.value = route.id;
+          option.textContent = `${route.name} · ${route.type}`;
+          els.tradeRouteSelect.append(option);
+        }
+        state.selectedTradeRouteId = state.tradeRoutes.some(route => route.id === previous) ? previous : state.tradeRoutes[0]?.id || null;
+        els.tradeRouteSelect.value = state.selectedTradeRouteId || "";
+        rebuildTradeRouteNodeOptions();
+      }
+
+      function loadTradeRouteForm() {
+        const route = selectedTradeRoute();
+        if (!route) return;
+        els.tradeRouteSelect.value = route.id;
+        els.tradeRouteName.value = route.name;
+        els.tradeRouteType.value = route.type;
+        els.tradeRouteFrom.value = route.fromNodeId;
+        els.tradeRouteTo.value = route.toNodeId;
+        els.tradeRouteCapacity.value = String(route.capacity);
+        els.tradeRouteResources.value = route.resources.join(", ");
+        els.tradeRouteFactions.value = route.allowedFactions.join(", ");
+        els.tradeRouteRoadRequired.checked = route.roadRequired;
+        els.tradeRouteBidirectional.checked = route.bidirectional;
+        els.tradeRouteActive.checked = route.active;
+      }
+
+      function saveTradeRouteForm() {
+        const route = selectedTradeRoute();
+        if (!route) return;
+        route.name = els.tradeRouteName.value.trim() || route.name;
+        route.type = els.tradeRouteType.value;
+        route.fromNodeId = els.tradeRouteFrom.value;
+        route.toNodeId = els.tradeRouteTo.value;
+        route.capacity = clamp(Number(els.tradeRouteCapacity.value) || 1, 1, 10000);
+        route.resources = els.tradeRouteResources.value.split(",").map(value => value.trim()).filter(Boolean);
+        route.allowedFactions = els.tradeRouteFactions.value.split(",").map(value => value.trim()).filter(Boolean);
+        if (!route.allowedFactions.length) route.allowedFactions = ["*"];
+        route.roadRequired = els.tradeRouteRoadRequired.checked;
+        route.bidirectional = els.tradeRouteBidirectional.checked;
+        route.active = els.tradeRouteActive.checked;
+        const from = state.economicNodes.find(node => node.id === route.fromNodeId);
+        const to = state.economicNodes.find(node => node.id === route.toNodeId);
+        if (!route.points.length && from && to) route.points = [{ x: from.x, y: from.y }, { x: to.x, y: to.y }];
+        rebuildTradeRouteSelect();
+        rebuildRoadNetwork();
+        state.minimapMarkerDirty = true;
+        draw();
+      }
+
+      function nearestEconomicNode(point, limit = 24 / state.camera.zoom) {
+        return state.economicNodes.map(node => ({ node, d: distance(node, point) })).filter(item => item.d <= limit).sort((a, b) => a.d - b.d)[0]?.node || null;
+      }
+
+      function editTradeRouteAtPoint(point) {
+        const route = selectedTradeRoute();
+        if (!route) {
+          els.editorTip.textContent = "Create a trade route before drawing its economic backbone.";
+          return;
+        }
+        const node = nearestEconomicNode(point);
+        if (!route.fromNodeId) {
+          if (!node) { els.editorTip.textContent = "Start the route by clicking an economic landmark."; return; }
+          route.fromNodeId = node.id;
+          route.points = [{ x: node.x, y: node.y }];
+        } else if (node && node.id !== route.fromNodeId) {
+          route.toNodeId = node.id;
+          route.points.push({ x: node.x, y: node.y });
+        } else if (route.toNodeId && route.points.length >= 2) route.points.splice(route.points.length - 1, 0, { x: Math.round(point.x), y: Math.round(point.y) });
+        else route.points.push({ x: Math.round(point.x), y: Math.round(point.y) });
+        rebuildRoadNetwork();
+        loadTradeRouteForm();
+        state.minimapMarkerDirty = true;
+        els.editorTip.textContent = route.toNodeId ? `${route.name} connected · ${route.points.length} authored points.` : `${route.name} · add waypoints, then click a destination landmark.`;
         draw();
       }
 
@@ -11288,6 +11989,7 @@ import {
         const player = selectedSpawnPlayer();
         if (!player) return;
         const zone = spawnZoneFor(player);
+        for (const input of els.economicOverlayControls.querySelectorAll("[data-economic-overlay]")) input.checked = state.economicOverlay[input.dataset.economicOverlay] !== false;
         els.editorTool.value = state.editorTool;
         els.spawnPlayer.value = player.id;
         els.zoneShape.value = zone.shape;
@@ -11296,10 +11998,14 @@ import {
         const terrainMode = state.editorTool === "terrain";
         const territoryMode = state.editorTool === "territory";
         const resourceMode = state.editorTool === "resource";
+        const tradeRouteMode = state.editorTool === "trade-route";
+        const economicNodeMode = state.editorTool === "economic-node";
         const lightingMode = state.editorTool === "lighting";
         els.paintControls.hidden = !terrainMode;
         els.territoryControls.hidden = !territoryMode;
         els.resourceControls.hidden = !resourceMode;
+        els.tradeRouteControls.hidden = !tradeRouteMode;
+        els.economicNodeControls.hidden = !economicNodeMode;
         els.lightingControls.hidden = !lightingMode;
         els.brushCategory.disabled = !terrainMode;
         els.brushType.disabled = !terrainMode;
@@ -11311,6 +12017,8 @@ import {
         els.clearZone.hidden = state.editorTool !== "zone" || zone.shape !== "custom";
         if (territoryMode) loadTerritoryForm();
         if (resourceMode) loadResourceZoneForm();
+        if (tradeRouteMode) loadTradeRouteForm();
+        if (economicNodeMode) loadEconomicNodeForm();
         if (lightingMode) syncLightingControls();
         canvas.style.cursor = state.editorTool === "spawn" ? "move" : "crosshair";
       }
@@ -11388,6 +12096,8 @@ import {
         populateTerritoryOwners();
         rebuildTerritorySelect();
         rebuildResourceZoneSelect();
+        rebuildEconomicNodeSelect();
+        rebuildTradeRouteSelect();
         state.mode = "editor";
         state.paused = true;
         state.replay = false;
@@ -11662,6 +12372,10 @@ import {
             editTerritoryAtPoint(point);
           } else if (state.editorTool === "resource") {
             editResourceZoneAtPoint(point);
+          } else if (state.editorTool === "trade-route") {
+            editTradeRouteAtPoint(point);
+          } else if (state.editorTool === "economic-node") {
+            placeEconomicNode(point);
           }
           return;
         }
@@ -11750,6 +12464,12 @@ import {
             } else {
               els.editorTip.textContent = `${zone?.name || "Resource zone"} · ${state.resourceZoneEditMode} · world (${Math.floor(state.hover.x)}, ${Math.floor(state.hover.y)})`;
             }
+          } else if (state.editorTool === "trade-route") {
+            const route = selectedTradeRoute();
+            const nearNode = nearestEconomicNode(state.hover);
+            els.editorTip.textContent = `${route?.name || "Trade route"} · ${nearNode ? `landmark ${nearNode.name}` : "waypoint"} · world (${Math.floor(state.hover.x)}, ${Math.floor(state.hover.y)})`;
+          } else if (state.editorTool === "economic-node") {
+            els.editorTip.textContent = `${selectedEconomicNode()?.name || "Economic landmark"} · click to place · world (${Math.floor(state.hover.x)}, ${Math.floor(state.hover.y)})`;
           } else {
             const pixelX = Math.floor(state.hover.x);
             const pixelY = Math.floor(state.hover.y);
@@ -11960,37 +12680,22 @@ import {
       }
       els.playerRace.addEventListener("change", () => {
         populateFactionSelect(els.playerRace.value);
+        saveActivePlayerForm();
+        populateBattleObjectiveSelect(setupPlayers[state.activeSetupPlayer]);
       });
       els.playerFaction.addEventListener("change", () => {
         populateFactionSelect(els.playerRace.value, els.playerFaction.value);
-      });
-      els.playerDoctrine.addEventListener("change", saveActivePlayerForm);
-      els.playerAiPreset.addEventListener("change", () => {
-        if (els.playerAiPreset.value !== "custom") {
-          const behavior = behaviorFromPreset(els.playerAiPreset.value);
-          els.aiAggression.value = String(behavior.aggression);
-          els.aiCaution.value = String(behavior.caution);
-          els.aiExpansion.value = String(behavior.expansion);
-          els.aiEconomy.value = String(behavior.economy);
-          els.aiAggressionValue.textContent = `${behavior.aggression}%`;
-          els.aiCautionValue.textContent = `${behavior.caution}%`;
-          els.aiExpansionValue.textContent = `${behavior.expansion}%`;
-          els.aiEconomyValue.textContent = `${behavior.economy}%`;
-        }
         saveActivePlayerForm();
+        populateBattleObjectiveSelect(setupPlayers[state.activeSetupPlayer]);
       });
-      for (const [control, value] of [
-        [els.aiAggression, els.aiAggressionValue],
-        [els.aiCaution, els.aiCautionValue],
-        [els.aiExpansion, els.aiExpansionValue],
-        [els.aiEconomy, els.aiEconomyValue]
-      ]) {
-        control.addEventListener("input", () => {
-          value.textContent = `${control.value}%`;
-          els.playerAiPreset.value = "custom";
-          saveActivePlayerForm();
-        });
-      }
+      els.playerSubfaction.addEventListener("change", () => {
+        saveActivePlayerForm();
+        populateBattleObjectiveSelect(setupPlayers[state.activeSetupPlayer]);
+      });
+      els.playerBattleObjective.addEventListener("change", () => {
+        saveActivePlayerForm();
+        populateBattleObjectiveSelect(setupPlayers[state.activeSetupPlayer]);
+      });
       els.playerColor.addEventListener("input", () => {
         els.playerColorValue.textContent = els.playerColor.value.toUpperCase();
         saveActivePlayerForm();
@@ -12060,6 +12765,10 @@ import {
               ? "Territory anchors ready · choose Pen, Add, Delete, Move, or Bend."
             : state.editorTool === "resource"
               ? "Resource zones ready · draw the polygon and configure capacity, gathering, regeneration, ownership, and collectors."
+            : state.editorTool === "trade-route"
+              ? "Authored trade routes ready · click an origin landmark, optional waypoints, then a destination landmark."
+            : state.editorTool === "economic-node"
+              ? "Economic landmarks ready · create a node, configure imports and exports, then click to place it."
             : state.editorTool === "lighting"
               ? "Lighting map ready · configure the sun, weather, artificial lights, and faction materials."
             : zone?.shape === "custom"
@@ -12378,7 +13087,7 @@ import {
         state.resourceZoneEditMode = els.resourceEditMode.value;
         els.editorTip.textContent = `Resource-zone tool · ${state.resourceZoneEditMode}`;
       });
-      [els.resourceName, els.resourceType, els.resourceCapacity, els.resourceGather, els.resourceRegeneration, els.resourceOwner, els.resourceCollectors, els.resourceRequiresBuilding, els.resourceStrategic]
+      [els.resourceName, els.resourceType, els.resourceCapacity, els.resourceGather, els.resourceRegeneration, els.resourceOwner, els.resourceCollectors, els.resourceRequiresBuilding, els.resourceStrategic, els.resourceInfinite]
         .forEach(control => control.addEventListener("change", saveResourceZoneForm));
       root.querySelector("#awt-new-resource-zone").addEventListener("click", () => {
         const id = `resource-zone-${state.nextResourceZoneId++}`;
@@ -12428,6 +13137,80 @@ import {
         loadResourceZoneForm();
         draw();
       });
+      els.economicNodeSelect.addEventListener("change", () => {
+        state.selectedEconomicNodeId = els.economicNodeSelect.value;
+        loadEconomicNodeForm();
+        draw();
+      });
+      [els.economicNodeName, els.economicNodeType, els.economicNodeOwner, els.economicNodeExports, els.economicNodeImports, els.economicNodeCapacity, els.economicNodeValue, els.economicNodeActive]
+        .forEach(control => control.addEventListener("change", saveEconomicNodeForm));
+      root.querySelector("#awt-new-economic-node").addEventListener("click", () => {
+        const id = `economic-node-${state.nextEconomicNodeId++}`;
+        const node = createEconomicNode(id, state.cameraFocus || worldCenter(), { name: `Economic Node ${state.nextEconomicNodeId - 1}` });
+        state.economicNodes.push(node);
+        state.selectedEconomicNodeId = node.id;
+        rebuildEconomicNodeSelect();
+        loadEconomicNodeForm();
+        els.editorTip.textContent = "Economic landmark created · configure it, then click the map to place it.";
+        draw();
+      });
+      root.querySelector("#awt-delete-economic-node").addEventListener("click", () => {
+        const node = selectedEconomicNode();
+        if (!node) return;
+        state.economicNodes = state.economicNodes.filter(item => item.id !== node.id);
+        state.tradeRoutes = state.tradeRoutes.filter(route => route.fromNodeId !== node.id && route.toNodeId !== node.id);
+        state.selectedEconomicNodeId = state.economicNodes[0]?.id || null;
+        rebuildEconomicNodeSelect();
+        rebuildTradeRouteSelect();
+        rebuildRoadNetwork();
+        draw();
+      });
+      els.tradeRouteSelect.addEventListener("change", () => {
+        state.selectedTradeRouteId = els.tradeRouteSelect.value;
+        loadTradeRouteForm();
+        draw();
+      });
+      [els.tradeRouteName, els.tradeRouteType, els.tradeRouteFrom, els.tradeRouteTo, els.tradeRouteCapacity, els.tradeRouteResources, els.tradeRouteFactions, els.tradeRouteRoadRequired, els.tradeRouteBidirectional, els.tradeRouteActive]
+        .forEach(control => control.addEventListener("change", saveTradeRouteForm));
+      root.querySelector("#awt-new-trade-route").addEventListener("click", () => {
+        const id = `trade-route-${state.nextTradeRouteId++}`;
+        const route = createTradeRoute(id, { name: `Trade Route ${state.nextTradeRouteId - 1}` });
+        state.tradeRoutes.push(route);
+        state.selectedTradeRouteId = route.id;
+        rebuildTradeRouteSelect();
+        loadTradeRouteForm();
+        els.editorTip.textContent = "New authored route · click an origin landmark, optional waypoints, then a destination landmark.";
+        draw();
+      });
+      root.querySelector("#awt-clear-trade-route").addEventListener("click", () => {
+        const route = selectedTradeRoute();
+        if (!route) return;
+        route.fromNodeId = "";
+        route.toNodeId = "";
+        route.points = [];
+        rebuildRoadNetwork();
+        loadTradeRouteForm();
+        draw();
+      });
+      root.querySelector("#awt-delete-trade-route").addEventListener("click", () => {
+        const route = selectedTradeRoute();
+        if (!route) return;
+        state.tradeRoutes = state.tradeRoutes.filter(item => item.id !== route.id);
+        state.selectedTradeRouteId = state.tradeRoutes[0]?.id || null;
+        rebuildTradeRouteSelect();
+        rebuildRoadNetwork();
+        draw();
+      });
+      for (const input of els.economicOverlayControls.querySelectorAll("[data-economic-overlay]")) {
+        input.addEventListener("change", () => {
+          const key = input.dataset.economicOverlay;
+          state.economicOverlay[key] = input.checked;
+          if (key === "territory") state.territoryOverlay = input.checked;
+          if (key === "supply") state.showSupplyRadii = input.checked;
+          state.minimapMarkerDirty = true;
+          draw();
+        });
+      }
       els.randomizeMap.addEventListener("click", randomizeMap);
       root.querySelector("#awt-editor-save").addEventListener("click", saveLocalTestMap);
       for (const tab of root.querySelectorAll("[data-editor-layer]")) {
@@ -12447,16 +13230,31 @@ import {
           els.editorTool.value = state.editorTool;
           syncEditorControls();
           for (const item of root.querySelectorAll(".awt-editor-tab")) item.classList.toggle("is-active", item === tab);
-          els.editorTip.textContent = "Resource zones · author polygons and configure their economy rules.";
+          els.editorTip.textContent = state.editorTool === "resource"
+            ? "Resource zones · author polygons and configure their economy rules."
+            : state.editorTool === "trade-route"
+              ? "Trade routes · connect authored economic landmarks; the AI can only operate these links."
+              : state.editorTool === "economic-node"
+                ? "Economic nodes · place strategic landmarks and define their imports and exports."
+                : state.editorTool === "territory"
+                  ? "Territories · author strategic control areas."
+                  : "Bases · place player starting positions.";
           draw();
         });
       }
       root.querySelector("#awt-clear-map").addEventListener("click", () => {
         state.features = [];
+        state.resourceZones = [];
+        state.economicNodes = [];
+        state.tradeRoutes = [];
         state.terrainChunks = new Map();
         state.world.baseTerrain = "grass";
         markFeatureIndexDirty();
-        els.editorTip.textContent = "Map cleared · sparse tiles and overlays reset to grass.";
+        rebuildResourceZoneSelect();
+        rebuildEconomicNodeSelect();
+        rebuildTradeRouteSelect();
+        rebuildRoadNetwork();
+        els.editorTip.textContent = "Map cleared · terrain, resources, economic landmarks, and authored trade routes removed.";
         draw();
       });
       root.querySelector("#awt-deploy-map").addEventListener("click", () => {
@@ -12486,6 +13284,14 @@ import {
         state.paused = !state.paused;
         state.lastFrame = performance.now();
         updatePauseButton();
+      });
+      els.rematchButton.addEventListener("click", () => {
+        resetBattle(state.scenario);
+        startSimulation();
+      });
+      els.victoryMenuButton.addEventListener("click", () => {
+        els.victoryScreen.hidden = true;
+        showMainMenu();
       });
       els.timeline.addEventListener("input", () => {
         const last = Math.max(0, state.snapshots.length - 1);
@@ -12529,35 +13335,76 @@ import {
       populateSpriteVariants();
       loadActivePlayerForm();
 
+      function recordFrameFailure(error, phase) {
+        const message = error?.stack || error?.message || String(error || "Unknown frame failure");
+        state.frameFailures += 1;
+        state.lastFrameFailure = { phase, message, at: performance.now(), simulationTime: state.time };
+        root.dataset.runtimeError = `${phase}: ${error?.message || String(error)}`;
+        root.dataset.frameFailures = String(state.frameFailures);
+        console.error(`Autonomous War Theater ${phase} failure`, error);
+      }
+
       function frame(now) {
-        const rawDt = Math.min(0.25, (now - state.lastFrame) / 1000);
-        state.lastFrame = now;
-        if (state.clock.running && state.lighting.mode === "dynamic" && state.mode !== "menu" && !state.replay) {
-          state.clock.elapsedSeconds += rawDt * state.clock.rate;
-        }
-        if (!state.paused && state.mode === "sim" && !state.replay) {
-          const simulationStep = 1 / 20;
-          state.simulationAccumulator = Math.min(0.6, state.simulationAccumulator + rawDt * state.speed);
-          let steps = 0;
-          const maxSteps = state.speed >= 8 ? 40 : state.speed >= 4 ? 20 : 10;
-          while (state.simulationAccumulator >= simulationStep && steps < maxSteps) {
-            updateBattle(simulationStep);
-            state.simulationAccumulator -= simulationStep;
-            steps += 1;
+        state.frameCount += 1;
+        root.dataset.frameCount = String(state.frameCount);
+        try {
+          const rawDt = Math.min(0.25, Math.max(0, (now - state.lastFrame) / 1000));
+          state.lastFrame = now;
+          if (state.clock.running && state.lighting.mode === "dynamic" && state.mode !== "menu" && !state.replay) {
+            state.clock.elapsedSeconds += rawDt * state.clock.rate;
           }
-          if (steps >= maxSteps) state.simulationAccumulator = Math.min(state.simulationAccumulator, simulationStep * 2);
-        } else {
-          state.simulationAccumulator = 0;
+          if (!state.paused && state.mode === "sim" && !state.replay) {
+            try {
+              const simulationStep = 1 / 20;
+              state.simulationAccumulator = Math.min(0.6, state.simulationAccumulator + rawDt * state.speed);
+              let steps = 0;
+              const maxSteps = state.speed >= 8 ? 40 : state.speed >= 4 ? 20 : 10;
+              while (state.simulationAccumulator >= simulationStep && steps < maxSteps) {
+                if (state.debugSimulationFault) {
+                  const message = state.debugSimulationFault;
+                  state.debugSimulationFault = null;
+                  throw new Error(message);
+                }
+                updateBattle(simulationStep);
+                state.lastSuccessfulSimulationAt = now;
+                state.simulationAccumulator -= simulationStep;
+                steps += 1;
+              }
+              if (steps >= maxSteps) state.simulationAccumulator = Math.min(state.simulationAccumulator, simulationStep * 2);
+            } catch (error) {
+              state.paused = true;
+              state.simulationAccumulator = 0;
+              recordFrameFailure(error, "simulation");
+              updatePauseButton();
+            }
+          } else {
+            state.simulationAccumulator = 0;
+          }
+          state.uiAccumulator += rawDt;
+          state.renderAccumulator += rawDt;
+          const renderInterval = state.speed >= 8 ? 1 / 6 : 1 / 30;
+          if (state.renderAccumulator >= renderInterval) {
+            try {
+              draw();
+              state.renderAccumulator %= renderInterval;
+            } catch (error) {
+              state.renderAccumulator = 0;
+              recordFrameFailure(error, "render");
+            }
+          }
+          if (state.uiAccumulator >= (state.speed >= 8 ? 0.5 : 0.25)) {
+            try {
+              updateUI();
+            } catch (error) {
+              state.uiAccumulator = 0;
+              recordFrameFailure(error, "ui");
+            }
+          }
+        } catch (error) {
+          recordFrameFailure(error, "frame");
+        } finally {
+          requestAnimationFrame(frame);
         }
-        state.uiAccumulator += rawDt;
-        state.renderAccumulator += rawDt;
-        const renderInterval = state.speed >= 8 ? 1 / 6 : 1 / 30;
-        if (state.renderAccumulator >= renderInterval) {
-          draw();
-          state.renderAccumulator %= renderInterval;
-        }
-        if (state.uiAccumulator >= (state.speed >= 8 ? 0.5 : 0.25)) updateUI();
-        requestAnimationFrame(frame);
       }
 
       resetBattle("iron");
