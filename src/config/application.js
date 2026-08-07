@@ -5,6 +5,7 @@ export const CHUNK_SIZE = 256;
 export const TERRITORY_CELL_SIZE = 96;
 export const FOG_CELL_SIZE = TILE_SIZE;
 export const UNIT_DEATH_ANIMATION_SECONDS = 1.35;
+export const UNIT_CORPSE_LIFETIME_SECONDS = 8;
 export const STRUCTURE_DEATH_ANIMATION_SECONDS = 1.9;
 export const TEST_MAP_WIDTH = 1920;
 export const TEST_MAP_HEIGHT = 1080;

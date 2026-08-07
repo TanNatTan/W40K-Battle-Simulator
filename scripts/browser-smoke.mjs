@@ -313,14 +313,76 @@ try {
       livingBuilders: builders.filter(unit => unit.alive).length,
       activeProjects: builders.filter(unit => unit.buildProject).length,
       statuses: builders.map(unit => unit.status),
+      buildersByFaction: state.players.map(player => ({
+        faction: player.id,
+        race: player.race,
+        count: builders.filter(unit => unit.faction === player.id).length
+      })),
       structures: state.structures.length,
       completedStructures: state.structures.filter(structure => structure.progress >= 1).length
     };
   })()`);
-  if (builderHealth.paused || builderHealth.failures !== 0 || builderHealth.builderCount < 2
-    || builderHealth.livingBuilders !== builderHealth.builderCount || builderHealth.structures < builderHealth.builderCount) {
+  const invalidBuilderGroup = builderHealth.buildersByFaction.find(group => {
+    const [minimum, maximum] = group.race === 'Necrons' || group.race === 'Orks' ? [6, 8] : [2, 4];
+    return group.count < minimum || group.count > maximum;
+  });
+  if (builderHealth.paused || builderHealth.failures !== 0 || builderHealth.builderCount < 4
+    || builderHealth.livingBuilders !== builderHealth.builderCount || invalidBuilderGroup
+    || builderHealth.structures < builderHealth.buildersByFaction.length) {
     throw new Error(`Builder lifecycle failed: ${JSON.stringify(builderHealth)}`);
   }
+  const squadRoleProbe = await evaluate(`(() => {
+    const root = document.querySelector('#autonomous-war-theater');
+    const assignment = root.awtDebugControls.spawnSquadRoleProbe();
+    return {
+      ...assignment,
+      overlay: root.awtDebugState.squadRoleOverlay,
+      togglePresent: Boolean(document.querySelector('#awt-squad-role-toggle')),
+      inspectorPresent: Boolean(document.querySelector('#awt-squad-role-summary'))
+    };
+  })()`);
+  if (squadRoleProbe.roleCount !== 12 || !squadRoleProbe.primaryRole || !squadRoleProbe.secondaryRole
+    || !squadRoleProbe.currentObjective || !squadRoleProbe.assignedZone || !squadRoleProbe.commanderId
+    || !Number.isFinite(squadRoleProbe.readiness) || !squadRoleProbe.overlay
+    || !squadRoleProbe.togglePresent || !squadRoleProbe.inspectorPresent) {
+    throw new Error(`Squad role assignment failed: ${JSON.stringify(squadRoleProbe)}`);
+  }
+  const phase20to23 = await evaluate(`(() => {
+    const root = document.querySelector('#autonomous-war-theater');
+    return {
+      victoryRule: root.dataset.phase20Victory,
+      endgameOrders: root.dataset.endgameOrders,
+      replayDiagnostics: root.dataset.phase21Replay,
+      performanceScale: root.dataset.phase22Scale,
+      factionBranches: root.dataset.phase23Branches,
+      aiGoal: document.querySelector('#awt-ai-goal')?.textContent,
+      replayButtons: document.querySelectorAll('.awt-replay-controls button').length,
+      snapshots: root.awtDebugState.snapshots.length
+    };
+  })()`);
+  if (phase20to23.victoryRule !== "five-capability-annihilation" || !phase20to23.endgameOrders
+    || !phase20to23.replayDiagnostics || !phase20to23.performanceScale || !phase20to23.factionBranches
+    || !phase20to23.aiGoal?.startsWith("Current goal:") || phase20to23.replayButtons !== 4 || phase20to23.snapshots < 2) {
+    throw new Error(`Phase 20-23 integration failed: ${JSON.stringify(phase20to23)}`);
+  }
+  const replayBefore = await evaluate(`(() => {
+    document.querySelector('#awt-replay-rewind').click();
+    const state = document.querySelector('#autonomous-war-theater').awtDebugState;
+    return { replay: state.replay, index: state.replayIndex };
+  })()`);
+  await evaluate("document.querySelector('#awt-replay-play').click()");
+  await new Promise(resolve => setTimeout(resolve, 500));
+  const replayAfter = await evaluate(`(() => {
+    const state = document.querySelector('#autonomous-war-theater').awtDebugState;
+    return { replay: state.replay, playing: state.replayPlaying, index: state.replayIndex };
+  })()`);
+  if (!replayBefore.replay || replayAfter.index <= replayBefore.index) {
+    throw new Error(`Replay transport failed: ${JSON.stringify({ replayBefore, replayAfter })}`);
+  }
+  await evaluate("document.querySelector('#awt-replay-live').click()");
+  await new Promise(resolve => setTimeout(resolve, 150));
+  const liveAfterReplay = await sampleLifecycle();
+  if (liveAfterReplay.paused) throw new Error(`Replay did not return to live simulation: ${JSON.stringify(liveAfterReplay)}`);
   const faultStart = await sampleLifecycle();
   await evaluate("document.querySelector('#autonomous-war-theater').awtDebugControls.injectSimulationFault('smoke fault')");
   await new Promise(resolve => setTimeout(resolve, 500));
@@ -330,7 +392,7 @@ try {
   }
   const lifecycle = { runningStart, runningEnd, pausedStart, pausedEnd, resumedStart, resumedEnd, faultStart, faultEnd };
 
-  console.log(JSON.stringify({ startup, playerSetup, editor: { ...editor, cameraAfter }, simulation, builderHealth, lifecycle }, null, 2));
+  console.log(JSON.stringify({ startup, playerSetup, editor: { ...editor, cameraAfter }, simulation, builderHealth, squadRoleProbe, phase20to23, replayTransport: { replayBefore, replayAfter, liveAfterReplay }, lifecycle }, null, 2));
 } finally {
   socket?.close();
   if (browser && browser.exitCode === null) {

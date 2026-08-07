@@ -92,6 +92,23 @@ test("Phase 12 unit sieges take one minute alone and gain 20 percent per additio
   assert.ok(Math.abs(measureCapture(4) - 37.5) <= 2);
 });
 
+test("Phase 12 live territory advances only when physical host units occupy the cell", () => {
+  const partition = new SpatialPartition({ width: 900, height: 600, cellCount: 48, seed: 91 });
+  const system = new TerritorySystem(partition, [
+    { id: "red", base: { x: 30, y: 30 } },
+    { id: "blue", base: { x: 870, y: 570 } }
+  ]);
+  const redBase = system.fieldFor("red").find(cell => cell.isBase);
+  const target = redBase.neighbors.map(id => system.byId.get(id)).find(cell => !cell.owner);
+  assert.ok(target);
+  for (let second = 0; second < 90; second += 1) system.advancePhysical(1, []);
+  assert.equal(target.owner, null, "empty cells must not be captured by internal/invisible agents");
+  for (let second = 0; second < 65 && target.owner !== "red"; second += 1) {
+    system.advancePhysical(1, [{ playerId: "red", cellId: target.id, power: 1 }]);
+  }
+  assert.equal(target.owner, "red", "a physical host unit should complete the capture");
+});
+
 test("Phase 12 AI expands only through movement and timed frontier sieges", () => {
   const partition = new SpatialPartition({ width: 1000, height: 700, cellCount: 60, seed: 42 });
   const system = new TerritorySystem(partition, [
@@ -174,4 +191,15 @@ test("Phase 11-13 persistence migration includes all audit tables", async () => 
   for (const table of ["territory_state", "supply_routes", "road_history", "convoy_history", "trade_history", "ai_actions"]) {
     assert.match(sql, new RegExp(`CREATE TABLE IF NOT EXISTS ${table}`));
   }
+});
+
+test("runtime uses physical captures, faction-owned construction, and warehouse delivery", async () => {
+  const app = await readFile(new URL("../js/app.js", import.meta.url), "utf8");
+  assert.match(app, /heavyBuilderRace \? \[6, 8\] : \[2, 4\]/);
+  assert.match(app, /item\.progress < 1 && item\.faction === unit\.faction/);
+  assert.match(app, /structure\.faction !== unit\.faction/);
+  assert.match(app, /strategicTerritory\.advancePhysical/);
+  assert.match(app, /resourceZoneCaptureTick\(\)/);
+  assert.match(app, /closestWarehousePoint\(player\.id, collector\)/);
+  assert.doesNotMatch(app, /completed command node secured this cell/i);
 });

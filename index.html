@@ -43,6 +43,10 @@
           <i data-lucide="map-pinned" aria-hidden="true"></i>
           Territory on
         </button>
+        <button type="button" class="btn btn-ghost" id="awt-squad-role-toggle" aria-pressed="true">
+          <i data-lucide="shield-half" aria-hidden="true"></i>
+          Squad roles on
+        </button>
         <button type="button" class="btn btn-ghost" id="awt-lighting-toggle" aria-pressed="false">
           <i data-lucide="sun-medium" aria-hidden="true"></i>
           Lighting map
@@ -544,6 +548,16 @@
                       <option value="12">12 players</option>
                     </select>
                   </label>
+                  <label class="form-label" for="awt-scale-preset">
+                    Battle scale
+                    <select class="form-select" id="awt-scale-preset">
+                      <option value="auto" selected>Automatic</option>
+                      <option value="skirmish">Skirmish · up to 120</option>
+                      <option value="battle">Battle · up to 400</option>
+                      <option value="major">Major Battle · up to 1,000</option>
+                      <option value="total">Total Battlefield · up to 4,000</option>
+                    </select>
+                  </label>
                 </div>
                 <div class="viz-controls" id="awt-custom-resolution" hidden>
                   <label class="form-label" for="awt-custom-width">
@@ -702,12 +716,27 @@
             </div>
             <div class="awt-unit-action text-small" id="awt-unit-depth">Courage 52 · Reflexes 51 · Discipline 54</div>
             <div class="awt-unit-action text-small" id="awt-squad-summary">Independent unit · No squad attachment</div>
+            <div class="awt-squad-role-card text-small" id="awt-squad-role-summary">No commander role assigned.</div>
             <div class="awt-unit-action text-small" id="awt-unit-action">Awaiting company signal.</div>
             <ul class="awt-log-list text-small" id="awt-unit-log">
               <li>Assigned to the east approach.</li>
               <li>Maintaining formation with 9th Squad.</li>
             </ul>
           </div>
+        </div>
+
+        <div class="awt-section" aria-label="AI decision inspector">
+          <div class="awt-section-head">
+            <span>AI Inspector</span>
+            <span class="text-small" id="awt-ai-confidence">Confidence --</span>
+          </div>
+          <div class="awt-unit-action text-small" id="awt-ai-goal">Current goal: awaiting deployment</div>
+          <div class="awt-unit-action text-small" id="awt-ai-threat">Threat estimate: --</div>
+          <div class="awt-unit-action text-small" id="awt-ai-doctrine">Battle-objective influence: --</div>
+          <ul class="awt-log-list text-small" id="awt-ai-utilities">
+            <li>Utility scores appear when the AI evaluates the battlefield.</li>
+          </ul>
+          <div class="awt-unit-action text-small" id="awt-ai-explanation">Alternative decisions will appear here.</div>
         </div>
 
         <div class="awt-section">
@@ -725,6 +754,12 @@
         <span id="awt-timeline-mode">LIVE RECORD</span>
         <span id="awt-timeline-time">00:00 / 00:00</span>
       </div>
+      <div class="viz-row awt-replay-controls" aria-label="Replay controls">
+        <button type="button" class="btn btn-ghost" id="awt-replay-rewind" title="Rewind one event">Rewind</button>
+        <button type="button" class="btn btn-ghost" id="awt-replay-play" title="Play or pause replay">Play</button>
+        <button type="button" class="btn btn-ghost" id="awt-replay-forward" title="Fast-forward one event">Fast-forward</button>
+        <button type="button" class="btn btn-ghost" id="awt-replay-live" title="Return to live battle">Live</button>
+      </div>
       <label class="sr-only" for="awt-timeline">Battle replay timeline</label>
       <input class="form-range" id="awt-timeline" type="range" min="0" max="0" value="0" step="1">
     </div>
@@ -735,6 +770,15 @@
       <span class="awt-legend-item"><span class="awt-glyph">⟐</span>Attached squad</span>
       <span class="awt-legend-item"><span class="awt-glyph">⌂</span>AI building</span>
       <span class="awt-legend-item"><span class="awt-glyph">◫</span>Fog layer</span>
+      <span class="awt-role-legend" id="awt-role-legend">
+        <span><i style="--role-color:#3B82F6"></i>Defense</span>
+        <span><i style="--role-color:#EF4444"></i>Offensive</span>
+        <span><i style="--role-color:#EAB308"></i>Capture</span>
+        <span><i style="--role-color:#22C55E"></i>Reinforcement</span>
+        <span><i style="--role-color:#A855F7"></i>Recon</span>
+        <span><i style="--role-color:#F97316"></i>Route security</span>
+        <span><i style="--role-color:#64748B"></i>Reserve</span>
+      </span>
     </div>
 
     <section class="awt-victory-screen" id="awt-victory-screen" role="dialog" aria-modal="true" aria-labelledby="awt-victory-title" hidden>

@@ -3,6 +3,10 @@
 import { EconomyZoneManager } from "./economy/EconomyZoneManager.js";
 import { SpatialPartition, TerritorySystem, OBJECTIVE_TYPES } from "./territory/TerritorySystem.js";
 import { ConvoyManager, RoadGraph, RouteAI, RouteHistory, RouteManager } from "./logistics/RouteSystem.js";
+import { assessFactionCapability, chooseEndgameDirective } from "./victory/VictorySystem.js";
+import { ReplayAnalysisSystem, buildAIInspector } from "./replay/ReplayAnalysisSystem.js";
+import { SCALE_PRESETS, scalePresetFor } from "./performance/ScaleSystem.js";
+import { FACTION_GAMEPLAY_BRANCHES, createFactionGameplayState } from "./factions/DistinctiveGameplaySystem.js";
 
 globalThis.AWTSystems = Object.freeze({
   EconomyZoneManager,
@@ -13,7 +17,15 @@ globalThis.AWTSystems = Object.freeze({
   RoadGraph,
   RouteAI,
   RouteHistory,
-  RouteManager
+  RouteManager,
+  assessFactionCapability,
+  chooseEndgameDirective,
+  ReplayAnalysisSystem,
+  buildAIInspector,
+  SCALE_PRESETS,
+  scalePresetFor,
+  FACTION_GAMEPLAY_BRANCHES,
+  createFactionGameplayState
 });
 globalThis.AWTData ||= {};
 try {

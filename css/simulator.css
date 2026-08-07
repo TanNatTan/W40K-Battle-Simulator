@@ -781,6 +781,46 @@
       width: 100%;
     }
 
+    #autonomous-war-theater .awt-squad-role-card {
+      margin-top: 7px;
+      padding: 8px 10px;
+      border-left: 3px solid var(--squad-role-color, var(--primary));
+      border-radius: 4px;
+      background: color-mix(in srgb, var(--squad-role-color, var(--primary)) 10%, transparent);
+      line-height: 1.45;
+    }
+
+    #autonomous-war-theater .awt-role-legend {
+      display: inline-flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 5px 10px;
+    }
+
+    #autonomous-war-theater .awt-role-legend > span {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    #autonomous-war-theater .awt-role-legend i {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--role-color);
+    }
+
+    #autonomous-war-theater .awt-replay-controls {
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    #autonomous-war-theater .awt-replay-controls .btn {
+      min-height: 28px;
+      padding: 4px 10px;
+      font-size: 0.78rem;
+    }
+
     #autonomous-war-theater .awt-legend {
       justify-content: center;
       gap: 14px;

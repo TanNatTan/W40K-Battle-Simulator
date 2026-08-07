@@ -578,6 +578,64 @@ export class TerritorySystem {
     return true;
   }
 
+  /** Advance capture using real runtime units supplied by the host simulation.
+   *  No internal territory agent can contribute to this path. */
+  advancePhysical(dtSeconds = 1, forces = [], { isAllied = (first, second) => first === second } = {}) {
+    if (this.gameOver) return [];
+    const elapsed = Math.max(0, Number(dtSeconds) || 0);
+    const logStart = this.log.length;
+    this.tickCount += 1;
+    this.simSeconds += elapsed;
+    const forcesByCell = new Map();
+    for (const force of forces) {
+      if (!this.byId.has(force.cellId) || !this.players.has(force.playerId)) continue;
+      if (!forcesByCell.has(force.cellId)) forcesByCell.set(force.cellId, new Map());
+      const groups = forcesByCell.get(force.cellId);
+      groups.set(force.playerId, (groups.get(force.playerId) || 0) + Math.max(0, Number(force.power) || 1));
+    }
+    for (const cell of this.cells) {
+      const groups = forcesByCell.get(cell.id) || new Map();
+      const attackers = [...groups.entries()]
+        .filter(([playerId]) => !cell.owner || !isAllied(playerId, cell.owner))
+        .sort((a, b) => b[1] - a[1]);
+      const [leading, runnerUp] = attackers;
+      const defenderPower = cell.owner
+        ? [...groups.entries()].filter(([playerId]) => isAllied(playerId, cell.owner)).reduce((sum, [, power]) => sum + power, 0)
+        : 0;
+      const opposition = Math.max(defenderPower, runnerUp?.[1] || 0);
+      if (!leading || leading[1] <= opposition) {
+        if (cell.siege) {
+          cell.siege.progress = Math.max(0, cell.siege.progress - elapsed / this.unitConfig.baseCaptureSeconds);
+          if (cell.siege.progress <= 0) {
+            cell.siege = null;
+            cell.state = cell.owner ? CELL_STATES.claimed : CELL_STATES.neutral;
+          }
+        }
+        continue;
+      }
+      const [attackerId, attackerPower] = leading;
+      const effectiveUnits = Math.min(this.unitConfig.maxUnitsPerTarget, Math.max(1, attackerPower - opposition * 0.75));
+      if (!cell.siege || cell.siege.attackerId !== attackerId) {
+        cell.siege = { attackerId, progress: 0, unitsAssigned: effectiveUnits };
+      }
+      cell.state = CELL_STATES.contested;
+      cell.siege.unitsAssigned = effectiveUnits;
+      const rate = (1 / this.unitConfig.baseCaptureSeconds)
+        * (1 + this.unitConfig.perUnitBonus * Math.max(0, effectiveUnits - 1));
+      cell.siege.progress = Math.min(1, cell.siege.progress + rate * elapsed);
+      if (cell.siege.progress >= 1) this._resolveSiege(cell);
+      if (this.gameOver) break;
+    }
+    this._reconnectTimer += elapsed;
+    if (this._reconnectTimer >= 2) {
+      this._reconnectTimer %= 2;
+      for (const playerId of this.players.keys()) this.reconnectIsolatedCells(playerId);
+    }
+    this.assertNoNewObjects();
+    this.assertNoNewUnits();
+    return this.log.slice(logStart);
+  }
+
   advance(dtSeconds = 1, { aggression = 0 } = {}) {
     if (this.gameOver) return [];
     const elapsed = Math.max(0, Number(dtSeconds) || 0);
