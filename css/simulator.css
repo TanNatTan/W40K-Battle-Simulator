@@ -570,6 +570,58 @@
       gap: 8px;
     }
 
+    #autonomous-war-theater .awt-landmark-flow-header,
+    #autonomous-war-theater .awt-landmark-flow-row {
+      display: grid;
+      grid-template-columns: minmax(120px, 0.85fr) minmax(130px, 1fr) minmax(90px, 0.55fr) auto auto;
+      align-items: end;
+      gap: 8px;
+    }
+
+    #autonomous-war-theater .awt-landmark-flow-header {
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      margin: 10px 0 8px;
+    }
+
+    #autonomous-war-theater .awt-landmark-flow-list {
+      display: grid;
+      gap: 8px;
+      padding: 10px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: color-mix(in srgb, var(--card) 82%, transparent);
+    }
+
+    #autonomous-war-theater .awt-landmark-flow-empty {
+      margin: 0;
+      color: var(--muted-foreground);
+    }
+
+    #autonomous-war-theater .awt-landmark-flow-enabled {
+      align-self: center;
+      margin-bottom: 7px;
+    }
+
+    #autonomous-war-theater .awt-landmark-flow-remove {
+      min-width: 38px;
+    }
+
+    #autonomous-war-theater .awt-validation {
+      margin: 8px 0;
+      color: var(--muted-foreground);
+    }
+
+    #autonomous-war-theater .awt-validation[data-valid="false"] {
+      color: var(--destructive, #ef4444);
+    }
+
+    @media (max-width: 720px) {
+      #autonomous-war-theater .awt-landmark-flow-row {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+
     #autonomous-war-theater .awt-editor-overlay-tools {
       display: flex;
       flex-wrap: wrap;

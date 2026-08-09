@@ -34,6 +34,16 @@ test("commander demand reacts to emergencies and subtracts assigned strength", (
   assert.ok(covered["base-defense"] < emergency["base-defense"]);
 });
 
+test("an urgent resource opportunity pulls squads out of reserve", () => {
+  const demand = roleDemandScores({
+    resourceNeed: 1,
+    captureOpportunity: 1,
+    objectiveImportance: 0.5,
+    squadCount: 4
+  }, {});
+  assert.ok(demand.capture > demand.reserve);
+});
+
 test("greedy unmet-demand assignment produces a force structure with a reserve", () => {
   const context = { baseThreat: 0.3, territoryThreat: 0.5, reinforcementThreat: 0.4, resourceNeed: 0.6, captureOpportunity: 1, fogNeed: 0.7, routeThreat: 0.5, enemyBaseKnown: 1, enemyFortifications: 0.5, aggression: 70, caution: 55, squadCount: 8 };
   const assigned = {};

@@ -1,0 +1,17 @@
+{
+  "version": 2,
+  "resources": {
+    "materials": { "name": "Materials", "kind": "stockpile", "transportable": true, "extractable": true },
+    "fuel": { "name": "Fuel", "kind": "stockpile", "transportable": true, "extractable": true },
+    "energy": { "name": "Energy", "kind": "utility", "transportable": false, "extractable": true },
+    "food": { "name": "Food", "kind": "stockpile", "transportable": true, "extractable": true },
+    "scrap": { "name": "Scrap", "kind": "stockpile", "transportable": true, "extractable": true },
+    "biomass": { "name": "Biomass", "kind": "biological", "transportable": true, "extractable": true },
+    "requisition": { "name": "Requisition", "kind": "strategic", "transportable": false, "extractable": false },
+    "influence": { "name": "Influence", "kind": "strategic", "transportable": false, "extractable": false },
+    "medical": { "name": "Medical Supplies", "kind": "stockpile", "transportable": true, "extractable": false },
+    "parts": { "name": "Vehicle Parts", "kind": "stockpile", "transportable": true, "extractable": false },
+    "ammunition": { "name": "Ammunition", "kind": "stockpile", "transportable": true, "extractable": false },
+    "security": { "name": "Security", "kind": "service", "transportable": false, "extractable": false }
+  }
+}

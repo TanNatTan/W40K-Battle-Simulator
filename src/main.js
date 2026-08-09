@@ -14,6 +14,11 @@ import { runFixedStepBudget } from "./simulation/FixedStepRunner.js";
 import { dayNightDarkness, globalDayNightVisibility } from "./rendering/DayNightSystem.js";
 import { canAfford, constructionCostFor, economyProfileFor, formationCostFor } from "./economy/FactionEconomyProfiles.js";
 import { allocateForceCaps, commandPresenceFor, createForceState, determineCommitment, updateForceState } from "./ai/ForceCommitmentSystem.js";
+import { combineStrategicBias, chaosTargetMultiplier, evaluateChaosStrategy } from "./ai/chaos/ChaosStrategySystem.js";
+import { CHAOS_SUBFACTION_PROFILES, chaosProfileFor } from "./ai/chaos/ChaosProfiles.js";
+import { createChaosOperationalMemory } from "./ai/chaos/ChaosOperationalState.js";
+import { StrategicCellIndex } from "./performance/StrategicCellIndex.js";
+import { EXTRACTABLE_RESOURCE_IDS, RESOURCE_DEFINITIONS, RESOURCE_IDS } from "./economy/ResourceCatalog.js";
 
 globalThis.AWTSystems = Object.freeze({
   EconomyZoneManager,
@@ -47,9 +52,28 @@ globalThis.AWTSystems = Object.freeze({
   commandPresenceFor,
   createForceState,
   determineCommitment,
-  updateForceState
+  updateForceState,
+  evaluateChaosStrategy,
+  combineStrategicBias,
+  chaosTargetMultiplier,
+  CHAOS_SUBFACTION_PROFILES,
+  chaosProfileFor,
+  createChaosOperationalMemory,
+  StrategicCellIndex,
+  RESOURCE_DEFINITIONS,
+  RESOURCE_IDS,
+  EXTRACTABLE_RESOURCE_IDS
 });
 globalThis.AWTData ||= {};
+try {
+  const response = await fetch(new URL("../data/economy/resources.json", import.meta.url));
+  if (!response.ok) throw new Error(`Resource catalog returned ${response.status}`);
+  globalThis.AWTData.resources = await response.json();
+} catch (error) {
+  globalThis.AWTData.resources = { version: 2, resources: RESOURCE_DEFINITIONS };
+  console.warn("Resource catalog could not be loaded; built-in resource definitions will be used.", error);
+}
+
 try {
   const response = await fetch(new URL("../data/weapons.json", import.meta.url));
   if (!response.ok) throw new Error(`Weapon data returned ${response.status}`);

@@ -20,6 +20,23 @@ const FALLBACK_WEAPON = Object.freeze({
   melee: Object.freeze({ reach: 8, damage: 8, penetration: 4, attackSpeed: 1, windUp: 0.28, recovery: 0.62, stagger: 0.16, knockback: 2, cleave: 1, block: 0.08, parry: 0.06, chargeBonus: 0.18 })
 });
 
+const UNARMED_PROFILE = Object.freeze({
+  ...FALLBACK_WEAPON,
+  id: "unarmed",
+  label: "Unarmed Logistics Rig",
+  damage: 0,
+  penetration: 0,
+  range: 0,
+  magazineSize: 0,
+  projectileSpeed: 0,
+  accuracy: 0,
+  precision: 0,
+  suppression: 0,
+  heatPerShot: 0,
+  targetRestrictions: Object.freeze([]),
+  melee: Object.freeze({ reach: 0, damage: 0, penetration: 0, attackSpeed: 1, windUp: 0, recovery: 0, stagger: 0, knockback: 0, cleave: 1, block: 0, parry: 0, chargeBonus: 0 })
+});
+
 const WEAPON_ALIASES = Object.freeze({
   rifle: "rifle",
   boltgun: "bolter",
@@ -28,7 +45,8 @@ const WEAPON_ALIASES = Object.freeze({
   "heavy gun": "heavy-gun",
   "heavy-gun": "heavy-gun",
   "engineer tools": "engineer-tools",
-  "engineer-tools": "engineer-tools"
+  "engineer-tools": "engineer-tools",
+  unarmed: "unarmed"
 });
 
 const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
@@ -39,6 +57,7 @@ export function weaponIdFor(unitOrName) {
   if (unitOrName?.weaponId) return unitOrName.weaponId;
   if (unitOrName?.role === "vehicle") return "heavy-gun";
   if (unitOrName?.role === "builder") return "engineer-tools";
+  if (unitOrName?.role === "supply") return "unarmed";
   if (unitOrName?.role === "scout") return "carbine";
   if (unitOrName?.faction === "Space Marines") return "bolter";
   return WEAPON_ALIASES[String(unitOrName?.weapon || "rifle").toLowerCase()] || "rifle";
@@ -46,7 +65,7 @@ export function weaponIdFor(unitOrName) {
 
 export function weaponProfileFor(unitOrName, catalog = globalThis.AWTData?.weapons) {
   const id = weaponIdFor(unitOrName);
-  return catalog?.[id] || catalog?.rifle || FALLBACK_WEAPON;
+  return catalog?.[id] || (id === "unarmed" ? UNARMED_PROFILE : catalog?.rifle || FALLBACK_WEAPON);
 }
 
 export function ensureWeaponState(unit, catalog) {

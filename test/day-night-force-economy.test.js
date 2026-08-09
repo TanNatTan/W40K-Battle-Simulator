@@ -19,7 +19,7 @@ test("only extractable resources can be painted as natural zones", () => {
 
 test("faction economies contain only relevant stocks and recruitment costs", () => {
   const tyranids = economyProfileFor({ race: "Tyranids" });
-  assert.deepEqual(tyranids.activeResources, ["biomass"]);
+  assert.deepEqual(tyranids.activeResources, ["biomass", "food"]);
   assert.deepEqual(formationCostFor({ race: "Tyranids" }, [{ role: "trooper" }, { role: "commander" }]), { biomass: 26 });
   assert.deepEqual(formationCostFor({ race: "Orks" }, [{ role: "trooper" }, { role: "vehicle" }]), { scrap: 38, fuel: 14 });
   assert.deepEqual(constructionCostFor({ race: "Tyranids" }, 40), { biomass: 54 });

@@ -38,7 +38,7 @@ test("Chaos Space Marines keep the Chaos branch and objective language", () => {
   const plan = resolveBattleObjectivePlan(chaos, profile, objectives);
   assert.equal(profile.branch, "Chaos");
   assert.equal(plan.name, "Slaughter in the Gods' Name");
-  assert.equal(plan.method, "terror_isolation_assassination");
+  assert.equal(plan.method, "rout_isolate_then_hunt");
 });
 
 test("subfactions pursue the same objective through different methods", () => {

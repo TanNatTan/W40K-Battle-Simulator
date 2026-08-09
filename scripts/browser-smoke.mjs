@@ -110,9 +110,9 @@ try {
 
   const startup = await evaluate(`(() => {
     const root = document.querySelector('#autonomous-war-theater');
-    return { ready: root?.dataset.foundryReady, error: root?.dataset.runtimeError || null, moduleEntry: document.querySelector('script[type=module]')?.getAttribute('src'), economicMapDataVersion: globalThis.AWTData?.economicMaps?.version || null };
+    return { ready: root?.dataset.foundryReady, error: root?.dataset.runtimeError || null, moduleEntry: document.querySelector('script[type=module]')?.getAttribute('src'), economicMapDataVersion: globalThis.AWTData?.economicMaps?.version || null, resourceCatalogVersion: globalThis.AWTData?.resources?.version || null };
   })()`);
-  if (startup.ready !== "true" || startup.economicMapDataVersion !== 1 || startup.error) throw new Error(`Startup failed: ${JSON.stringify(startup)}`);
+  if (startup.ready !== "true" || startup.economicMapDataVersion !== 1 || startup.resourceCatalogVersion !== 2 || startup.error) throw new Error(`Startup failed: ${JSON.stringify(startup)}`);
 
   const playerSetup = await evaluate(`(() => {
     document.querySelector('#awt-create-map').click();
@@ -186,6 +186,9 @@ try {
     const firstName = document.querySelector('#awt-economic-node-name');
     firstName.value = 'Hive City Alpha';
     firstName.dispatchEvent(new Event('change', { bubbles: true }));
+    const firstType = document.querySelector('#awt-economic-node-type');
+    firstType.value = 'fuel-refinery';
+    firstType.dispatchEvent(new Event('change', { bubbles: true }));
     document.querySelector('#awt-new-economic-node').click();
     const secondName = document.querySelector('#awt-economic-node-name');
     secondName.value = 'Manufactorum Delta';
@@ -202,6 +205,18 @@ try {
     document.querySelector('#awt-randomize-map').click();
   })()`);
 
+  if (process.env.AWT_SMOKE_EDITOR_SCREENSHOT) {
+    await evaluate(`(() => {
+      document.querySelector('[data-editor-tool-target="economic-node"]').click();
+      document.querySelector('#awt-economic-node-controls').scrollIntoView({ block: 'center' });
+    })()`);
+    await new Promise(resolve => setTimeout(resolve, 150));
+    const screenshot = await command("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
+    await writeFile(process.env.AWT_SMOKE_EDITOR_SCREENSHOT, Buffer.from(screenshot.data, "base64"));
+    await evaluate("document.querySelector('#awt-minimap').scrollIntoView({ block: 'center' })");
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+
   const editor = await evaluate(`(() => {
     const root = document.querySelector('#autonomous-war-theater');
     const minimap = document.querySelector('#awt-minimap');
@@ -214,7 +229,13 @@ try {
       resourcePanelVisible: !document.querySelector('#awt-resource-controls').hidden,
       resourceZones: root.awtDebugState?.resourceZones?.length || 0,
       resourceType: root.awtDebugState?.resourceZones?.[0]?.resourceType || null,
+      resourceCollectorModes: [...document.querySelectorAll('#awt-resource-collectors option')].map(option => option.value),
       economicNodes: root.awtDebugState?.economicNodes?.length || 0,
+      landmarkFlowRows: document.querySelectorAll('#awt-economic-node-flows .awt-landmark-flow-row').length,
+      landmarkFlowControls: document.querySelectorAll('#awt-economic-node-flows select[data-flow-field], #awt-economic-node-flows input[data-flow-field]').length,
+      legacyLandmarkTextInputs: document.querySelectorAll('#awt-economic-node-exports, #awt-economic-node-imports').length,
+      refineryFuelRate: root.awtDebugState?.economicNodes?.find(node => node.type === 'fuel-refinery')?.exports?.fuel || 0,
+      landmarkValidation: document.querySelector('#awt-economic-node-validation')?.dataset.valid || null,
       tradeRoutes: root.awtDebugState?.tradeRoutes?.length || 0,
       generatedTradeRoutes: Number(root.dataset.generatedTradeRoutes || 0),
       minimap: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
@@ -223,7 +244,10 @@ try {
     };
   })()`);
   if (!editor.editing || !editor.editorVisible || !editor.inspectorVisible || editor.tabs !== 9 || editor.resourceZones !== 1
-    || editor.resourceType !== "biomass" || editor.economicNodes !== 2 || editor.tradeRoutes !== 1 || editor.generatedTradeRoutes !== 0 || editor.error) {
+    || editor.resourceType !== "biomass" || editor.economicNodes !== 2 || editor.tradeRoutes !== 1 || editor.generatedTradeRoutes !== 0
+    || editor.landmarkFlowRows < 4 || editor.landmarkFlowControls < 12 || editor.legacyLandmarkTextInputs !== 0
+    || !editor.resourceCollectorModes.some(mode => mode.includes("supply"))
+    || editor.refineryFuelRate < 30 || editor.landmarkValidation !== "true" || editor.error) {
     throw new Error(`Editor smoke check failed: ${JSON.stringify(editor)}`);
   }
 
@@ -306,17 +330,27 @@ try {
     const root = document.querySelector('#autonomous-war-theater');
     const state = root.awtDebugState;
     const builders = state.units.filter(unit => unit.role === 'builder');
+    const carriers = state.units.filter(unit => unit.role === 'supply');
     return {
       paused: state.paused,
       failures: Number(root.dataset.frameFailures || 0),
       builderCount: builders.length,
       livingBuilders: builders.filter(unit => unit.alive).length,
+      carrierCount: carriers.length,
+      livingCarriers: carriers.filter(unit => unit.alive).length,
+      carrierSources: carriers.map(unit => unit.deployment?.sourceType || null),
       activeProjects: builders.filter(unit => unit.buildProject).length,
       statuses: builders.map(unit => unit.status),
       buildersByFaction: state.players.map(player => ({
         faction: player.id,
         race: player.race,
         count: builders.filter(unit => unit.faction === player.id).length
+      })),
+      carriersByFaction: state.players.map(player => ({
+        faction: player.id,
+        count: carriers.filter(unit => unit.faction === player.id).length,
+        target: player.supplyCarrierTarget,
+        operationalHeadquarters: state.structures.some(structure => structure.faction === player.id && structure.type === 'outpost' && structure.progress >= 1 && structure.alive !== false)
       })),
       structures: state.structures.length,
       completedStructures: state.structures.filter(structure => structure.progress >= 1).length
@@ -328,8 +362,57 @@ try {
   });
   if (builderHealth.paused || builderHealth.failures !== 0 || builderHealth.builderCount < 4
     || builderHealth.livingBuilders !== builderHealth.builderCount || invalidBuilderGroup
+    || builderHealth.carrierCount < builderHealth.carriersByFaction.filter(group => group.operationalHeadquarters).length
+    || builderHealth.livingCarriers !== builderHealth.carrierCount
+    || builderHealth.carrierSources.some(source => source !== 'building')
+    || builderHealth.carriersByFaction.some(group => group.operationalHeadquarters && (group.count < 1 || group.count > group.target))
     || builderHealth.structures < builderHealth.buildersByFaction.length) {
     throw new Error(`Builder lifecycle failed: ${JSON.stringify(builderHealth)}`);
+  }
+  const harvestPrepared = await evaluate(`(() => {
+    const state = document.querySelector('#autonomous-war-theater').awtDebugState;
+    const carrier = state.units.find(unit => unit.alive && unit.role === 'supply');
+    const zone = state.resourceZones[0];
+    if (!carrier || !zone) return false;
+    zone.resourceType = 'food';
+    zone.owner = carrier.faction;
+    zone.startingOwner = carrier.faction;
+    zone.ownershipInitialized = true;
+    zone.requiresBuilding = false;
+    zone.allowedCollectors = ['builder', 'supply'];
+    zone.capacity = 100;
+    zone.remaining = 100;
+    zone.reserve = 100;
+    zone.gatherRate = 40;
+    zone.points = [
+      { x: carrier.x - 18, y: carrier.y - 18 },
+      { x: carrier.x + 18, y: carrier.y - 18 },
+      { x: carrier.x + 18, y: carrier.y + 18 },
+      { x: carrier.x - 18, y: carrier.y + 18 }
+    ];
+    zone.geometryRevision = (zone.geometryRevision || 0) + 1;
+    zone.geometry = null;
+    carrier.resourceZoneTargetId = zone.id;
+    return true;
+  })()`);
+  if (!harvestPrepared) throw new Error("Could not prepare live supply-carrier harvest probe.");
+  await new Promise(resolve => setTimeout(resolve, 450));
+  const carrierHarvestProbe = await evaluate(`(() => {
+    const state = document.querySelector('#autonomous-war-theater').awtDebugState;
+    const carrier = state.units.find(unit => unit.alive && unit.role === 'supply');
+    const zone = state.resourceZones[0];
+    return {
+      carrierId: carrier?.id || null,
+      status: carrier?.status || null,
+      cargo: carrier?.resourceCargo?.amount || 0,
+      remaining: zone?.remaining ?? null,
+      target: carrier?.resourceZoneTargetId || null,
+      failures: Number(document.querySelector('#autonomous-war-theater').dataset.frameFailures || 0)
+    };
+  })()`);
+  if (!carrierHarvestProbe.carrierId || carrierHarvestProbe.failures !== 0
+    || carrierHarvestProbe.remaining >= 100 || (carrierHarvestProbe.cargo <= 0 && !/Delivering|Gathering/.test(carrierHarvestProbe.status || ""))) {
+    throw new Error(`Supply carrier did not physically gather from the captured zone: ${JSON.stringify(carrierHarvestProbe)}`);
   }
   const squadRoleProbe = await evaluate(`(() => {
     const root = document.querySelector('#autonomous-war-theater');
@@ -359,6 +442,7 @@ try {
       dayNightModel: root.dataset.dayNightModel,
       dynamicLighting: root.dataset.dynamicLighting,
       forceCommitment: root.dataset.forceCommitment,
+      chaosOperations: root.dataset.chaosOperations,
       economyProfiles: root.dataset.economyProfiles,
       resourceZoneOptions: [...document.querySelectorAll('#awt-resource-type option')].map(option => option.value),
       lightingLabels: [...document.querySelectorAll('#awt-lighting-controls .form-check-label')].map(item => item.textContent.trim()),
@@ -374,7 +458,7 @@ try {
     || !phase20to23.aiGoal?.startsWith("Current goal:") || phase20to23.replayButtons !== 4 || phase20to23.snapshots < 2
     || phase20to23.telemetryIntervalMs !== 1000 || phase20to23.snapshotCapacity !== 180
     || phase20to23.simulationStepsThisFrame > 3 || phase20to23.dayNightModel !== "global-tint-and-visibility"
-    || phase20to23.dynamicLighting !== "false" || !phase20to23.forceCommitment?.includes(":")
+    || phase20to23.dynamicLighting !== "false" || !phase20to23.forceCommitment?.includes(":") || !phase20to23.chaosOperations?.includes(":")
     || !phase20to23.economyProfiles?.includes("space-marines") || !phase20to23.economyProfiles?.includes("chaos")
     || phase20to23.resourceZoneOptions.some(resource => ["requisition", "influence", "ammunition", "medical", "faith", "parts"].includes(resource))
     || !phase20to23.lightingLabels.includes("Visual night tint") || !phase20to23.lightingLabels.includes("Night affects detection")) {
@@ -407,7 +491,7 @@ try {
   }
   const lifecycle = { runningStart, runningEnd, pausedStart, pausedEnd, resumedStart, resumedEnd, faultStart, faultEnd };
 
-  console.log(JSON.stringify({ startup, playerSetup, editor: { ...editor, cameraAfter }, simulation, builderHealth, squadRoleProbe, phase20to23, replayTransport: { replayBefore, replayAfter, liveAfterReplay }, lifecycle }, null, 2));
+  console.log(JSON.stringify({ startup, playerSetup, editor: { ...editor, cameraAfter }, simulation, builderHealth, carrierHarvestProbe, squadRoleProbe, phase20to23, replayTransport: { replayBefore, replayAfter, liveAfterReplay }, lifecycle }, null, 2));
 } finally {
   socket?.close();
   if (browser && browser.exitCode === null) {

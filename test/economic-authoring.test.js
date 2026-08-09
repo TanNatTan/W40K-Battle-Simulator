@@ -25,7 +25,11 @@ test("map-authored economic nodes define imports and exports independently of te
   assert.deepEqual(node.exports, { food: 12, requisition: 8 });
   assert.equal(formatResourceMap(node.imports), "fuel:6, medical:4");
   assert.equal(node.terrain, undefined);
-  assert.deepEqual(serializeEconomicNode(node, 2, 3), { ...node, x: 240, y: 240, exports: { ...node.exports }, imports: { ...node.imports } });
+  const saved = serializeEconomicNode(node, 2, 3);
+  assert.equal(saved.schemaVersion, 2);
+  assert.deepEqual(saved.position, { x: 240, y: 240, space: "world" });
+  assert.deepEqual(saved.economy.flows, node.flows);
+  assert.equal(saved.economy.capacity, node.capacity);
 });
 
 test("trade routes are valid only when authored between existing economic nodes", () => {

@@ -92,7 +92,7 @@ export function roleDemandScores(context = {}, assignedStrength = {}) {
     "territory-defense": 12 + c("territoryThreat") * 88 + c("objectiveImportance") * 24,
     reinforcement: 12 + c("reinforcementThreat") * 92 + c("forceDisadvantage") * 25,
     offensive: 20 + aggression * 42 + c("enemyBaseKnown") * 28 + c("annihilation") * 42,
-    capture: 12 + c("resourceNeed") * 38 + c("captureOpportunity") * 55 + c("objectiveImportance") * 18,
+    capture: 14 + c("resourceNeed") * 45 + c("captureOpportunity") * 60 + c("objectiveImportance") * 18,
     reconnaissance: 10 + c("fogNeed") * 60 + (1 - c("enemyBaseKnown")) * 30,
     "route-security": 10 + c("routeThreat") * 72 + c("convoyThreat") * 35,
     ambush: 5 + aggression * 20 + c("enemyConvoyOpportunity") * 66,

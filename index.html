@@ -337,7 +337,7 @@
           <label class="form-label text-small" for="awt-resource-gather">Gather rate<input class="form-control" id="awt-resource-gather" type="number" min="0" max="1000" step="0.5" value="8"></label>
           <label class="form-label text-small" for="awt-resource-regeneration">Regeneration / sec<input class="form-control" id="awt-resource-regeneration" type="number" min="0" max="100" step="0.1" value="0"></label>
           <label class="form-label text-small" for="awt-resource-owner">Starting owner<select class="form-select" id="awt-resource-owner"><option value="">Neutral</option></select></label>
-          <label class="form-label text-small" for="awt-resource-collectors">Allowed collectors<select class="form-select" id="awt-resource-collectors"><option value="builder,vehicle">Builders and vehicles</option><option value="builder">Builders only</option><option value="vehicle">Vehicles only</option></select></label>
+          <label class="form-label text-small" for="awt-resource-collectors">Allowed collectors<select class="form-select" id="awt-resource-collectors"><option value="builder,supply">Builders and supply carriers</option><option value="builder">Builders only</option><option value="supply">Supply carriers only</option><option value="builder,supply,vehicle">Builders, carriers, and utility vehicles</option><option value="vehicle">Vehicles only</option></select></label>
         </div>
         <div class="viz-row">
           <label class="form-check"><input class="form-check-input" id="awt-resource-requires-building" type="checkbox" checked><span class="form-check-label">Requires building</span></label>
@@ -384,17 +384,23 @@
           <label class="form-label text-small" for="awt-economic-node-name">Name<input class="form-control" id="awt-economic-node-name" type="text" value="New economic node"></label>
           <label class="form-label text-small" for="awt-economic-node-type">Landmark type<select class="form-select" id="awt-economic-node-type"></select></label>
           <label class="form-label text-small" for="awt-economic-node-owner">Starting owner<select class="form-select" id="awt-economic-node-owner"><option value="">Neutral</option></select></label>
-          <label class="form-label text-small" for="awt-economic-node-exports">Produces / exports<input class="form-control" id="awt-economic-node-exports" type="text" placeholder="food:12, requisition:8"></label>
-          <label class="form-label text-small" for="awt-economic-node-imports">Consumes / imports<input class="form-control" id="awt-economic-node-imports" type="text" placeholder="fuel:6, medical:4"></label>
           <label class="form-label text-small" for="awt-economic-node-capacity">Storage capacity<input class="form-control" id="awt-economic-node-capacity" type="number" min="1" max="1000000" value="1000"></label>
           <label class="form-label text-small" for="awt-economic-node-value">Strategic value<input class="form-control" id="awt-economic-node-value" type="number" min="0" max="100" value="70"></label>
         </div>
+        <div class="awt-landmark-flow-header">
+          <label class="form-check"><input class="form-check-input" id="awt-economic-node-use-defaults" type="checkbox" checked><span class="form-check-label">Use landmark type defaults</span></label>
+          <button type="button" class="btn" id="awt-add-economic-flow">Add resource flow</button>
+        </div>
+        <div class="awt-landmark-flow-list" id="awt-economic-node-flows" aria-label="Landmark resource flows"></div>
+        <p class="text-small awt-validation" id="awt-economic-node-validation" role="status">Landmark is valid.</p>
         <div class="viz-row">
           <label class="form-check"><input class="form-check-input" id="awt-economic-node-active" type="checkbox" checked><span class="form-check-label">Operational</span></label>
+          <label class="form-check"><input class="form-check-input" id="awt-economic-node-strategic" type="checkbox" checked><span class="form-check-label">Strategic objective</span></label>
           <button type="button" class="btn btn-primary" id="awt-new-economic-node">New landmark</button>
+          <button type="button" class="btn" id="awt-duplicate-economic-node">Duplicate</button>
           <button type="button" class="btn btn-ghost" id="awt-delete-economic-node">Delete</button>
         </div>
-        <p class="text-small">Select a landmark, then click the map to place or move it. Imports and exports use resource:amount pairs.</p>
+        <p class="text-small">Select a landmark, then click the map to place or move it. Each validated row defines one produced or consumed resource.</p>
       </div>
 
       <div id="awt-lighting-controls" hidden>

@@ -2,22 +2,23 @@ export const EXTRACTABLE_RESOURCES = Object.freeze(["materials", "fuel", "energy
 export const STRATEGIC_RESOURCES = Object.freeze(["requisition", "influence"]);
 export const OPERATIONAL_STOCKS = Object.freeze(["ammunition", "medical", "parts"]);
 
-const profile = (id, activeResources, zoneResources, startingStockpile) => Object.freeze({
+const profile = (id, activeResources, zoneResources, startingStockpile, resourcePriorities = {}) => Object.freeze({
   id,
   activeResources: Object.freeze(activeResources),
   zoneResources: Object.freeze(zoneResources),
   startingStockpile: Object.freeze(startingStockpile),
+  resourcePriorities: Object.freeze(Object.fromEntries(activeResources.map(resource => [resource, Math.max(0.1, Number(resourcePriorities[resource]) || 1)]))),
   baseCapacity: Object.freeze(Object.fromEntries(Object.entries(startingStockpile).map(([key, value]) => [key, Math.ceil(value * 1.45)])))
 });
 
 export const FACTION_ECONOMY_PROFILES = Object.freeze({
-  "Space Marines": profile("space-marines", ["requisition", "materials", "fuel", "energy", "influence", "parts", "ammunition", "medical", "food"], ["materials", "fuel", "energy", "food"], { requisition: 1100, materials: 750, fuel: 520, energy: 580, influence: 320, parts: 420, ammunition: 900, medical: 280, food: 260 }),
-  "Imperial Guard": profile("imperial-guard", ["requisition", "materials", "fuel", "energy", "food", "parts", "ammunition", "medical"], ["materials", "fuel", "energy", "food"], { requisition: 1600, materials: 1100, fuel: 1000, energy: 700, food: 1300, parts: 650, ammunition: 1900, medical: 700 }),
-  Orks: profile("orks", ["scrap", "fuel", "food", "ammunition"], ["scrap", "fuel", "food"], { scrap: 1600, fuel: 850, food: 750, ammunition: 1200 }),
-  Tyranids: profile("tyranids", ["biomass"], ["biomass"], { biomass: 2400 }),
-  Necrons: profile("necrons", ["energy", "materials"], ["energy", "materials"], { energy: 1800, materials: 900 }),
-  "T'au": profile("tau", ["requisition", "materials", "fuel", "energy", "influence", "parts", "ammunition", "medical"], ["materials", "fuel", "energy"], { requisition: 1300, materials: 1000, fuel: 750, energy: 1200, influence: 350, parts: 800, ammunition: 1300, medical: 380 }),
-  Chaos: profile("chaos", ["requisition", "materials", "fuel", "energy", "parts", "ammunition"], ["materials", "fuel", "energy"], { requisition: 1100, materials: 800, fuel: 600, energy: 700, parts: 450, ammunition: 1100 })
+  "Space Marines": profile("space-marines", ["requisition", "materials", "fuel", "energy", "influence", "parts", "ammunition", "medical", "food"], ["materials", "fuel", "energy", "food"], { requisition: 1100, materials: 750, fuel: 520, energy: 580, influence: 320, parts: 420, ammunition: 900, medical: 280, food: 260 }, { food: 1.3, fuel: 1.15, materials: 1.1 }),
+  "Imperial Guard": profile("imperial-guard", ["requisition", "materials", "fuel", "energy", "food", "parts", "ammunition", "medical"], ["materials", "fuel", "energy", "food"], { requisition: 1600, materials: 1100, fuel: 1000, energy: 700, food: 1300, parts: 650, ammunition: 1900, medical: 700 }, { food: 1.45, fuel: 1.3, ammunition: 1.2 }),
+  Orks: profile("orks", ["scrap", "fuel", "food", "ammunition"], ["scrap", "fuel", "food"], { scrap: 1600, fuel: 850, food: 750, ammunition: 1200 }, { scrap: 2, food: 1.35, fuel: 1.15 }),
+  Tyranids: profile("tyranids", ["biomass", "food"], ["biomass", "food"], { biomass: 2400, food: 420 }, { biomass: 2.1, food: 1.25 }),
+  Necrons: profile("necrons", ["energy", "materials", "food"], ["energy", "materials", "food"], { energy: 1800, materials: 900, food: 260 }, { energy: 1.8, materials: 1.25, food: 1.1 }),
+  "T'au": profile("tau", ["requisition", "materials", "fuel", "energy", "influence", "parts", "ammunition", "medical", "food"], ["materials", "fuel", "energy", "food"], { requisition: 1300, materials: 1000, fuel: 750, energy: 1200, influence: 350, parts: 800, ammunition: 1300, medical: 380, food: 520 }, { food: 1.3, energy: 1.2, fuel: 1.15 }),
+  Chaos: profile("chaos", ["requisition", "materials", "fuel", "energy", "parts", "ammunition", "food"], ["materials", "fuel", "energy", "food"], { requisition: 1100, materials: 800, fuel: 600, energy: 700, parts: 450, ammunition: 1100, food: 420 }, { food: 1.3, fuel: 1.2, materials: 1.1 })
 });
 
 export function economyProfileKey(player = {}) {

@@ -44,7 +44,10 @@ test("profiler records bounded system timing only when enabled", () => {
   let clockValue = 0;
   const profiler = new Profiler({ enabled: true, budgetMs: 8, clock: () => clockValue });
   profiler.profile("simulation", () => { clockValue = 12; });
-  assert.deepEqual(profiler.report(), [{ system: "simulation", calls: 1, averageMs: 12, maximumMs: 12, overBudget: 1 }]);
+  assert.deepEqual(profiler.report(), [{
+    system: "simulation", calls: 1, averageMs: 12, p50Ms: 12, p90Ms: 12, p95Ms: 12, p99Ms: 12,
+    maximumMs: 12, overBudget: 1, callsPerSecond: 1
+  }]);
   profiler.reset();
   assert.deepEqual(profiler.report(), []);
 });

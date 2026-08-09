@@ -87,7 +87,15 @@ export function scoreStrategicChoices(profile, context = {}, learnedWeights = {}
 
 export function selectStrategicChoice(profile, context = {}, learnedWeights = {}) {
   const scores = scoreStrategicChoices(profile, context, learnedWeights);
-  const [choice, score] = Object.entries(scores).sort((a, b) => b[1] - a[1] || STRATEGIC_CHOICES.indexOf(a[0]) - STRATEGIC_CHOICES.indexOf(b[0]))[0];
+  let choice = STRATEGIC_CHOICES[0];
+  let score = scores[choice];
+  for (let index = 1; index < STRATEGIC_CHOICES.length; index += 1) {
+    const candidate = STRATEGIC_CHOICES[index];
+    if (scores[candidate] > score) {
+      choice = candidate;
+      score = scores[candidate];
+    }
+  }
   return { choice, score, scores, profileId: profile.id };
 }
 

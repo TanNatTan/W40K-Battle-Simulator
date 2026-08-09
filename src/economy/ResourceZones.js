@@ -1,21 +1,51 @@
+import { EXTRACTABLE_RESOURCE_IDS } from "./ResourceCatalog.js";
+
 const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
 
-export const RESOURCE_TYPES = Object.freeze([
-  "materials",
-  "fuel",
-  "energy",
-  "food",
-  "scrap",
-  "biomass"
-]);
+export const RESOURCE_TYPES = EXTRACTABLE_RESOURCE_IDS;
+
+function calculateResourceZoneGeometry(points = []) {
+  if (points.length < 3) {
+    const point = points[0] || { x: 0, y: 0 };
+    return { center: { x: Number(point.x) || 0, y: Number(point.y) || 0 }, bounds: { left: 0, top: 0, right: 0, bottom: 0 }, area: 0 };
+  }
+  let signedArea = 0;
+  let centroidX = 0;
+  let centroidY = 0;
+  let left = Infinity;
+  let right = -Infinity;
+  let top = Infinity;
+  let bottom = -Infinity;
+  for (let index = 0; index < points.length; index += 1) {
+    const current = points[index];
+    const next = points[(index + 1) % points.length];
+    const cross = current.x * next.y - next.x * current.y;
+    signedArea += cross;
+    centroidX += (current.x + next.x) * cross;
+    centroidY += (current.y + next.y) * cross;
+    left = Math.min(left, current.x);
+    right = Math.max(right, current.x);
+    top = Math.min(top, current.y);
+    bottom = Math.max(bottom, current.y);
+  }
+  const area = signedArea / 2;
+  const divisor = signedArea * 3;
+  const center = Math.abs(area) > 0.0001
+    ? { x: centroidX / divisor, y: centroidY / divisor }
+    : { x: points.reduce((sum, point) => sum + point.x, 0) / points.length, y: points.reduce((sum, point) => sum + point.y, 0) / points.length };
+  return { center, bounds: { left, top, right, bottom }, area: Math.abs(area) };
+}
 
 export function resourceZoneCenter(zone) {
+  if (zone?.geometry?.revision === zone?.geometryRevision) return zone.geometry.interactionPoint || zone.geometry.center;
   const points = zone?.points || [];
   if (!points.length) return { x: Number(zone?.x) || 0, y: Number(zone?.y) || 0 };
-  return {
-    x: points.reduce((sum, point) => sum + point.x, 0) / points.length,
-    y: points.reduce((sum, point) => sum + point.y, 0) / points.length
-  };
+  return calculateResourceZoneGeometry(points).center;
+}
+
+export function touchResourceZoneGeometry(zone) {
+  zone.geometryRevision = Math.max(0, Number(zone.geometryRevision) || 0) + 1;
+  return syncResourceZone(zone);
 }
 
 export function pointInResourceZone(point, zone) {
@@ -46,6 +76,8 @@ export function createResourceZone(id, center, overrides = {}) {
     name: overrides.name || `Resource Zone ${id}`,
     resourceType: RESOURCE_TYPES.includes(overrides.resourceType) ? overrides.resourceType : "materials",
     points,
+    geometryRevision: Math.max(1, Number(overrides.geometryRevision) || 1),
+    geometry: overrides.interactionPoint ? { revision: -1, interactionPoint: { x: Number(overrides.interactionPoint.x) || 0, y: Number(overrides.interactionPoint.y) || 0 } } : null,
     capacity,
     infinite: Boolean(overrides.infinite),
     remaining,
@@ -56,18 +88,25 @@ export function createResourceZone(id, center, overrides = {}) {
     startingOwner: overrides.startingOwner || "",
     owner: overrides.owner ?? overrides.startingOwner ?? "",
     requiresBuilding: overrides.requiresBuilding !== false,
-    allowedCollectors: Array.isArray(overrides.allowedCollectors) && overrides.allowedCollectors.length ? [...overrides.allowedCollectors] : ["builder", "vehicle"],
+    allowedCollectors: Array.isArray(overrides.allowedCollectors) && overrides.allowedCollectors.length ? [...overrides.allowedCollectors] : ["builder", "supply"],
     richness: clamp(Number(overrides.richness) || 1, 0.1, 3),
     strategicObjective: Boolean(overrides.strategicObjective),
     exhaustionReported: Boolean(overrides.exhaustionReported),
     resourceZone: true
   };
-  Object.assign(zone, resourceZoneCenter(zone));
-  return zone;
+  return syncResourceZone(zone);
 }
 
 export function syncResourceZone(zone) {
-  const center = resourceZoneCenter(zone);
+  zone.allowedCollectors = [...new Set((Array.isArray(zone.allowedCollectors) && zone.allowedCollectors.length
+    ? zone.allowedCollectors : ["builder", "supply"]).filter(role => ["builder", "supply", "vehicle"].includes(role)))];
+  if (zone.allowedCollectors.includes("vehicle") && !zone.allowedCollectors.includes("supply")) zone.allowedCollectors.push("supply");
+  if (zone.geometry?.revision !== zone.geometryRevision) {
+    const interactionPoint = zone.geometry?.interactionPoint ? { ...zone.geometry.interactionPoint } : null;
+    const geometry = calculateResourceZoneGeometry(zone.points);
+    zone.geometry = { ...geometry, interactionPoint, revision: zone.geometryRevision };
+  }
+  const center = zone.geometry.interactionPoint || zone.geometry.center;
   zone.x = center.x;
   zone.y = center.y;
   zone.maxReserve = Math.max(0, Number(zone.capacity) || 0);
@@ -78,7 +117,8 @@ export function syncResourceZone(zone) {
 }
 
 export function regenerateResourceZone(zone, dt) {
-  syncResourceZone(zone);
+  zone.maxReserve = Math.max(0, Number(zone.capacity) || 0);
+  zone.remaining = clamp(Number(zone.remaining ?? zone.reserve) || 0, 0, zone.maxReserve);
   if (zone.infinite) return 0;
   if (zone.regeneration <= 0 || zone.remaining >= zone.capacity) return 0;
   const amount = Math.min(zone.capacity - zone.remaining, zone.regeneration * dt);
@@ -89,7 +129,8 @@ export function regenerateResourceZone(zone, dt) {
 }
 
 export function drainResourceZone(zone, requested) {
-  syncResourceZone(zone);
+  zone.maxReserve = Math.max(0, Number(zone.capacity) || 0);
+  zone.remaining = clamp(Number(zone.remaining ?? zone.reserve) || 0, 0, zone.maxReserve);
   const amount = Math.min(zone.remaining, Math.max(0, requested), zone.gatherRate);
   if (zone.infinite) return Math.min(Math.max(0, requested), zone.gatherRate);
   zone.remaining -= amount;
@@ -113,6 +154,8 @@ export function serializeResourceZone(zone, scaleX = 1, scaleY = 1) {
     allowedCollectors: [...zone.allowedCollectors],
     richness: zone.richness,
     strategicObjective: zone.strategicObjective,
+    geometryRevision: zone.geometryRevision,
+    interactionPoint: zone.geometry?.interactionPoint ? { x: zone.geometry.interactionPoint.x * scaleX, y: zone.geometry.interactionPoint.y * scaleY } : null,
     points: zone.points.map(point => ({ x: point.x * scaleX, y: point.y * scaleY }))
   };
 }

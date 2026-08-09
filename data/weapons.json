@@ -1,4 +1,25 @@
 {
+  "unarmed": {
+    "id": "unarmed",
+    "label": "Unarmed Logistics Rig",
+    "damage": 0,
+    "penetration": 0,
+    "range": 0,
+    "rateOfFire": 1,
+    "magazineSize": 0,
+    "reloadTime": 0,
+    "projectileSpeed": 0,
+    "accuracy": 0,
+    "precision": 0,
+    "suppression": 0,
+    "heatPerShot": 0,
+    "coolRate": 1,
+    "maxHeat": 1,
+    "splashRadius": 0,
+    "targetRestrictions": [],
+    "tracerColor": "#94a3b8",
+    "melee": { "reach": 0, "damage": 0, "penetration": 0, "attackSpeed": 1, "windUp": 0, "recovery": 0, "stagger": 0, "knockback": 0, "cleave": 1, "block": 0, "parry": 0, "chargeBonus": 0 }
+  },
   "rifle": {
     "id": "rifle",
     "label": "Service Rifle",
