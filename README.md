@@ -1,6 +1,6 @@
 # Autonomous War Theater — local edition
 
-A browser-based top-view battle and map simulator with a map-authored economy, physical logistics, AI construction, building hitboxes and HP, territory capture, editable spawn areas, fog, an independent pan/zoom camera, chunked terrain painting, random terrain, a minimap, and optional lighting.
+A browser-based top-view battle and map simulator with a map-authored economy, physical logistics, AI construction, building hitboxes and HP, territory capture, editable spawn areas, fog, an independent pan/zoom camera, chunked terrain painting, random terrain, a minimap, and a lightweight global day/night cycle.
 
 ## Run it
 
@@ -32,6 +32,9 @@ src/
   economy/               Authored polygon zones and economic landmarks
   territory/             Fixed irregular cell pool, objectives, combat, and victory
   logistics/             Road graph, temporary supply routes, convoys, Route AI, and audit history
+  diagnostics/           Throttled runtime telemetry and opt-in system profiling
+  replay/                Replay analysis and bounded snapshot storage
+  simulation/            Fixed-step budgeting and simulation lifecycle modules
   utilities/             Shared math, formatting, and deterministic random helpers
 test/
   foundation.test.js     Module-boundary and utility regression checks
@@ -61,6 +64,23 @@ npm.cmd run smoke
 ```
 
 The migration is intentionally incremental: `js/app.js` remains operational while engine, simulation, rendering, AI, and UI systems are extracted behind stable module APIs.
+
+## Performance controls
+
+- Canvas drawing no longer performs the expensive diagnostic world scans. Runtime telemetry is collected outside rendering once per second and updates DOM dataset values only when they change.
+- Fixed 20 Hz simulation catch-up is limited to three updates and an 8 ms work budget per animation frame. Excess backlog is capped so a slow frame degrades into controlled slow motion instead of a self-reinforcing freeze.
+- Replay snapshots use a fixed-capacity buffer, compact structure records, and territory revisions/counts instead of retaining another full territory-cell copy every snapshot.
+- Add `?profile` to the simulator URL to enable timing for simulation, rendering, and UI work. Inspect `awtProfiler.report()` in the browser console and call `awtProfiler.reset()` between measurements.
+- Day/night rendering uses one viewport tint and one faction-aware visibility multiplier. Dynamic shadows, radial artificial-light gradients, searchlights, per-location light sampling, and decorative light vision sources are not part of the live render or detection paths.
+
+## Force commitment and faction economies
+
+- The roster is available from the beginning; there are no technology unlock tiers. Contact, Engagement, Major Battle, Decisive Commitment, and All-In describe how much of the finite force the AI is willing to deploy.
+- Headquarters danger, objective importance, enemy pressure, casualties, territory pressure, time, and proximity to victory recalculate commitment. All-In spends reserves, prioritizes military construction, and suspends nonessential research.
+- Battle-scale capacity is distributed by faction density, so elite Space Marines field fewer bodies while Guard, Orks, and Tyranids receive progressively larger shares of the same simulation budget.
+- Command presence follows faction hierarchy. Chapter Masters require an exceptional scenario signal; ordinary Space Marine battles use Sergeants, Lieutenants, and Captains. Ork Warboss succession remains emergent.
+- Natural resource polygons are limited to materials, fuel, energy, food, scrap, and biomass. Requisition and influence are strategic; ammunition, medical supplies, and parts are operational stocks; faith is not a universal currency.
+- Each faction creates only its relevant inventory and shortages. Recruitment and construction costs use that profile—for example, Tyranids spend biomass, Orks spend scrap/fuel, and Necrons spend energy/materials.
 
 The current Phase 0-19 implementation matrix is maintained in [`docs/phase-audit.md`](docs/phase-audit.md).
 

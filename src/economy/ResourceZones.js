@@ -1,15 +1,10 @@
 const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
 
 export const RESOURCE_TYPES = Object.freeze([
-  "requisition",
   "materials",
   "fuel",
   "energy",
-  "ammunition",
-  "medical",
   "food",
-  "faith",
-  "influence",
   "scrap",
   "biomass"
 ]);

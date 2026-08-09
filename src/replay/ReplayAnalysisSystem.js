@@ -1,10 +1,12 @@
+import { SnapshotRingBuffer } from "./SnapshotRingBuffer.js";
+
 const clampIndex = (value, length) => Math.max(0, Math.min(Math.max(0, length - 1), Number(value) || 0));
 
 export class ReplayAnalysisSystem {
   constructor({ maxSnapshots = 360, maxEvents = 2000 } = {}) {
     this.maxSnapshots = maxSnapshots;
     this.maxEvents = maxEvents;
-    this.snapshots = [];
+    this.snapshots = new SnapshotRingBuffer(maxSnapshots);
     this.events = [];
     this.index = 0;
     this.playing = false;
@@ -13,7 +15,6 @@ export class ReplayAnalysisSystem {
 
   recordSnapshot(snapshot) {
     this.snapshots.push(structuredClone(snapshot));
-    if (this.snapshots.length > this.maxSnapshots) this.snapshots.splice(0, this.snapshots.length - this.maxSnapshots);
     this.index = this.snapshots.length - 1;
     return this.index;
   }

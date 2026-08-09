@@ -355,14 +355,29 @@ try {
       replayDiagnostics: root.dataset.phase21Replay,
       performanceScale: root.dataset.phase22Scale,
       factionBranches: root.dataset.phase23Branches,
+      telemetryIntervalMs: Number(root.dataset.telemetryIntervalMs || 0),
+      dayNightModel: root.dataset.dayNightModel,
+      dynamicLighting: root.dataset.dynamicLighting,
+      forceCommitment: root.dataset.forceCommitment,
+      economyProfiles: root.dataset.economyProfiles,
+      resourceZoneOptions: [...document.querySelectorAll('#awt-resource-type option')].map(option => option.value),
+      lightingLabels: [...document.querySelectorAll('#awt-lighting-controls .form-check-label')].map(item => item.textContent.trim()),
       aiGoal: document.querySelector('#awt-ai-goal')?.textContent,
       replayButtons: document.querySelectorAll('.awt-replay-controls button').length,
-      snapshots: root.awtDebugState.snapshots.length
+      snapshots: root.awtDebugState.snapshots.length,
+      snapshotCapacity: root.awtDebugState.snapshots.capacity,
+      simulationStepsThisFrame: root.awtDebugState.lastSimulationFrame?.steps ?? null
     };
   })()`);
   if (phase20to23.victoryRule !== "five-capability-annihilation" || !phase20to23.endgameOrders
     || !phase20to23.replayDiagnostics || !phase20to23.performanceScale || !phase20to23.factionBranches
-    || !phase20to23.aiGoal?.startsWith("Current goal:") || phase20to23.replayButtons !== 4 || phase20to23.snapshots < 2) {
+    || !phase20to23.aiGoal?.startsWith("Current goal:") || phase20to23.replayButtons !== 4 || phase20to23.snapshots < 2
+    || phase20to23.telemetryIntervalMs !== 1000 || phase20to23.snapshotCapacity !== 180
+    || phase20to23.simulationStepsThisFrame > 3 || phase20to23.dayNightModel !== "global-tint-and-visibility"
+    || phase20to23.dynamicLighting !== "false" || !phase20to23.forceCommitment?.includes(":")
+    || !phase20to23.economyProfiles?.includes("space-marines") || !phase20to23.economyProfiles?.includes("chaos")
+    || phase20to23.resourceZoneOptions.some(resource => ["requisition", "influence", "ammunition", "medical", "faith", "parts"].includes(resource))
+    || !phase20to23.lightingLabels.includes("Visual night tint") || !phase20to23.lightingLabels.includes("Night affects detection")) {
     throw new Error(`Phase 20-23 integration failed: ${JSON.stringify(phase20to23)}`);
   }
   const replayBefore = await evaluate(`(() => {

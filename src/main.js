@@ -7,6 +7,13 @@ import { assessFactionCapability, chooseEndgameDirective } from "./victory/Victo
 import { ReplayAnalysisSystem, buildAIInspector } from "./replay/ReplayAnalysisSystem.js";
 import { SCALE_PRESETS, scalePresetFor } from "./performance/ScaleSystem.js";
 import { FACTION_GAMEPLAY_BRANCHES, createFactionGameplayState } from "./factions/DistinctiveGameplaySystem.js";
+import { Profiler } from "./diagnostics/Profiler.js";
+import { RuntimeTelemetry } from "./diagnostics/RuntimeTelemetry.js";
+import { SnapshotRingBuffer } from "./replay/SnapshotRingBuffer.js";
+import { runFixedStepBudget } from "./simulation/FixedStepRunner.js";
+import { dayNightDarkness, globalDayNightVisibility } from "./rendering/DayNightSystem.js";
+import { canAfford, constructionCostFor, economyProfileFor, formationCostFor } from "./economy/FactionEconomyProfiles.js";
+import { allocateForceCaps, commandPresenceFor, createForceState, determineCommitment, updateForceState } from "./ai/ForceCommitmentSystem.js";
 
 globalThis.AWTSystems = Object.freeze({
   EconomyZoneManager,
@@ -25,7 +32,22 @@ globalThis.AWTSystems = Object.freeze({
   SCALE_PRESETS,
   scalePresetFor,
   FACTION_GAMEPLAY_BRANCHES,
-  createFactionGameplayState
+  createFactionGameplayState,
+  Profiler,
+  RuntimeTelemetry,
+  SnapshotRingBuffer,
+  runFixedStepBudget,
+  dayNightDarkness,
+  globalDayNightVisibility,
+  economyProfileFor,
+  formationCostFor,
+  constructionCostFor,
+  canAfford,
+  allocateForceCaps,
+  commandPresenceFor,
+  createForceState,
+  determineCommitment,
+  updateForceState
 });
 globalThis.AWTData ||= {};
 try {

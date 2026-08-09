@@ -398,7 +398,7 @@
       </div>
 
       <div id="awt-lighting-controls" hidden>
-        <div class="awt-panel-title">Dynamic lighting, shadows &amp; faction materials</div>
+        <div class="awt-panel-title">Lightweight day/night &amp; faction materials</div>
         <div class="awt-paint-settings">
           <label class="form-label text-small" for="awt-time-mode">Sun behavior<select class="form-select" id="awt-time-mode"><option value="dynamic">Dynamic cycle</option><option value="fixed">Fixed time</option></select></label>
           <label class="form-check form-switch"><input class="form-check-input" id="awt-clock-running" type="checkbox" checked><span class="form-check-label">Run theater clock</span></label>
@@ -407,15 +407,15 @@
           <label class="form-label text-small" for="awt-day-length">Day length <span id="awt-day-length-value">12</span> min<input class="form-range" id="awt-day-length" type="range" min="2" max="60" value="12" step="1"></label>
           <label class="form-label text-small" for="awt-latitude">Latitude <span id="awt-latitude-value">35</span>°<input class="form-range" id="awt-latitude" type="range" min="-60" max="60" value="35" step="5"></label>
           <label class="form-label text-small" for="awt-season">Season<select class="form-select" id="awt-season"><option value="spring">Spring</option><option value="summer">Summer</option><option value="autumn">Autumn</option><option value="winter">Winter</option></select></label>
-          <label class="form-label text-small" for="awt-lighting-weather">Lighting weather<select class="form-select" id="awt-lighting-weather"><option value="clear">Clear</option><option value="fog">Fog</option><option value="rain">Rain</option><option value="snow">Snow</option><option value="dust">Dust storm</option></select></label>
+          <label class="form-label text-small" for="awt-lighting-weather">Theater weather<select class="form-select" id="awt-lighting-weather"><option value="clear">Clear</option><option value="fog">Fog</option><option value="rain">Rain</option><option value="snow">Snow</option><option value="dust">Dust storm</option></select></label>
           <label class="form-label text-small" for="awt-color-intensity">Color intensity <span id="awt-color-intensity-value">85</span>%<input class="form-range" id="awt-color-intensity" type="range" min="0" max="100" value="85" step="5"></label>
           <label class="form-label text-small" for="awt-faction-preservation">Faction color preservation<select class="form-select" id="awt-faction-preservation"><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select></label>
         </div>
         <div class="viz-row">
-          <label class="form-check form-switch"><input class="form-check-input" id="awt-enable-lighting" type="checkbox" checked><span class="form-check-label">Enable lighting</span></label>
-          <label class="form-check form-switch"><input class="form-check-input" id="awt-cast-shadows" type="checkbox" checked><span class="form-check-label">Cast shadows</span></label>
-          <label class="form-check form-switch"><input class="form-check-input" id="awt-lighting-overlay" type="checkbox"><span class="form-check-label">Lighting overlay</span></label>
-          <label class="form-check form-switch"><input class="form-check-input" id="awt-artificial-lights" type="checkbox" checked><span class="form-check-label">Artificial lights</span></label>
+          <label class="form-check form-switch"><input class="form-check-input" id="awt-enable-lighting" type="checkbox" checked><span class="form-check-label">Day/night cycle</span></label>
+          <label class="form-check form-switch"><input class="form-check-input" id="awt-cast-shadows" type="checkbox" checked><span class="form-check-label">Visual night tint</span></label>
+          <label class="form-check form-switch"><input class="form-check-input" id="awt-lighting-overlay" type="checkbox" checked><span class="form-check-label">Night affects detection</span></label>
+          <label class="form-check form-switch"><input class="form-check-input" id="awt-artificial-lights" type="checkbox" disabled><span class="form-check-label">Artificial glows off</span></label>
           <label class="form-check form-switch"><input class="form-check-input" id="awt-building-colors" type="checkbox" checked><span class="form-check-label">Building player colors</span></label>
           <label class="form-check form-switch"><input class="form-check-input" id="awt-team-emblems" type="checkbox" checked><span class="form-check-label">Team emblems</span></label>
           <label class="form-check form-switch"><input class="form-check-input" id="awt-accessibility-patterns" type="checkbox" checked><span class="form-check-label">Accessibility patterns</span></label>

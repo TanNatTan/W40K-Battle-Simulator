@@ -17,7 +17,6 @@ import {
 } from "../src/config/application.js";
 import {
   aiConfig,
-  economyConfig,
   environmentConfig,
   factionConfig,
   orkSpriteForge,
@@ -73,6 +72,13 @@ import { buildAIInspector } from "../src/replay/ReplayAnalysisSystem.js";
 import { scalePresetFor, shouldUpdateEntity } from "../src/performance/ScaleSystem.js";
 import { createFactionGameplayState, updateFactionGameplay } from "../src/factions/DistinctiveGameplaySystem.js";
 import { expiredDeadUnitIds, scheduleDeathRemoval } from "../src/simulation/DeathLifecycle.js";
+import { runFixedStepBudget } from "../src/simulation/FixedStepRunner.js";
+import { Profiler } from "../src/diagnostics/Profiler.js";
+import { RuntimeTelemetry } from "../src/diagnostics/RuntimeTelemetry.js";
+import { SnapshotRingBuffer } from "../src/replay/SnapshotRingBuffer.js";
+import { dayNightDarkness, globalDayNightVisibility } from "../src/rendering/DayNightSystem.js";
+import { canAfford, constructionCostFor, economyProfileFor, formationCostFor } from "../src/economy/FactionEconomyProfiles.js";
+import { allocateForceCaps, commandPresenceFor, createForceState, updateForceState } from "../src/ai/ForceCommitmentSystem.js";
 import {
   SQUAD_ROLE_DEFINITIONS,
   roleDemandScores,
@@ -139,6 +145,12 @@ import {
 
       const canvas = root.querySelector("#awt-canvas");
       const ctx = canvas.getContext("2d");
+      const runtimeTelemetry = new RuntimeTelemetry({ intervalMs: 1000 });
+      const profiler = new Profiler({ enabled: new URLSearchParams(location.search).has("profile") });
+      globalThis.awtProfiler = Object.freeze({
+        report: () => profiler.report(),
+        reset: () => profiler.reset()
+      });
       root.dataset.spriteForge = unitSpriteForge ? "marine-guard-ork" : "fallback";
       const VW = VIEWPORT_WIDTH;
       const VH = VIEWPORT_HEIGHT;
@@ -551,37 +563,44 @@ import {
         astartes: {
           deployment: "Drop Pods, Thunderhawks, teleportation",
           buildings: { outpost: "Fortress Monastery", barracks: "Chapter Barracks", workshop: "Armoury", researchcenter: "Librarius", fieldhospital: "Apothecarion", generator: "Plasma Reactor", warehouse: "Supply Depot", refinery: "Manufactorum", dropbay: "Landing Pad", observationtower: "Listening Post", bunker: "Fortress Wall", turret: "Heavy Bolter Turret" },
-          roster: { builder: ["Servitor"], trooper: ["Tactical Marine", "Intercessor", "Assault Intercessor", "Hellblaster"], scout: ["Scout Marine", "Infiltrator", "Eliminator"], medic: ["Apothecary"], engineer: ["Techmarine"], commander: ["Sergeant", "Lieutenant", "Captain", "Chapter Master"], standard: ["Ancient", "Company Champion"], vehicle: ["Rhino", "Predator", "Dreadnought", "Land Raider"] }
+          command: { squad: ["Sergeant"], field: ["Lieutenant"], company: ["Captain", "Chaplain", "Librarian"], exceptional: ["Chapter Master"] },
+          roster: { builder: ["Servitor"], trooper: ["Tactical Marine", "Intercessor", "Assault Intercessor", "Hellblaster"], scout: ["Scout Marine", "Infiltrator", "Eliminator"], medic: ["Apothecary"], engineer: ["Techmarine"], commander: ["Sergeant", "Lieutenant", "Captain"], standard: ["Ancient", "Company Champion"], vehicle: ["Rhino", "Predator", "Dreadnought", "Land Raider"] }
         },
         guard: {
           deployment: "Ground deployment, convoys, Valkyries",
           buildings: { outpost: "Command Headquarters", barracks: "Barracks", workshop: "Manufactorum", researchcenter: "Tactica Command", fieldhospital: "Field Hospital", generator: "Generatorium", warehouse: "Supply Warehouse", refinery: "Promethium Refinery", dropbay: "Valkyrie Landing Pad", observationtower: "Vox Relay", bunker: "Bunker Network", turret: "Heavy Weapons Nest" },
-          roster: { builder: ["Combat Engineer"], trooper: ["Guardsman", "Shock Trooper", "Kasrkin", "Tempestus Scion"], scout: ["Ratling", "Sentinel Scout"], medic: ["Field Medic"], engineer: ["Combat Engineer"], commander: ["Officer", "Commissar"], standard: ["Regimental Standard"], vehicle: ["Chimera", "Sentinel", "Leman Russ", "Rogal Dorn"] }
+          command: { squad: ["Sergeant"], field: ["Junior Officer"], company: ["Regimental Officer"], exceptional: ["General", "Lord Commander"] },
+          roster: { builder: ["Combat Engineer"], trooper: ["Guardsman", "Shock Trooper", "Kasrkin", "Tempestus Scion"], scout: ["Ratling", "Sentinel Scout"], medic: ["Field Medic"], engineer: ["Combat Engineer"], commander: ["Sergeant", "Junior Officer", "Regimental Officer"], standard: ["Regimental Standard"], vehicle: ["Chimera", "Sentinel", "Leman Russ", "Rogal Dorn"] }
         },
         chaos: {
           deployment: "Warp beacons, corrupted drop pods, summoning",
           buildings: { outpost: "Dark Citadel", barracks: "Cult Mustering Hall", workshop: "Armoury of Damnation", researchcenter: "Forbidden Archive", fieldhospital: "Sacrificial Shrine", generator: "Warp Nexus", warehouse: "Ammunition Cache", refinery: "Dark Forge", dropbay: "Warp Beacon", observationtower: "Corruption Spire", bunker: "Chaos Bastion", turret: "Daemon Gun Platform" },
-          roster: { builder: ["Dark Servitor", "Cult Laborer"], trooper: ["Cultist", "Chaos Space Marine", "Havoc", "Chosen"], scout: ["Raptor", "Warp Talon"], medic: ["Dark Apostle"], engineer: ["Warpsmith"], commander: ["Chaos Lord", "Exalted Champion"], standard: ["Icon Bearer"], vehicle: ["Chaos Rhino", "Defiler", "Forgefiend", "Venomcrawler"] }
+          command: { squad: ["Aspiring Champion"], field: ["Exalted Champion"], company: ["Chaos Lord", "Sorcerer"], exceptional: ["Daemon Prince"] },
+          roster: { builder: ["Dark Servitor", "Cult Laborer"], trooper: ["Cultist", "Chaos Space Marine", "Havoc", "Chosen"], scout: ["Raptor", "Warp Talon"], medic: ["Dark Apostle"], engineer: ["Warpsmith"], commander: ["Aspiring Champion", "Exalted Champion", "Chaos Lord"], standard: ["Icon Bearer"], vehicle: ["Chaos Rhino", "Defiler", "Forgefiend", "Venomcrawler"] }
         },
         ork: {
           deployment: "Spore patches, ramshackle camps, mobs and Trukks",
           buildings: { outpost: "Boss Hut", barracks: "Boyz Hut", workshop: "Mek Shop", researchcenter: "Big Mek's Workshop", fieldhospital: "Painboy Hut", generator: "Kustom Generator", warehouse: "Dakka Dump", fueldepot: "Fuel Gubbinz", ammodepot: "Dakka Dump", mine: "Scrap Pile", farm: "Squig Pen", refinery: "Lootin' Yard", dropbay: "Tellyporta Pad", observationtower: "Watcha Tower", bunker: "Waaagh! Banner", turret: "Big Gunz Nest" },
-          roster: { builder: ["Gretchin"], trooper: ["Gretchin", "Slugga Boy", "Shoota Boy", "Burna Boy", "Tankbusta"], scout: ["Kommando"], medic: ["Painboy"], engineer: ["Mekboy", "Big Mek"], commander: ["Boss Nob", "Warboss"], standard: ["Waaagh! Banner Nob"], vehicle: ["Trukk", "Battlewagon", "Deff Dread", "Killa Kan"] }
+          command: { squad: ["Nob"], field: ["Boss Nob"], company: ["Boss Nob"], exceptional: ["Warboss"] },
+          roster: { builder: ["Gretchin"], trooper: ["Gretchin", "Slugga Boy", "Shoota Boy", "Burna Boy", "Tankbusta"], scout: ["Kommando"], medic: ["Painboy"], engineer: ["Mekboy", "Big Mek"], commander: ["Nob", "Boss Nob"], standard: ["Waaagh! Banner Nob"], vehicle: ["Trukk", "Battlewagon", "Deff Dread", "Killa Kan"] }
         },
         necron: {
           deployment: "Reanimation, portals, teleportation",
           buildings: { outpost: "Tomb Core", barracks: "Summoning Core", workshop: "Canoptek Forge", researchcenter: "Cryptek Archive", fieldhospital: "Resurrection Node", generator: "Energy Conduit", warehouse: "Gauss Repository", dropbay: "Monolith Gate", observationtower: "Obelisk", bunker: "Quantum Bastion", turret: "Gauss Pylon" },
+          command: { squad: ["Royal Warden"], field: ["Lord"], company: ["Overlord"], exceptional: ["Dynastic Ruler"] },
           roster: { builder: ["Canoptek Scarab"], trooper: ["Warrior", "Immortal", "Lychguard", "Flayed One"], scout: ["Deathmark", "Triarch Praetorian"], medic: ["Technomancer"], engineer: ["Cryptek"], commander: ["Royal Warden", "Lord", "Overlord"], standard: ["Dynastic Herald"], vehicle: ["Ghost Ark", "Doomsday Ark", "Annihilation Barge", "Monolith"] }
         },
         tau: {
           deployment: "Ground cadre, Devilfish, Orca and drone delivery",
           buildings: { outpost: "Command Dome", barracks: "Fire Warrior Barracks", workshop: "Earth Caste Workshop", researchcenter: "Earth Caste Laboratory", fieldhospital: "Medical Bay", generator: "Power Core", warehouse: "Supply Hub", refinery: "Vehicle Assembly Plant", dropbay: "Orca Landing Zone", observationtower: "Communications Relay", bunker: "Tidewall", turret: "Drone Turret" },
-          roster: { builder: ["Earth Caste Engineer"], trooper: ["Fire Warrior", "Breacher", "Crisis Battlesuit", "Broadside"], scout: ["Pathfinder", "Stealth Suit"], medic: ["Medical Drone"], engineer: ["Repair Drone"], commander: ["Cadre Fireblade", "Ethereal", "Commander"], standard: ["Marker Drone"], vehicle: ["Devilfish", "Hammerhead", "Skyray", "Piranha"] }
+          command: { squad: ["Shas'ui"], field: ["Cadre Fireblade"], company: ["Battlesuit Commander"], exceptional: ["Senior Ethereal"] },
+          roster: { builder: ["Earth Caste Engineer"], trooper: ["Fire Warrior", "Breacher", "Crisis Battlesuit", "Broadside"], scout: ["Pathfinder", "Stealth Suit"], medic: ["Medical Drone"], engineer: ["Repair Drone"], commander: ["Shas'ui", "Cadre Fireblade", "Battlesuit Commander"], standard: ["Marker Drone"], vehicle: ["Devilfish", "Hammerhead", "Skyray", "Piranha"] }
         },
         tyranid: {
           deployment: "Mycetic Spores, Tyrannocytes, brood nests, tunnels and infestation zones",
           buildings: { outpost: "Synaptic Hive Node", barracks: "Brood Nest", workshop: "Norn Gestation Chamber", researchcenter: "Evolutionary Chamber", fieldhospital: "Synapse Spire", generator: "Digestion Pool", warehouse: "Feeder Organism Cluster", mine: "Infestation Node", farm: "Reclamation Pool", refinery: "Capillary Tower", dropbay: "Aerial Brood Sac", observationtower: "Sensory Tendril Cluster", bunker: "Spore Chimney", turret: "Biovore Nest" },
-          roster: { builder: ["Ripper Tendril"], trooper: ["Termagant", "Hormagaunt", "Genestealer", "Tyranid Warrior"], scout: ["Gargoyle", "Ravener"], medic: ["Feeder Organism"], engineer: ["Ripper Tendril"], commander: ["Tyranid Prime", "Neurotyrant", "Hive Tyrant"], standard: ["Synapse Organism"], vehicle: ["Carnifex", "Trygon", "Exocrine", "Tyrannofex"] }
+          command: { squad: ["Tyranid Warrior"], field: ["Tyranid Prime", "Broodlord"], company: ["Hive Tyrant", "Neurotyrant"], exceptional: ["Swarmlord"] },
+          roster: { builder: ["Ripper Tendril"], trooper: ["Termagant", "Hormagaunt", "Genestealer", "Tyranid Warrior"], scout: ["Gargoyle", "Ravener"], medic: ["Feeder Organism"], engineer: ["Ripper Tendril"], commander: ["Tyranid Warrior", "Tyranid Prime", "Hive Tyrant"], standard: ["Synapse Organism"], vehicle: ["Carnifex", "Trygon", "Exocrine", "Tyrannofex"] }
         }
       };
 
@@ -600,11 +619,13 @@ import {
       }
 
       function factionUnitName(player, role, index) {
+        if (role === "commander" && player.race !== "Orks" && player.forceState) {
+          return commandPresenceFor(player, player.forceState.commitmentStage, player.scenarioTags || []);
+        }
         const roster = factionProfile(player).roster[role] || factionProfile(player).roster.trooper;
         return roster[index % roster.length];
       }
 
-      const economyResourceKeys = [...economyConfig.resources];
       const economyResourceLabels = { requisition: "Req", materials: "Ore / materials", fuel: "Fuel", energy: "Energy", ammunition: "Ammo", medical: "Medical", food: "Food", faith: "Faith", influence: "Influence", scrap: "Scrap", biomass: "Biomass", parts: "Parts" };
       const economySpriteSourceData = {
         ork: "assets/buildings/ork.svg",
@@ -1056,7 +1077,7 @@ import {
         economyZoneManager: null,
         casualtyPoints: [],
         incidents: [],
-        snapshots: [],
+        snapshots: new SnapshotRingBuffer(180),
         selectedId: null,
         hover: null,
         camera: { x: TEST_MAP_WIDTH / 2, y: TEST_MAP_HEIGHT / 2, zoom: 1, rotation: 0 },
@@ -1082,18 +1103,23 @@ import {
         strategicTerritoryVictoryReported: false,
         territoryOverlay: true,
         squadRoleOverlay: true,
-        lighting: {
+        dayNight: {
           enabled: true,
-          shadows: true,
           mode: "dynamic",
           startHour: 7,
           fixedHour: 7,
           dayLengthMinutes: 12,
           latitude: 35,
           season: "spring",
-          weather: "clear",
-          overlay: false,
-          artificial: true,
+          weather: "clear"
+        },
+        lighting: {
+          visualTint: true,
+          affectsDetection: true,
+          dynamicShadows: false,
+          artificialGlows: false,
+          searchlights: false,
+          debugOverlay: false,
           buildingColors: true,
           colorIntensity: 0.85,
           factionPreservation: "high",
@@ -1177,6 +1203,7 @@ import {
         performanceFrame: 0,
         performancePreset: scalePresetFor(0),
         performanceRequested: "auto",
+        battleScale: { id: "skirmish", targetUnits: 120 },
         performanceWorkerAccumulator: 0,
         distantWorkerBusy: false,
         distantCombatSummary: null,
@@ -1877,10 +1904,14 @@ import {
 
       function createEconomy(player) {
         const personality = economicPersonality(player);
+        const profile = economyProfileFor(player);
         return {
+          profileId: profile.id,
+          activeResources: [...profile.activeResources],
+          zoneResources: [...profile.zoneResources],
           personality,
-          inventory: { ...(economyConfig.startingStockpile || { requisition: 600, materials: 450, fuel: 300, energy: 320, ammunition: 420, medical: 220, food: 360, influence: 180, parts: 240 }) },
-          baseCapacity: { ...(economyConfig.baseCapacity || { requisition: 800, materials: 620, fuel: 460, energy: 480, ammunition: 650, medical: 360, food: 520, influence: 320, parts: 420 }) },
+          inventory: { ...profile.startingStockpile },
+          baseCapacity: { ...profile.baseCapacity },
           queue: [],
           approvedBuilds: [],
           research: { level: 0, progress: 0, status: "Awaiting a research center" },
@@ -1912,7 +1943,8 @@ import {
       }
 
       function syncLegacyResources(faction) {
-        state.resources[faction] = clamp(economyFor(faction).inventory.requisition || 0, 0, 999);
+        const inventory = economyFor(faction).inventory;
+        state.resources[faction] = clamp(inventory.requisition || inventory.scrap || inventory.biomass || inventory.energy || 0, 0, 999);
       }
 
       function ensureStructureRuntime(structure) {
@@ -1976,15 +2008,15 @@ import {
       }
 
       function lightingHour(time = state.clock.elapsedSeconds) {
-        if (state.lighting.mode === "fixed") return state.lighting.fixedHour;
-        const daySeconds = Math.max(120, state.lighting.dayLengthMinutes * 60);
-        return (state.lighting.startHour + time / daySeconds * 24) % 24;
+        if (state.dayNight.mode === "fixed") return state.dayNight.fixedHour;
+        const daySeconds = Math.max(120, state.dayNight.dayLengthMinutes * 60);
+        return (state.dayNight.startHour + time / daySeconds * 24) % 24;
       }
 
       function sunState(time = state.clock.elapsedSeconds) {
         const hour = lightingHour(time);
-        const latitude = Math.abs(state.lighting.latitude) / 60;
-        const seasonShift = { spring: 0, summer: 1, autumn: 0, winter: -1 }[state.lighting.season] || 0;
+        const latitude = Math.abs(state.dayNight.latitude) / 60;
+        const seasonShift = { spring: 0, summer: 1, autumn: 0, winter: -1 }[state.dayNight.season] || 0;
         const daylight = clamp(12 + seasonShift * latitude * 5, 7, 17);
         const sunrise = 12 - daylight / 2;
         const sunset = 12 + daylight / 2;
@@ -1992,14 +2024,14 @@ import {
         const aboveHorizon = hour >= sunrise && hour <= sunset;
         const maxAltitude = clamp(72 - latitude * 30 + seasonShift * 9, 24, 82) * Math.PI / 180;
         const altitude = aboveHorizon ? Math.sin(phase * Math.PI) * maxAltitude : 0;
-        const azimuth = -Math.PI * 0.82 + phase * Math.PI * 1.64 + state.lighting.latitude / 180 * Math.PI * 0.18;
+        const azimuth = -Math.PI * 0.82 + phase * Math.PI * 1.64 + state.dayNight.latitude / 180 * Math.PI * 0.18;
         const weather = {
           clear: { brightness: 1, shadow: 1, diffusion: 0.05 },
           fog: { brightness: 0.58, shadow: 0.18, diffusion: 0.72 },
           rain: { brightness: 0.7, shadow: 0.42, diffusion: 0.48 },
           snow: { brightness: 1.12, shadow: 0.74, diffusion: 0.18 },
           dust: { brightness: 0.42, shadow: 0.08, diffusion: 0.9 }
-        }[state.lighting.weather] || { brightness: 1, shadow: 1, diffusion: 0 };
+        }[state.dayNight.weather] || { brightness: 1, shadow: 1, diffusion: 0 };
         let period = "Night";
         if (aboveHorizon) {
           if (hour < sunrise + 0.8) period = "Dawn";
@@ -2205,33 +2237,14 @@ import {
       let lightingSampleCacheKey = "";
       const lightingSampleCache = new Map();
       function lightingAt(point, observerFaction = null, time = state.clock.elapsedSeconds) {
-        if (!state.lighting.enabled) return { brightness: 1, shadowed: false, artificial: 0, searchlight: 0, period: "Neutral" };
         const sun = sunState(time);
-        const temporalKey = state.replay
-          ? `replay:${state.replayIndex}:${time.toFixed(3)}`
-          : `live:${Math.floor(time * 4)}`;
-        const sampleCacheKey = `${temporalKey}|${Math.round(sun.hour * 4)}|${state.lighting.weather}|${state.structures.length}`;
-        if (sampleCacheKey !== lightingSampleCacheKey) {
-          lightingSampleCacheKey = sampleCacheKey;
-          lightingSampleCache.clear();
-        }
-        const pointCacheKey = `${Math.round(point.x / 6)},${Math.round(point.y / 6)}|${observerFaction || "none"}`;
-        if (lightingSampleCache.has(pointCacheKey)) return lightingSampleCache.get(pointCacheKey);
-        const shadowed = pointInShadow(point, time);
-        let artificial = 0;
-        let searchlight = 0;
-        for (const source of lightSourcesAt(point, time)) {
-          const distanceToSource = Math.hypot(point.x - source.x, point.y - source.y);
-          if (distanceToSource < source.radius) artificial = Math.max(artificial, source.brightness * (1 - distanceToSource / source.radius));
-          if (source.searchlight && (!observerFaction || !areAllies(source.faction, observerFaction))) {
-            searchlight = Math.max(searchlight, searchlightExposure(point, source));
-          }
-        }
-        const natural = sun.intensity * (shadowed ? 0.46 : 1);
-        const brightness = clamp(Math.max(natural, artificial, searchlight), 0, 1.2);
-        const result = { brightness, shadowed, artificial, searchlight, period: sun.period };
-        lightingSampleCache.set(pointCacheKey, result);
-        return result;
+        const brightness = globalDayNightVisibility({
+          period: sun.period,
+          weather: state.dayNight.weather,
+          nightVision: observerFaction ? nightVisionFactor(observerFaction) : 0,
+          affectsDetection: state.dayNight.enabled && state.lighting.affectsDetection
+        });
+        return { brightness, shadowed: false, artificial: 0, searchlight: 0, period: sun.period };
       }
 
       function nightVisionFactor(faction) {
@@ -3149,10 +3162,10 @@ import {
         state.battleSeed = `${presetKey}:${worldWidth()}x${worldHeight()}:${state.players.map(player => `${player.race}-${player.subfaction}-${player.battleObjective}`).join("|")}`;
         battleRandom = seededRandom(state.battleSeed);
         if (presetKey !== "custom") {
-          state.lighting.mode = "dynamic";
-          state.lighting.startHour = preset.startMinute / 60;
-          state.lighting.fixedHour = preset.startMinute / 60;
-          state.lighting.weather = presetKey === "iron" ? "rain" : presetKey === "verdant" ? "fog" : "dust";
+          state.dayNight.mode = "dynamic";
+          state.dayNight.startHour = preset.startMinute / 60;
+          state.dayNight.fixedHour = preset.startMinute / 60;
+          state.dayNight.weather = presetKey === "iron" ? "rain" : presetKey === "verdant" ? "fog" : "dust";
         }
         if (!state.players.length) state.players = setupPlayers.slice(0, 2).map((player, index) => ({ ...player, base: deploymentPosition(index, 2, state.world) }));
         state.players.forEach((player, index) => {
@@ -3161,7 +3174,12 @@ import {
           player.base = deploymentPosition(index, state.players.length, state.world);
           player.spawnZone = { shape: "circle", size: 84, points: [] };
           player.deploymentMethod = factionProfile(player).deployment;
+          player.forceState = createForceState();
+          player.scenarioTags = [];
         });
+        const requestedScale = state.performanceRequested === "auto" ? "skirmish" : state.performanceRequested;
+        const battleScalePreset = scalePresetFor(0, requestedScale);
+        state.battleScale = { id: battleScalePreset.id, targetUnits: battleScalePreset.targetUnits };
         const center = worldCenter();
         const initialZoom = fitWorldZoom();
         state.camera = { x: center.x, y: center.y, zoom: initialZoom, rotation: 0 };
@@ -3222,7 +3240,7 @@ import {
         els.squadRoleToggle.setAttribute("aria-pressed", "true");
         els.squadRoleToggle.innerHTML = '<i data-lucide="shield-half" aria-hidden="true"></i>Squad roles on';
         state.incidents = [];
-        state.snapshots = [];
+        state.snapshots = new SnapshotRingBuffer(180);
         replayRenderCache = { key: "", grid: new Map(), units: [], structures: [] };
         state.resources = {};
         state.economies = {};
@@ -3284,7 +3302,7 @@ import {
           player.maxObservedEnemyInfrastructure = 0;
           player.hasEstablishedHeadquarters = false;
           state.economies[player.id] = createEconomy(player);
-          state.resources[player.id] = state.economies[player.id].inventory.requisition;
+          syncLegacyResources(player.id);
           state.casualties[player.id] = 0;
           state.adapted[player.id] = false;
           state.nextUnitIndex[player.id] = 0;
@@ -3457,25 +3475,27 @@ import {
         }
         const complete = type => state.structures.filter(item => item.faction === faction && item.type === type && item.progress >= 1 && item.alive !== false).length;
         if (!complete("outpost")) return "outpost";
-        if (!complete("generator")) return "generator";
+        const activeResources = new Set(economy.activeResources);
+        if (activeResources.has("energy") && !complete("generator")) return "generator";
         if (!complete("warehouse")) return "warehouse";
-        if (!complete("mine")) return "mine";
+        const firstExtractor = economy.zoneResources.map(resource => resourceExtractorType[resource]).find(Boolean);
+        if (firstExtractor && !complete(firstExtractor)) return firstExtractor;
 
         const capacity = economyCapacity(faction);
-        const ratio = key => clamp((economy.inventory[key] || 0) / Math.max(1, capacity[key] || 1), 0, 1.5);
+        const ratio = key => activeResources.has(key) ? clamp((economy.inventory[key] || 0) / Math.max(1, capacity[key] || 1), 0, 1.5) : 1;
         const structureCount = state.structures.filter(item => item.faction === faction && item.alive !== false).length;
         const armyCount = state.units.filter(unit => unit.alive && unit.faction === faction && unit.role !== "builder").length;
         const threat = clamp(state.units.filter(unit => unit.alive && !areAllies(unit.faction, faction) && distance(unit, baseFor(faction)) < 210).length / 5, 0, 1);
         const desired = {
-          generator: Math.max(1, Math.ceil(structureCount / 6)),
+          generator: activeResources.has("energy") ? Math.max(1, Math.ceil(structureCount / 6)) : 0,
           warehouse: Math.max(1, Math.ceil(structureCount / 7)),
-          mine: Math.max(1, Math.ceil(structureCount / 8)),
-          farm: Math.max(1, Math.ceil(armyCount / 8)),
-          refinery: Math.max(1, Math.ceil(armyCount / 10)),
+          mine: activeResources.has("materials") || activeResources.has("scrap") ? Math.max(1, Math.ceil(structureCount / 8)) : 0,
+          farm: activeResources.has("food") || activeResources.has("biomass") ? Math.max(1, Math.ceil(armyCount / 8)) : 0,
+          refinery: activeResources.has("fuel") ? Math.max(1, Math.ceil(armyCount / 10)) : 0,
           barracks: Math.max(1, Math.ceil(armyCount / 7)),
           workshop: Math.max(1, Math.ceil(armyCount / 9)),
           researchcenter: Math.max(1, Math.ceil(Math.max(1, armyCount) / 8)),
-          fieldhospital: Math.max(1, Math.ceil(armyCount / 10)),
+          fieldhospital: activeResources.has("medical") || player.race === "Tyranids" || player.race === "Necrons" ? Math.max(1, Math.ceil(armyCount / 10)) : 0,
           observationtower: Math.max(1, Math.ceil(structureCount / 10)),
           bunker: threat > 0.2 ? Math.max(2, Math.ceil(structureCount / 6)) : Math.ceil(structureCount / 12),
           turret: threat > 0.35 ? Math.max(1, Math.ceil(structureCount / 8)) : Math.ceil(structureCount / 16),
@@ -3511,13 +3531,17 @@ import {
             const spec = buildingCatalog[type];
             const dependencyReady = !spec.requires || complete(spec.requires) > 0;
             const missing = Math.max(0, (desired[type] || 0) - complete(type));
-            const resources = clamp(Math.min((economy.inventory.requisition || 0) / Math.max(1, spec.cost), (economy.inventory.materials || 0) / Math.max(1, Math.ceil(spec.cost * 0.55))), 0, 1.4);
+            const buildCost = constructionCostFor(player, spec.cost);
+            const resources = clamp(Math.min(...Object.entries(buildCost).map(([resource, amount]) => (economy.inventory[resource] || 0) / Math.max(1, amount))), 0, 1.4);
             const need = shortageNeed[type] || 0.1;
             const behaviorBias = (behavior.economy - 50) * spec.economic * 0.1
               + (behavior.aggression - 50) * spec.military * 0.08
               + (behavior.caution - 50) * (["bunker", "turret", "observationtower", "fieldhospital"].includes(type) ? 0.42 : 0)
               + (behavior.expansion - 50) * (["mine", "farm", "refinery", "warehouse"].includes(type) ? 0.38 : 0);
-            const score = (dependencyReady ? 0 : -1000) + missing * 38 + need * 55 + resources * 24 + (objectiveBonus[type] || 0) + behaviorBias - spec.risk * (threat * 5 + 1);
+            const commitmentBias = player.forceState?.allIn
+              ? type === "researchcenter" ? -500 : ["barracks", "workshop", "bunker", "turret", "dropbay"].includes(type) ? 95 : -35
+              : 0;
+            const score = (dependencyReady ? 0 : -1000) + missing * 38 + need * 55 + resources * 24 + (objectiveBonus[type] || 0) + behaviorBias + commitmentBias - spec.risk * (threat * 5 + 1);
             return { type, score };
           })
           .sort((a, b) => b.score - a.score);
@@ -3857,11 +3881,11 @@ import {
           unit.buildCd = 2;
           return;
         }
-        const materialCost = Math.ceil(spec.cost * 0.55);
+        const buildCost = constructionCostFor(builderPlayer, spec.cost);
         const dependencyReady = !spec.requires || state.structures.some(item => item.faction === unit.faction && item.type === spec.requires && item.progress >= 1);
-        if (!dependencyReady || economy.inventory.requisition < spec.cost || economy.inventory.materials < materialCost) {
+        if (!dependencyReady || !canAfford(economy.inventory, buildCost)) {
           unit.status = "Gathering";
-          unit.lastAction = dependencyReady ? `Awaiting ${Math.max(0, spec.cost - Math.floor(economy.inventory.requisition))} requisition and ${Math.max(0, materialCost - Math.floor(economy.inventory.materials))} materials for ${spec.label}.` : `Waiting for ${buildingCatalog[spec.requires]?.label || spec.requires}.`;
+          unit.lastAction = dependencyReady ? `Awaiting ${Object.entries(buildCost).filter(([resource, amount]) => (economy.inventory[resource] || 0) < amount).map(([resource, amount]) => `${Math.ceil(amount - (economy.inventory[resource] || 0))} ${economyResourceLabels[resource] || resource}`).join(" and ")} for ${spec.label}.` : `Waiting for ${buildingCatalog[spec.requires]?.label || spec.requires}.`;
           return;
         }
 
@@ -3872,8 +3896,7 @@ import {
           unit.buildCd = 2;
           return;
         }
-        economy.inventory.requisition -= spec.cost;
-        economy.inventory.materials -= materialCost;
+        for (const [resource, amount] of Object.entries(buildCost)) economy.inventory[resource] -= amount;
         syncLegacyResources(unit.faction);
         const structure = {
           id: `building-${state.structures.length + 1}`,
@@ -4314,7 +4337,10 @@ import {
       }
 
       function resourceNodeForStructure(structure) {
-        const category = extractorResourceType[structure.type];
+        const zoneResources = economyFor(structure.faction).zoneResources;
+        const category = structure.type === "mine" && zoneResources.includes("scrap") ? "scrap"
+          : structure.type === "farm" && zoneResources.includes("biomass") ? "biomass"
+            : extractorResourceType[structure.type];
         if (!category) return null;
         return strategicResourceNodes(category)
           .sort((a, b) => distance(structure, a) - distance(structure, b))[0] || null;
@@ -4866,6 +4892,7 @@ import {
           else if (!branchGoal && behavior.expansion >= 72) goal = "Secure connected territory and strategic resources";
           else if (!branchGoal && behavior.caution >= 72) goal = "Secure approaches and deny routes";
           else if (!branchGoal && behavior.aggression >= 72) goal = "Break enemy routes and eliminate resistance";
+          if (player.forceState?.allIn) goal = "Commit every reserve and force a decisive result";
           if (player.endgameDirective) goal = player.endgameDirective.goal;
           state.armyPlans[player.id] = {
             goal,
@@ -5307,33 +5334,27 @@ import {
       function canDetectTarget(unit, target) {
         if (!unit || !target) return false;
         const terrain = terrainAt(unit);
-        const sensor = unit.range * (state.visibility / 100) * terrain.detection * (unit.role === "scout" ? 1.35 : 1);
+        const sun = sunState();
+        const visibilityMultiplier = globalDayNightVisibility({ period: sun.period, weather: state.dayNight.weather, nightVision: nightVisionFactor(unit.faction), affectsDetection: state.dayNight.enabled && state.lighting.affectsDetection });
+        const sensor = unit.range * (state.visibility / 100) * terrain.detection * visibilityMultiplier * (unit.role === "scout" ? 1.35 : 1);
         if (buildingCatalog[target.type]) return distance(unit, target) < sensor * (target.type === "outpost" || target.type === "generator" ? 1.35 : 1.08);
-        const light = lightingAt(target, unit.faction);
-        const optics = nightVisionFactor(unit.faction);
-        const ambient = clamp(0.36 + light.brightness * 0.76 + optics * 0.34, 0.42, 1.28);
-        const concealment = light.shadowed ? 0.62 : 1;
-        const searchlight = light.searchlight > 0.15 ? 1.48 : 1;
         const occlusion = visionOcclusionBetween(unit, target);
-        return distance(unit, target) < sensor * terrainAt(target).detection * ambient * concealment * searchlight * clamp(0.45 + occlusion * 0.55, 0.45, 1);
+        return distance(unit, target) < sensor * terrainAt(target).detection * clamp(0.45 + occlusion * 0.55, 0.45, 1);
       }
 
       function findTarget(unit) {
         const terrain = terrainAt(unit);
         const objectivePlan = battleObjectivePlanFor(unit.faction);
-        const sensor = unit.range * (state.visibility / 100) * terrain.detection * (unit.role === "scout" ? 1.35 : 1);
-        const optics = nightVisionFactor(unit.faction);
+        const sun = sunState();
+        const visibilityMultiplier = globalDayNightVisibility({ period: sun.period, weather: state.dayNight.weather, nightVision: nightVisionFactor(unit.faction), affectsDetection: state.dayNight.enabled && state.lighting.affectsDetection });
+        const sensor = unit.range * (state.visibility / 100) * terrain.detection * visibilityMultiplier * (unit.role === "scout" ? 1.35 : 1);
         const nearby = nearbyCombatObjects(unit, sensor * 1.7);
         const candidates = [];
         for (const other of nearby.units) {
           if (!other.alive || other.incapacitated || areAllies(other.faction, unit.faction)) continue;
           const d = distance(unit, other);
-          const light = lightingAt(other, unit.faction);
-          const ambient = clamp(0.36 + light.brightness * 0.76 + optics * 0.34, 0.42, 1.28);
-          const concealment = light.shadowed ? 0.62 : 1;
-          const searchlight = light.searchlight > 0.15 ? 1.48 : 1;
-          const detectionRadius = sensor * terrainAt(other).detection * ambient * concealment * searchlight * clamp(0.45 + visionOcclusionBetween(unit, other) * 0.55, 0.45, 1);
-          other.lightState = light.searchlight > 0.15 ? "Searchlight exposed" : light.shadowed ? "In shadow" : light.period;
+          const detectionRadius = sensor * terrainAt(other).detection * clamp(0.45 + visionOcclusionBetween(unit, other) * 0.55, 0.45, 1);
+          other.lightState = sun.period;
           if (d >= detectionRadius) continue;
           const threat = other.role === "vehicle" ? 90 : other.role === "commander" ? 82 : other.role === "medic" ? 68 : 50;
           const distanceValue = (1 - d / Math.max(1, detectionRadius)) * 72;
@@ -7148,12 +7169,12 @@ import {
             if (segment.observationFaction) segment.visibility = clamp(segment.visibility + (friendlyObservation ? 0.2 : 0.12), 0.08, 1);
             const checkpointSecurity = segment.checkpoint && areAllies(segment.checkpoint.faction, road.faction) ? segment.checkpoint.integrity * 0.18 : 0;
             segment.ambushRisk = clamp(segment.cover * 0.42 + (1 - segment.visibility) * 0.3 + hostilePower / Math.max(1, hostilePower + friendlyPower) * 0.5 + segment.traffic / Math.max(1, segment.capacity) * 0.16 - (friendlyObservation ? 0.2 : 0) - checkpointSecurity, 0, 1);
-            const weatherWear = ["rain", "snow", "dust"].includes(state.lighting.weather) ? 0.00018 : 0.00006;
+            const weatherWear = ["rain", "snow", "dust"].includes(state.dayNight.weather) ? 0.00018 : 0.00006;
             segment.condition = clamp(segment.condition - dt * weatherWear * (1 + segment.traffic / Math.max(1, segment.capacity)), 0, 1);
             const hierarchyBaseline = road.hierarchy === "strategic supply artery" ? 0.82 : road.hierarchy === "main supply route" ? 0.68 : road.kind === "trade route" ? 0.76 : 0.38;
             segment.supplyImportance = clamp(hierarchyBaseline + segment.traffic / Math.max(1, segment.capacity) * 0.28, 0, 1);
             const persistentFlags = (segment.operationalFlags || []).filter(flag => ["wreck", "mined", "flooded", "collapsed", "cratered", "fallen tree", "obstructed", "partially obstructed"].includes(flag));
-            if (state.lighting.weather === "rain" && segment.condition < 0.58 && (["mud", "swamp", "river", "shallowwater"].includes(terrain.type) || segment.bridge) && !persistentFlags.includes("flooded")) persistentFlags.push("flooded");
+            if (state.dayNight.weather === "rain" && segment.condition < 0.58 && (["mud", "swamp", "river", "shallowwater"].includes(terrain.type) || segment.bridge) && !persistentFlags.includes("flooded")) persistentFlags.push("flooded");
             segment.operationalFlags = [...new Set(persistentFlags)];
             if (!persistentFlags.includes("mined")) segment.mineFaction = null;
             if (persistentFlags.length) segment.operationalFlags.push("damaged");
@@ -7316,14 +7337,50 @@ import {
       }
 
       function unitCapFor(player) {
-        if (state.performanceRequested !== "auto") {
-          const scale = scalePresetFor(state.units.length, state.performanceRequested);
-          const perPlayer = Math.max(4, Math.ceil(scale.targetUnits / Math.max(1, state.players.length)));
-          return isImperialGuard(player) ? Math.ceil(perPlayer * 1.35) : perPlayer;
-        }
-        const generic = state.players.length > 8 ? 8 : state.players.length > 4 ? 12 : 18;
-        if (!isImperialGuard(player)) return generic;
-        return state.players.length > 8 ? 17 : state.players.length > 4 ? 25 : 36;
+        return allocateForceCaps(state.players, state.battleScale.targetUnits)[player.id] || 4;
+      }
+
+      function forceCommitmentContext(player) {
+        const allies = state.units.filter(unit => unit.alive && !unit.incapacitated && unit.faction === player.id);
+        const enemies = state.units.filter(unit => unit.alive && !unit.incapacitated && !areAllies(unit.faction, player.id));
+        const casualties = state.casualties[player.id] || 0;
+        const headquartersThreat = clamp(enemies.filter(unit => distance(unit, player.base) < 320).length / Math.max(1, allies.length * 0.5), 0, 1);
+        const criticalContest = Boolean(state.strategicTerritory?.cells.some(cell => cell.objective && cell.siege?.attackerId && cell.owner === player.id));
+        const enemyStrengthPressure = clamp(enemies.length / Math.max(1, allies.length + enemies.length), 0, 1);
+        const casualtyPressure = clamp(casualties / Math.max(1, allies.length + casualties), 0, 1);
+        const enemyEstablished = state.players.some(candidate => !areAllies(candidate.id, player.id) && candidate.hasEstablishedMilitaryForce);
+        const victoryOpportunity = enemyEstablished ? clamp(1 - enemies.length / Math.max(1, unitCapFor(player)), 0, 1) : 0;
+        return {
+          objectiveImportance: Math.max(...Object.values(battleObjectivePlanFor(player).signals || {}).map(Number), 0.35),
+          enemyStrengthPressure,
+          territoryPressure: clamp(economyFor(player.id).territoryPressure || 0, 0, 1),
+          casualtyPressure,
+          headquartersThreat,
+          timePressure: clamp(state.time / 1200, 0, 1),
+          victoryProximity: victoryOpportunity,
+          victoryOpportunity,
+          lastCriticalObjectiveContested: criticalContest,
+          enemyNearVictory: false,
+          timeRemainingRatio: 1,
+          forceDefeatImminent: player.hasEstablishedMilitaryForce && allies.filter(unit => unit.role !== "builder").length <= 2
+        };
+      }
+
+      function updatePlayerForceCommitment(player) {
+        const context = forceCommitmentContext(player);
+        player.forceState = updateForceState(player.forceState || createForceState(), context);
+        const living = state.units.filter(unit => unit.alive && unit.faction === player.id).length;
+        player.forceState.fieldedStrength = living;
+        player.forceState.reinforcementCapacity = unitCapFor(player);
+        player.forceState.reserveStrength = Math.max(0, player.forceState.reinforcementCapacity - living);
+        if (player.forceState.allIn && context.headquartersThreat >= 0.9) player.scenarioTags = [...new Set([...(player.scenarioTags || []), "existential-threat"])];
+        return player.forceState;
+      }
+
+      function desiredFieldStrengthFor(player) {
+        const forceState = player.forceState || updatePlayerForceCommitment(player);
+        const minimumField = player.race === "Necrons" || player.race === "Orks" ? 6 : 2;
+        return Math.max(minimumField, Math.round(unitCapFor(player) * forceState.commitment));
       }
 
       function expandedGuardTemplate(templateKey) {
@@ -7338,9 +7395,7 @@ import {
         const multiplier = aiConfig.guardTemplates?.[templateKey]?.costMultiplier ?? 1;
         return {
           requisition: Math.max(14, Math.ceil(count * 5.5 * multiplier)),
-          food: Math.max(4, Math.ceil(count * 2.1 * multiplier)),
-          ammunition: Math.max(7, Math.ceil(count * 2.5 * multiplier)),
-          medical: Math.max(1, Math.ceil(count * 0.5 * multiplier))
+          food: Math.max(4, Math.ceil(count * 2.1 * multiplier))
         };
       }
 
@@ -7596,8 +7651,12 @@ import {
         if (cycle > 0 && cycle % 5 === 4 && vehicleRoster.length) {
           manifest = [{ name: vehicleRoster[Math.floor(cycle / 5) % vehicleRoster.length], role: "vehicle" }];
         } else if (player.faction === "Space Marines") {
-          const size = cycle % 3 === 2 ? 10 : 5;
-          manifest = [{ name: "Sergeant", role: "commander" }, ...Array.from({ length: size - 1 }, () => ({ name: cycle % 2 ? "Intercessor" : "Tactical Marine", role: "trooper" }))];
+          if (cycle > 0 && cycle % 6 === 5 && ["major", "decisive", "all-in"].includes(player.forceState?.commitmentStage)) {
+            manifest = [{ name: commandPresenceFor(player, player.forceState.commitmentStage, player.scenarioTags || []), role: "commander" }];
+          } else {
+            const size = cycle % 3 === 2 ? 10 : 5;
+            manifest = [{ name: "Sergeant", role: "commander" }, ...Array.from({ length: size - 1 }, () => ({ name: cycle % 2 ? "Intercessor" : "Tactical Marine", role: "trooper" }))];
+          }
         } else if (player.race === "Orks") {
           if (cycle % 6 === 5) manifest = [{ name: "Mekboy", role: "engineer" }];
           else if (cycle % 4 === 3) manifest = [{ name: "Runtherd", role: "commander" }, ...Array.from({ length: 15 }, () => ({ name: "Gretchin", role: "trooper" }))];
@@ -7607,11 +7666,11 @@ import {
             manifest = [{ name: "Nob", role: "commander" }, ...Array.from({ length: count - 1 }, () => ({ name: kind, role: "trooper" }))];
           }
         } else if (player.race === "Tyranids") {
-          manifest = cycle % 5 === 4 ? [{ name: "Tyranid Prime", role: "commander" }] : cycle % 3 === 2
+          manifest = cycle > 0 && cycle % 6 === 5 ? [{ name: commandPresenceFor(player, player.forceState?.commitmentStage || "contact", player.scenarioTags || []), role: "commander" }] : cycle % 3 === 2
             ? Array.from({ length: 3 }, () => ({ name: "Tyranid Warrior", role: "trooper" }))
             : Array.from({ length: 10 }, () => ({ name: cycle % 2 ? "Hormagaunt" : "Termagant", role: "trooper" }));
         } else if (player.race === "Necrons") {
-          manifest = cycle % 4 === 3 ? [{ name: "Overlord", role: "commander" }] : Array.from({ length: cycle % 3 === 2 ? 5 : 10 }, () => ({ name: cycle % 3 === 2 ? "Immortal" : "Warrior", role: "trooper" }));
+          manifest = cycle % 4 === 3 ? [{ name: commandPresenceFor(player, player.forceState?.commitmentStage || "contact", player.scenarioTags || []), role: "commander" }] : Array.from({ length: cycle % 3 === 2 ? 5 : 10 }, () => ({ name: cycle % 3 === 2 ? "Immortal" : "Warrior", role: "trooper" }));
         } else if (player.race === "T'au") {
           manifest = cycle % 4 === 3 ? [{ name: "Crisis Battlesuit", role: "trooper" }] : [{ name: "Shas'ui", role: "commander" }, ...Array.from({ length: 9 }, () => ({ name: "Fire Warrior", role: "trooper" }))];
         } else manifest = [{ name: factionUnitName(player, trainingRoles[cycle % trainingRoles.length], cycle), role: trainingRoles[cycle % trainingRoles.length] }];
@@ -7653,7 +7712,7 @@ import {
       function refreshEconomyRequests(player) {
         const economy = economyFor(player.id);
         const capacity = economyCapacity(player.id);
-        economy.shortages = economyResourceKeys.filter(key => (economy.inventory[key] || 0) < (capacity[key] || 1) * 0.16);
+        economy.shortages = economy.activeResources.filter(key => (economy.inventory[key] || 0) < (capacity[key] || 1) * 0.16);
         for (const request of economy.queue.filter(item => item.type === "emergency" && !["Delivered", "Denied", "Complete"].includes(item.status))) {
           if (!economy.shortages.includes(request.resource)) request.status = "Complete";
         }
@@ -7667,7 +7726,7 @@ import {
         if (economy.shortages.includes("food") && !hasType("farm")) addEconomyRequest(player.id, "build-farm", "build", "Build supply farm", 86, { buildType: "farm" });
         if (economy.shortages.includes("materials") && !hasType("mine")) addEconomyRequest(player.id, "build-mine", "build", "Build material mine", 88, { buildType: "mine" });
         const living = state.units.filter(unit => unit.alive && unit.faction === player.id).length;
-        const unitCap = unitCapFor(player);
+        const unitCap = desiredFieldStrengthFor(player);
         if (living < unitCap) {
           if (isImperialGuard(player)) {
             const training = selectGuardTraining(player, unitCap - living);
@@ -7753,7 +7812,7 @@ import {
           friendlyTerritory: landing.ownership === player.id,
           specialAvailable: { "drop-pod": true }
         });
-        return decision.method === "drop-pod" && landing.score > 34;
+        return decision.method === "drop-pod" && landing.score > (player.forceState?.allIn ? 18 : 34);
       }
 
       function startDropPod(player, request) {
@@ -7823,7 +7882,8 @@ import {
               continue;
             }
             if (!economy.approvedBuilds.includes(request.buildType)) economy.approvedBuilds.push(request.buildType);
-            request.status = economy.inventory.requisition > reserve ? "Approved · builder assigned" : "Delayed · reserve protected";
+            const buildCost = constructionCostFor(player, buildingCatalog[request.buildType]?.cost || reserve);
+            request.status = canAfford(economy.inventory, buildCost) ? "Approved · builder assigned" : "Delayed · reserve protected";
           } else if (request.type === "resupply") {
             const unit = state.units.find(item => item.id === request.targetId && item.alive);
             if (!unit) { request.status = "Denied"; continue; }
@@ -7836,10 +7896,10 @@ import {
             const origin = closestStoragePoint(player.id, unit);
             const convoy = createConvoy(player.id, { ammunition: ammo, medical, food, fuel }, origin, unit, { destinationKind: "unit", destinationId: unit.id, name: `Frontline Resupply #${state.nextConvoyId}` });
             if (!convoy) { request.status = "Delayed · convoy capacity unavailable"; continue; }
-            economy.inventory.ammunition -= ammo;
-            economy.inventory.medical -= medical;
-            economy.inventory.food -= food;
-            economy.inventory.fuel -= fuel;
+            economy.inventory.ammunition = Math.max(0, (economy.inventory.ammunition || 0) - ammo);
+            economy.inventory.medical = Math.max(0, (economy.inventory.medical || 0) - medical);
+            economy.inventory.food = Math.max(0, (economy.inventory.food || 0) - food);
+            economy.inventory.fuel = Math.max(0, (economy.inventory.fuel || 0) - fuel);
             request.status = ammo < 8 ? "Partially fulfilled · convoy en route" : "Approved · convoy en route";
           } else if (request.type === "emergency") {
             request.status = state.convoys.some(item => item.faction === player.id && item.cargo[request.resource]) ? "Approved · convoy protected" : "Delayed · production increasing";
@@ -7855,7 +7915,7 @@ import {
             const barracks = state.structures.find(item => item.faction === player.id && item.type === "barracks" && item.progress >= 1 && item.alive !== false);
             const trainingCargo = isImperialGuard(player)
               ? guardTrainingCost(request.guardTemplateKey || "standard", request.memberCount)
-              : { requisition: 15, food: 3, ammunition: 4, medical: 1 };
+              : formationCostFor(player, productionManifestFor(player, Infinity));
             if (!barracks) { request.status = "Delayed · barracks unavailable"; continue; }
             const ready = Object.entries(trainingCargo).every(([key, value]) => (barracks.inventory[key] || 0) >= value);
             if (ready) { request.status = "Approved · squad preparing"; continue; }
@@ -7880,7 +7940,8 @@ import {
         if (!spec || structure.progress < 1 || structure.alive === false) return;
         ensureStructureRuntime(structure);
         const economy = economyFor(player.id);
-        const consumes = { parts: 0.25, ...(spec.consumes || {}) };
+        const activeResourceSet = new Set(economy.activeResources);
+        const consumes = Object.fromEntries(Object.entries({ parts: 0.25, ...(spec.consumes || {}) }).filter(([resource]) => activeResourceSet.has(resource)));
         const inbound = state.convoys.some(item => !item.finished && item.destinationId === structure.id);
         if (!inbound) {
           const needed = {};
@@ -7896,6 +7957,12 @@ import {
           }
         }
         const resourceNode = resourceNodeForStructure(structure);
+        const produces = { ...(spec.produces || {}) };
+        if (resourceNode && extractorResourceType[structure.type] && resourceNode.resourceType !== extractorResourceType[structure.type]) {
+          const yieldRate = Math.max(1, ...Object.values(produces).map(Number));
+          for (const resource of Object.keys(produces)) if (!activeResourceSet.has(resource)) delete produces[resource];
+          produces[resourceNode.resourceType] = yieldRate;
+        }
         const nodeDistance = resourceNode ? distance(structure, resourceNode) : Infinity;
         const reserveRatio = resourceNode ? resourceNode.reserve / Math.max(1, resourceNode.maxReserve) : 0;
         const depletionFactor = !extractorResourceType[structure.type] ? 1
@@ -7908,9 +7975,9 @@ import {
         const canRun = depletionFactor > 0 && Object.entries(consumes).every(([key, rate]) => (structure.inventory[key] || 0) >= rate);
         if (canRun) {
           Object.entries(consumes).forEach(([key, rate]) => { structure.inventory[key] = Math.max(0, (structure.inventory[key] || 0) - rate); });
-          Object.entries(spec.produces || {}).forEach(([key, rate]) => { structure.inventory[key] = (structure.inventory[key] || 0) + rate * clamp(structure.condition, 0.2, 1) * depletionFactor; });
+          Object.entries(produces).filter(([key]) => activeResourceSet.has(key)).forEach(([key, rate]) => { structure.inventory[key] = (structure.inventory[key] || 0) + rate * clamp(structure.condition, 0.2, 1) * depletionFactor; });
           if (resourceNode && nodeDistance <= 120 && extractorResourceType[structure.type]) {
-            const drain = Object.values(spec.produces || {}).reduce((sum, value) => sum + value, 0) * 0.55;
+            const drain = Object.values(produces).reduce((sum, value) => sum + value, 0) * 0.55;
             if (resourceNode.resourceZone) drainResourceZone(resourceNode, drain);
             else resourceNode.reserve = Math.max(0, resourceNode.reserve - drain);
             resourceNode.condition = clamp(resourceNode.reserve / Math.max(1, resourceNode.maxReserve), 0.12, 1);
@@ -7921,6 +7988,9 @@ import {
           }
           if (structure.type === "researchcenter") {
             economy.research ||= { level: 0, progress: 0, status: "Researching" };
+            if (player.forceState?.allIn) {
+              economy.research.status = "Suspended · all resources committed to the battle";
+            } else {
             economy.research.progress += 7 * clamp(structure.condition, 0.2, 1);
             economy.research.status = `Research level ${economy.research.level} · ${Math.floor(economy.research.progress)}%`;
             if (economy.research.progress >= 100) {
@@ -7930,10 +8000,11 @@ import {
               economy.officers.factoryOverseer = `${factionBuildingLabel(player.id, "researchcenter")} completed research level ${economy.research.level}`;
               incident(`${player.faction} completed research level ${economy.research.level}; future production priorities were recalculated.`, structure.id, "info");
             }
+            }
           }
         }
         const output = {};
-        for (const key of Object.keys(spec.produces || {})) {
+        for (const key of Object.keys(produces).filter(key => activeResourceSet.has(key))) {
           const amount = structure.inventory[key] || 0;
           if (amount >= 4) output[key] = amount;
         }
@@ -8002,16 +8073,17 @@ import {
         let destination = selected.to;
         if (!origin || !destination) return;
         const allowed = new Set(selected.route.resources.length ? selected.route.resources : Object.keys(origin.exports || {}));
+        const activeResources = new Set(economy.activeResources);
         const trackedImports = Object.entries(origin.imports || {}).filter(([resource]) => Object.hasOwn(economy.inventory, resource));
         const importEfficiency = trackedImports.length
           ? clamp(Math.min(...trackedImports.map(([resource, amount]) => (economy.inventory[resource] || 0) / Math.max(1, amount))), 0.25, 1)
           : 1;
         const cargo = Object.fromEntries(Object.entries(origin.exports || {})
-          .filter(([resource]) => allowed.has(resource) && (!economy.shortages.length || economy.shortages.includes(resource)))
+          .filter(([resource]) => activeResources.has(resource) && allowed.has(resource) && (!economy.shortages.length || economy.shortages.includes(resource)))
           .map(([resource, amount]) => [resource, Math.min(amount * importEfficiency, selected.route.capacity, origin.capacity)]));
         if (!Object.keys(cargo).length) {
           for (const [resource, amount] of Object.entries(origin.exports || {})) {
-            if (allowed.has(resource)) cargo[resource] = Math.min(amount * importEfficiency, selected.route.capacity, origin.capacity);
+            if (activeResources.has(resource) && allowed.has(resource)) cargo[resource] = Math.min(amount * importEfficiency, selected.route.capacity, origin.capacity);
           }
         }
         const convoy = createConvoy(player.id, cargo, origin, destination, {
@@ -8043,6 +8115,7 @@ import {
             zone.ownershipInitialized = true;
           }
           if (!zone.owner || zone.owner !== player.id || zone.remaining <= 0) continue;
+          if (!economy.zoneResources.includes(zone.resourceType)) continue;
           if (!zone.requiresBuilding) {
             const assigned = state.units.find(unit => unit.alive && unit.faction === zone.owner && unit.resourceZoneTargetId === zone.id);
             if (!assigned) {
@@ -8084,15 +8157,12 @@ import {
           const ecology = state.factionEcology[player.id];
           if (ecology) economy.inventory.biomass = clamp(Math.max(economy.inventory.biomass || 0, ecology.biomass || 0), 0, capacity.biomass || 999);
         }
-        if (player.race === "Chaos" || player.faction === "Chaos") {
-          const ritualists = state.units.filter(unit => unit.alive && unit.faction === player.id && (unit.role === "commander" || /apostle|chaplain/i.test(unit.name))).length;
-          economy.inventory.faith = clamp((economy.inventory.faith || 0) + ritualists * 0.7, 0, capacity.faith || 999);
-        }
       }
 
       function economyTick() {
         for (const player of state.players) {
-          const unitCap = unitCapFor(player);
+          updatePlayerForceCommitment(player);
+          const unitCap = desiredFieldStrengthFor(player);
           const economy = economyFor(player.id);
           refreshEconomyRequests(player);
           processEconomyRequests(player);
@@ -8138,7 +8208,7 @@ import {
           }
           const groupManifest = guardPlayer ? [] : productionManifestFor(player, unitCap - living);
           if (!guardTraining) guardBatchSize = guardPlayer ? 0 : groupManifest.length;
-          const trainCost = guardTraining ? guardTrainingCost(guardTraining.templateKey, guardBatchSize) : { requisition: 15, food: 3, ammunition: 4, medical: 1 };
+          const trainCost = guardTraining ? guardTrainingCost(guardTraining.templateKey, guardBatchSize) : formationCostFor(player, groupManifest);
           const canTrain = barracks && Object.entries(trainCost).every(([key, value]) => (barracks.inventory[key] || 0) >= value);
           const batchFits = living + guardBatchSize <= unitCap;
           if (barracks && living < unitCap && canTrain && batchFits && (!guardPlayer || guardTraining) && state.time >= state.nextTrain[player.id]) {
@@ -9228,7 +9298,15 @@ import {
             combatIntent: unit.combatIntent, killConfidence: unit.killConfidence,
             lastAction: unit.lastAction, logs: unit.logs?.slice(-3) || []
           })),
-          structures: state.structures.map(item => ({ ...item })),
+          structures: state.structures.map(item => ({
+            id: item.id, faction: item.faction, type: item.type, displayName: item.displayName,
+            x: item.x, y: item.y, hp: item.hp, maxHp: item.maxHp,
+            progress: item.progress, alive: item.alive, condition: item.condition,
+            hitbox: item.hitbox ? { ...item.hitbox } : null,
+            previousFaction: item.previousFaction, formerFaction: item.formerFaction,
+            captureProgress: item.captureProgress, biological: item.biological,
+            destroyedAt: item.destroyedAt, variant: item.variant, seed: item.seed, stage: item.stage
+          })),
           squads: state.squads.map(squad => ({
             id: squad.id, name: squad.name, leaderId: squad.leaderId, faction: squad.faction,
             formation: squad.formation, orderType: squad.orderType, roadId: squad.roadId,
@@ -9246,19 +9324,23 @@ import {
               utilityScores: { ...(player.factionAIScores || {}) },
               threatEstimate: player.factionAIContext?.enemyPressure || 0,
               battleObjectiveMethod: player.battleObjectiveMethod,
+              commitmentStage: player.forceState?.commitmentStage || "contact",
+              commitment: player.forceState?.commitment || 0.35,
               endgameDirective: player.endgameDirective ? { ...player.endgameDirective, target: undefined } : null
             }])),
             economy: Object.fromEntries(state.players.map(player => [player.id, {
               inventory: { ...economyFor(player.id).inventory },
               queue: economyFor(player.id).queue.slice(0, 8).map(item => ({ ...item }))
             }])),
-            territory: state.strategicTerritory?.cells.map(cell => ({ id: cell.id, owner: cell.owner, state: cell.state })) || [],
+            territoryRevision: state.navigationRevision,
+            territoryCounts: state.strategicTerritory
+              ? Object.fromEntries(state.players.map(player => [player.id, state.strategicTerritory.cells.filter(cell => cell.owner === player.id).length]))
+              : {},
             casualties: { ...state.casualties },
             reinforcements: state.dropPods.map(pod => ({ id: pod.id, faction: pod.faction, stage: pod.stage, deployed: pod.deployed })),
             incidents: state.incidents.slice(0, 12).map(item => ({ ...item }))
           }
         });
-        if (state.snapshots.length > 180) state.snapshots.shift();
         els.timeline.max = String(Math.max(0, state.snapshots.length - 1));
         if (!state.replay) {
           els.timeline.value = els.timeline.max;
@@ -10629,12 +10711,14 @@ import {
         ctx.globalAlpha = 1;
       }
 
-      const dynamicLightLayer = document.createElement("canvas");
-      dynamicLightLayer.width = VW;
-      dynamicLightLayer.height = VH;
-      const dynamicLightContext = dynamicLightLayer.getContext("2d");
+      let dynamicLightLayer = null;
+      let dynamicLightContext = null;
 
       function drawDynamicLighting() {
+        dynamicLightLayer ||= document.createElement("canvas");
+        dynamicLightLayer.width ||= VW;
+        dynamicLightLayer.height ||= VH;
+        dynamicLightContext ||= dynamicLightLayer.getContext("2d");
         if (!state.lighting.enabled) return;
         const time = currentSnapshot()?.clockElapsed ?? state.clock.elapsedSeconds;
         const sun = sunState(time);
@@ -10704,6 +10788,19 @@ import {
           }
           ctx.restore();
         }
+      }
+
+      function drawDayNightTint() {
+        if (!state.dayNight.enabled || !state.lighting.visualTint) return;
+        const time = currentSnapshot()?.clockElapsed ?? state.clock.elapsedSeconds;
+        const darkness = dayNightDarkness(sunState(time).period, state.dayNight.weather);
+        if (darkness <= 0.01) return;
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.fillStyle = "#07101f";
+        ctx.globalAlpha = darkness;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.restore();
       }
 
       function drawLightingOverlay() {
@@ -10801,10 +10898,6 @@ import {
         for (const item of structures) {
           if (item.alive === false || item.progress < 1) continue;
           add(playerFor(item.faction).team, { x: item.x, y: item.y, r: item.type === "observationtower" ? 170 : 78 });
-        }
-        for (const source of activeLightSources(currentSnapshot()?.clockElapsed ?? state.clock.elapsedSeconds)) {
-          if (!source.faction) continue;
-          add(playerFor(source.faction).team, { x: source.x, y: source.y, r: source.radius * (source.searchlight ? 1 : 0.7) });
         }
       }
 
@@ -11311,6 +11404,92 @@ import {
         els.minimapCoordinates.textContent = `${Math.round(state.camera.x).toString().padStart(4, "0")}, ${Math.round(state.camera.y).toString().padStart(4, "0")}`;
       }
 
+      function updateRuntimeTelemetry(now, force = false) {
+        if (!runtimeTelemetry.shouldUpdate(now, force)) return;
+        const set = (key, value) => runtimeTelemetry.set(root, key, value);
+        set("worldSize", `${worldWidth()}x${worldHeight()}`);
+        set("clockRunning", state.clock.running);
+        set("clockRate", state.clock.rate);
+        set("clockElapsed", state.clock.elapsedSeconds.toFixed(3));
+        set("aiBehavior", state.players.map(player => {
+          const behavior = aiBehaviorFor(player);
+          return `${player.id}:${behavior.aggression},${behavior.caution},${behavior.expansion},${behavior.economy}`;
+        }).join("|"));
+        set("battleObjectives", state.players.map(player => `${player.id}:${battleObjectivePlanFor(player).id}`).join("|"));
+        set("objectiveMethods", state.players.map(player => `${player.id}:${battleObjectivePlanFor(player).method}`).join("|"));
+        set("objectiveProgress", state.players.map(player => `${player.id}:${Math.round((player.battleObjectiveState?.progress || 0) * 100)}`).join("|"));
+        set("camera", `${state.camera.x.toFixed(2)},${state.camera.y.toFixed(2)},${state.camera.zoom.toFixed(3)}`);
+        set("visibleChunks", state.visibleChunkCount);
+        set("renderedObjects", state.renderedObjectCount);
+        set("terrainChunks", state.terrainChunks.size);
+        set("featureCount", state.features.length);
+        set("collisionObstacles", state.features.filter(feature => !feature.deleted && ensureFeatureCollision(feature)?.environmentObstacle && feature.collisionState !== "cleared").length);
+        set("territoryObjects", state.territories.filter(territory => territory.cellBacked).length);
+        set("territoryCells", state.territories.reduce((sum, territory) => sum + (territory.claimedCells?.size || 0), 0));
+        set("synapseCoverage", Math.round(Math.max(0, ...Object.values(state.factionEcology).map(item => item.synapseCoverage || 0)) * 100));
+        set("waaaghMomentum", Math.round(Math.max(0, ...Object.values(state.factionEcology).map(item => item.waaaghMomentum || 0)) * 100));
+        set("dropPods", state.dropPods.length);
+        set("unsourcedUnits", state.units.filter(unit => !validateDeploymentRecord(unit.deployment)).length);
+        set("aircraft", state.convoys.filter(convoy => convoy.mode === "cargo aircraft" && !convoy.finished).length);
+        set("combinedArmsGroups", state.players.map(player => `${player.id}:${Object.entries(player.combinedArmsGroups || {}).filter(([, count]) => count > 0).map(([role, count]) => `${role}=${count}`).join(",")}`).join("|"));
+        set("factionAIBranches", state.players.map(player => `${player.id}:${state.factionAIProfiles[player.id]?.branch || "unknown"}:${player.factionAIChoice || "pending"}`).join("|"));
+        set("learningObservations", Object.values(state.factionLearning).reduce((sum, memory) => sum + (memory.observations?.length || 0), 0));
+        const relationshipBands = {};
+        for (const unit of state.units) {
+          if (!unit.alive) continue;
+          for (const record of Object.values(unit.relationships || {})) {
+            const band = relationshipBand(record.score || 0);
+            relationshipBands[band] = (relationshipBands[band] || 0) + 1;
+          }
+        }
+        set("relationshipBands", JSON.stringify(relationshipBands));
+        set("hostileDropPods", state.dropPods.filter(pod => pod.landingOwnership && ![pod.faction, "allied"].includes(pod.landingOwnership)).length);
+        set("dropPodScores", state.dropPods.map(pod => Math.round(pod.landingScore || 0)).join(","));
+        set("exploredChunks", state.explored[state.fogPlayer]?.size || 0);
+        set("visibleFogChunks", state.visibleFogChunks[state.fogPlayer]?.size || 0);
+        set("exploredFogCells", state.exploredFogCells[state.fogPlayer]?.size || 0);
+        set("visibleFogCells", state.visibleFogCells[state.fogPlayer]?.size || 0);
+        set("aiLayers", 4);
+        for (const [key, value] of Object.entries(state.aiDiagnostics)) set(key, value);
+        set("navigationRevision", state.navigationRevision);
+        set("navigationPlans", state.navigationPlans);
+        set("navigationCache", navigationPlanner.cache.size);
+        set("resourceNodes", state.resourceZones.length);
+        set("resourceZones", state.resourceZones.length);
+        set("economicNodes", state.economicNodes.length);
+        set("authoredTradeRoutes", state.tradeRoutes.filter(route => routeIsAuthoredAndComplete(route, state.economicNodes)).length);
+        set("generatedTradeRoutes", 0);
+        set("temporarySupplyRoutes", state.supplyRoutes.filter(route => route.active).length);
+        set("convoyHistory", state.routeHistory.convoy.length);
+        set("roadHistory", state.routeHistory.road.length);
+        set("phase11ZoneManager", "dynamic-polygonal");
+        set("phase13RouteAuthority", "ai-supply-only;map-authored-trade");
+        set("depletedNodes", state.resourceZones.filter(zone => zone.remaining <= 0).length);
+        set("projectilePool", state.projectilePool.length);
+        set("casualtyPoints", state.casualtyPoints.filter(point => point.active).length);
+        set("incapacitated", state.units.filter(unit => unit.alive && unit.incapacitated).length);
+        set("casualtyStates", [...new Set(state.units.map(unit => unit.woundState || "Healthy"))].join(","));
+        set("deathAnimations", state.units.filter(unit => !unit.alive).length + state.structures.filter(structure => structure.alive === false).length);
+        set("deathRemovals", `${state.deathRemovalStats.units},${state.deathRemovalStats.structures}`);
+        set("simulationPaused", state.paused);
+        set("productionGroups", [...new Set(state.squads.map(squad => squad.templateId).filter(Boolean))].join(","));
+        set("territoryPressure", state.players.map(player => `${player.id}:${Math.round((economyFor(player.id).territoryPressure || 0) * 100)}`).join(","));
+        set("strategicOutcomes", state.players.map(player => `${player.id}:${state.strategicOutcomes[player.id]?.status || "forming"}`).join("|"));
+        set("phase20Victory", "five-capability-annihilation");
+        set("endgameOrders", state.players.map(player => `${player.id}:${player.endgameDirective?.action || "standard-operations"}`).join("|"));
+        set("phase21Replay", `snapshots:${state.snapshots.length};incidents:${state.incidents.length};ai-inspector:true`);
+        set("phase22Scale", `${state.performancePreset.id}:${state.performancePreset.distantStride}`);
+        set("phase22Worker", distantSimulationWorker ? `ready:${state.distantCombatSummary?.processed || 0}` : "unavailable");
+        set("phase23Branches", state.players.map(player => `${player.id}:${state.factionAIProfiles[player.id]?.branch}:${state.factionGameplay[player.id]?.doctrine || "forming"}`).join("|"));
+        set("squadRoles", state.squads.map(squad => `${squad.id}:${squad.primaryRole || "reserve"}`).join("|"));
+        set("squadRoleOverlay", state.squadRoleOverlay);
+        set("dayNightModel", "global-tint-and-visibility");
+        set("dynamicLighting", false);
+        set("forceCommitment", state.players.map(player => `${player.id}:${player.forceState?.commitmentStage || "contact"}:${Math.round((player.forceState?.commitment || 0.35) * 100)}`).join("|"));
+        set("economyProfiles", state.players.map(player => `${player.id}:${economyFor(player.id).profileId}:${economyFor(player.id).activeResources.join(",")}`).join("|"));
+        set("telemetryIntervalMs", runtimeTelemetry.intervalMs);
+      }
+
       function draw() {
         const bounds = cameraBounds(CHUNK_SIZE);
         const spatialObjects = spatialObjectsInBounds(bounds);
@@ -11336,90 +11515,8 @@ import {
         const renderedProjectiles = overviewMode ? 0 : state.projectiles.filter(item => pointVisible(item, 48, bounds) && objectVisibleToFog(item)).length;
         state.visibleChunkCount = chunkColumns * chunkRows;
         state.renderedObjectCount = renderedActors + renderedProjectiles + terrainFeatures.length;
+        runtimeTelemetry.set(root, "camera", `${state.camera.x.toFixed(2)},${state.camera.y.toFixed(2)},${state.camera.zoom.toFixed(3)}`);
         els.cameraStatus.textContent = `Camera ${Math.round(state.camera.x)}, ${Math.round(state.camera.y)} · ${Math.round(state.camera.zoom * 100)}% · ${state.visibleChunkCount} chunks`;
-        root.dataset.worldSize = `${worldWidth()}x${worldHeight()}`;
-        root.dataset.clockRunning = String(state.clock.running);
-        root.dataset.clockRate = String(state.clock.rate);
-        root.dataset.clockElapsed = state.clock.elapsedSeconds.toFixed(3);
-        root.dataset.aiBehavior = state.players.map(player => {
-          const behavior = aiBehaviorFor(player);
-          return `${player.id}:${behavior.aggression},${behavior.caution},${behavior.expansion},${behavior.economy}`;
-        }).join("|");
-        root.dataset.battleObjectives = state.players.map(player => `${player.id}:${battleObjectivePlanFor(player).id}`).join("|");
-        root.dataset.objectiveMethods = state.players.map(player => `${player.id}:${battleObjectivePlanFor(player).method}`).join("|");
-        root.dataset.objectiveProgress = state.players.map(player => `${player.id}:${Math.round((player.battleObjectiveState?.progress || 0) * 100)}`).join("|");
-        root.dataset.camera = `${state.camera.x.toFixed(2)},${state.camera.y.toFixed(2)},${state.camera.zoom.toFixed(3)}`;
-        root.dataset.visibleChunks = String(state.visibleChunkCount);
-        root.dataset.renderedObjects = String(state.renderedObjectCount);
-        root.dataset.terrainChunks = String(state.terrainChunks.size);
-        root.dataset.featureCount = String(state.features.length);
-        root.dataset.collisionObstacles = String(state.features.filter(feature => !feature.deleted && ensureFeatureCollision(feature)?.environmentObstacle && feature.collisionState !== "cleared").length);
-        root.dataset.territoryObjects = String(state.territories.filter(territory => territory.cellBacked).length);
-        root.dataset.territoryCells = String(state.territories.reduce((sum, territory) => sum + (territory.claimedCells?.size || 0), 0));
-        root.dataset.synapseCoverage = String(Math.round(Math.max(0, ...Object.values(state.factionEcology).map(item => item.synapseCoverage || 0)) * 100));
-        root.dataset.waaaghMomentum = String(Math.round(Math.max(0, ...Object.values(state.factionEcology).map(item => item.waaaghMomentum || 0)) * 100));
-        root.dataset.dropPods = String(state.dropPods.length);
-        root.dataset.unsourcedUnits = String(state.units.filter(unit => !validateDeploymentRecord(unit.deployment)).length);
-        root.dataset.aircraft = String(state.convoys.filter(convoy => convoy.mode === "cargo aircraft" && !convoy.finished).length);
-        root.dataset.combinedArmsGroups = state.players.map(player => `${player.id}:${Object.entries(player.combinedArmsGroups || {}).filter(([, count]) => count > 0).map(([role, count]) => `${role}=${count}`).join(",")}`).join("|");
-        root.dataset.factionAIBranches = state.players.map(player => `${player.id}:${state.factionAIProfiles[player.id]?.branch || "unknown"}:${player.factionAIChoice || "pending"}`).join("|");
-        root.dataset.learningObservations = String(Object.values(state.factionLearning).reduce((sum, memory) => sum + (memory.observations?.length || 0), 0));
-        root.dataset.relationshipBands = JSON.stringify(state.units.filter(unit => unit.alive).reduce((counts, unit) => {
-          for (const record of Object.values(unit.relationships || {})) {
-            const band = relationshipBand(record.score || 0);
-            counts[band] = (counts[band] || 0) + 1;
-          }
-          return counts;
-        }, {}));
-        root.dataset.hostileDropPods = String(state.dropPods.filter(pod => pod.landingOwnership && ![pod.faction, "allied"].includes(pod.landingOwnership)).length);
-        root.dataset.dropPodScores = state.dropPods.map(pod => Math.round(pod.landingScore || 0)).join(",");
-        root.dataset.exploredChunks = String(state.explored[state.fogPlayer]?.size || 0);
-        root.dataset.visibleFogChunks = String(state.visibleFogChunks[state.fogPlayer]?.size || 0);
-        root.dataset.exploredFogCells = String(state.exploredFogCells[state.fogPlayer]?.size || 0);
-        root.dataset.visibleFogCells = String(state.visibleFogCells[state.fogPlayer]?.size || 0);
-        root.dataset.aiLayers = "4";
-        root.dataset.relationshipEdges = String(state.aiDiagnostics.relationshipEdges);
-        root.dataset.killPursuits = String(state.aiDiagnostics.killPursuits);
-        root.dataset.formationSquads = String(state.aiDiagnostics.formationSquads);
-        root.dataset.routeOrders = String(state.aiDiagnostics.routeOrders);
-        root.dataset.guardSquads = String(state.aiDiagnostics.guardSquads);
-        root.dataset.securedRoads = String(state.aiDiagnostics.securedRoads);
-        root.dataset.checkpoints = String(state.aiDiagnostics.checkpoints);
-        root.dataset.ambushRoads = String(state.aiDiagnostics.ambushRoads);
-        root.dataset.environmentCollisions = String(state.aiDiagnostics.environmentCollisions);
-        root.dataset.obstacleProjectileHits = String(state.aiDiagnostics.obstacleProjectileHits);
-        root.dataset.navigationRevision = String(state.navigationRevision);
-        root.dataset.navigationPlans = String(state.navigationPlans);
-        root.dataset.navigationCache = String(navigationPlanner.cache.size);
-        root.dataset.resourceNodes = String(state.resourceZones.length);
-        root.dataset.resourceZones = String(state.resourceZones.length);
-        root.dataset.economicNodes = String(state.economicNodes.length);
-        root.dataset.authoredTradeRoutes = String(state.tradeRoutes.filter(route => routeIsAuthoredAndComplete(route, state.economicNodes)).length);
-        root.dataset.generatedTradeRoutes = "0";
-        root.dataset.temporarySupplyRoutes = String(state.supplyRoutes.filter(route => route.active).length);
-        root.dataset.convoyHistory = String(state.routeHistory.convoy.length);
-        root.dataset.roadHistory = String(state.routeHistory.road.length);
-        root.dataset.phase11ZoneManager = "dynamic-polygonal";
-        root.dataset.phase13RouteAuthority = "ai-supply-only;map-authored-trade";
-        root.dataset.depletedNodes = String(state.resourceZones.filter(zone => zone.remaining <= 0).length);
-        root.dataset.projectilePool = String(state.projectilePool.length);
-        root.dataset.casualtyPoints = String(state.casualtyPoints.filter(point => point.active).length);
-        root.dataset.incapacitated = String(state.units.filter(unit => unit.alive && unit.incapacitated).length);
-        root.dataset.casualtyStates = [...new Set(state.units.map(unit => unit.woundState || "Healthy"))].join(",");
-        root.dataset.deathAnimations = String(state.units.filter(unit => !unit.alive).length + state.structures.filter(structure => structure.alive === false).length);
-        root.dataset.deathRemovals = `${state.deathRemovalStats.units},${state.deathRemovalStats.structures}`;
-        root.dataset.simulationPaused = String(state.paused);
-        root.dataset.productionGroups = [...new Set(state.squads.map(squad => squad.templateId).filter(Boolean))].join(",");
-        root.dataset.territoryPressure = state.players.map(player => `${player.id}:${Math.round((economyFor(player.id).territoryPressure || 0) * 100)}`).join(",");
-        root.dataset.strategicOutcomes = state.players.map(player => `${player.id}:${state.strategicOutcomes[player.id]?.status || "forming"}`).join("|");
-        root.dataset.phase20Victory = "five-capability-annihilation";
-        root.dataset.endgameOrders = state.players.map(player => `${player.id}:${player.endgameDirective?.action || "standard-operations"}`).join("|");
-        root.dataset.phase21Replay = `snapshots:${state.snapshots.length};incidents:${state.incidents.length};ai-inspector:true`;
-        root.dataset.phase22Scale = `${state.performancePreset.id}:${state.performancePreset.distantStride}`;
-        root.dataset.phase22Worker = distantSimulationWorker ? `ready:${state.distantCombatSummary?.processed || 0}` : "unavailable";
-        root.dataset.phase23Branches = state.players.map(player => `${player.id}:${state.factionAIProfiles[player.id]?.branch}:${state.factionGameplay[player.id]?.doctrine || "forming"}`).join("|");
-        root.dataset.squadRoles = state.squads.map(squad => `${squad.id}:${squad.primaryRole || "reserve"}`).join("|");
-        root.dataset.squadRoleOverlay = String(state.squadRoleOverlay);
         beginCanvasFrame();
         drawTerrain(bounds, terrainFeatures);
         drawResourceZones();
@@ -11429,19 +11526,13 @@ import {
           drawOverviewClusters(overviewClusters);
           drawOverviewSquadRoles(renderObjects.units);
         } else {
-          const shadowBounds = cameraBounds(640);
-          const shadowCandidates = snapshot ? replayObjectsInBounds(snapshot, shadowBounds).structures : spatialObjectsInBounds(shadowBounds).structures;
-          const visibleShadowStructures = shadowCandidates.filter(item => objectVisibleToFog(item, state.fogPlayer, item.hitbox ? Math.max(item.hitbox.w, item.hitbox.h) / 2 : 0));
-          drawStructureShadows(snapshot, visibleShadowStructures);
-          drawUnitShadows(snapshot, renderObjects.units);
           drawStructures(snapshot, renderObjects.structures);
           drawTransports();
           drawSquads(snapshot, renderObjects.units);
           for (const unit of renderObjects.units) drawUnit(unit);
         }
         drawProjectiles();
-        drawDynamicLighting();
-        drawLightingOverlay();
+        drawDayNightTint();
         drawFog();
         drawEditorCursor();
         drawMinimap();
@@ -11480,7 +11571,7 @@ import {
         els.unitStats.textContent = `Accuracy ${(unit.accuracy * 100).toFixed(1)} · Precision ${(unit.precision * 100).toFixed(1)} · Reflexes ${(unit.reflexes * 100).toFixed(0)} · ${unit.personality} · ${view.combatIntent || unit.combatIntent} ${view.killConfidence ?? unit.killConfidence}%`;
         els.unitKills.textContent = `${unit.kills} confirmed`;
         const light = lightingAt(view, unit.faction, currentSnapshot()?.clockElapsed ?? state.clock.elapsedSeconds);
-        const lightingState = !state.lighting.enabled ? "Lighting disabled" : light.searchlight > 0.15 ? "Searchlight exposed" : light.shadowed ? "Shadow cover" : `${light.period} light`;
+        const lightingState = state.dayNight.enabled ? `${light.period} · global visibility ${Math.round(light.brightness * 100)}%` : "Day/night disabled";
         const social = strongestRelationships(unit).map(item => `${item.other.name}: ${relationshipBand(item.score)} (${Math.round(item.score)})`).join(" · ");
         els.unitDepth.textContent = `Age ${unit.age} · XP ${unit.experience} · Courage ${(unit.courage * 100).toFixed(0)} · Discipline ${(unit.discipline * 100).toFixed(0)} · ${unit.armor} · ${unit.weapon} · ${lightingState}${social ? ` · Bonds: ${social}` : " · Bonds forming"}`;
         const recordedAI = currentSnapshot()?.analysis?.players?.[player.id];
@@ -11493,7 +11584,7 @@ import {
         els.aiConfidence.textContent = `Confidence ${Math.round(aiInspection.confidence * 100)}%`;
         els.aiGoal.textContent = `Current goal: ${aiInspection.currentGoal}`;
         els.aiThreat.textContent = `Threat estimate: ${Math.round(aiInspection.threatEstimate * 100)}%`;
-        els.aiDoctrine.textContent = `Battle-objective influence: ${prettyObjectiveMethod(aiInspection.doctrineInfluence)} · ${player.distinctiveDoctrine || "shared core"}`;
+        els.aiDoctrine.textContent = `Battle-objective influence: ${prettyObjectiveMethod(aiInspection.doctrineInfluence)} · ${player.distinctiveDoctrine || "shared core"} · Commitment ${recordedAI?.commitmentStage || player.forceState?.commitmentStage || "contact"} ${Math.round((recordedAI?.commitment || player.forceState?.commitment || 0.35) * 100)}%`;
         els.aiUtilities.textContent = "";
         for (const [choice, score] of Object.entries(aiInspection.utilityScores).slice(0, 6)) {
           const item = document.createElement("li");
@@ -11644,9 +11735,9 @@ import {
         const objectivePlan = battleObjectivePlanFor(player);
         const strategicOutcome = state.strategicOutcomes[player.id]?.status || "Building operational capability";
         const pressureLabel = economy.territoryPressure > 0 ? ` · Territory support pressure ${Math.round(economy.territoryPressure * 100)}%` : "";
-        els.logisticsPersonality.textContent = `${objectivePlan.name} · ${prettyObjectiveMethod(objectivePlan.method)} · Live tendencies A${Math.round(behavior.aggression)} C${Math.round(behavior.caution)} X${Math.round(behavior.expansion)} E${Math.round(behavior.economy)} · Army goal: ${armyPlan.goal} · ${strategicOutcome}${pressureLabel} · ${economy.emergency}`;
+        els.logisticsPersonality.textContent = `${objectivePlan.name} · ${prettyObjectiveMethod(objectivePlan.method)} · Commitment ${player.forceState?.commitmentStage || "contact"} ${Math.round((player.forceState?.commitment || 0.35) * 100)}% · Live tendencies A${Math.round(behavior.aggression)} C${Math.round(behavior.caution)} X${Math.round(behavior.expansion)} E${Math.round(behavior.economy)} · Army goal: ${armyPlan.goal} · ${strategicOutcome}${pressureLabel} · ${economy.emergency}`;
         els.logisticsResources.textContent = "";
-        for (const key of economyResourceKeys) {
+        for (const key of economy.activeResources) {
           const badge = document.createElement("span");
           badge.className = "viz-badge";
           badge.textContent = `${economyResourceLabels[key]} ${Math.floor(economy.inventory[key] || 0)}/${Math.floor(capacity[key] || 0)}`;
@@ -11711,9 +11802,9 @@ import {
         const sun = sunState(clockTime);
         els.clock.textContent = formatHour(sun.hour);
         const weatherCount = state.features.filter(feature => weatherTypes.has(feature.type)).length;
-        els.weather.textContent = state.lighting.enabled
-          ? `${sun.period} · ${state.lighting.weather} · ${weatherCount || "No"} weather zone${weatherCount === 1 ? "" : "s"}`
-          : "Lighting off · shadows suppressed";
+        els.weather.textContent = state.dayNight.enabled
+          ? `${sun.period} · ${state.dayNight.weather} · ${weatherCount || "No"} weather zone${weatherCount === 1 ? "" : "s"}`
+          : "Day/night cycle disabled";
         const living = snapshot ? snapshot.units.filter(unit => unit.alive) : state.units.filter(unit => unit.alive);
         const builders = living.filter(item => {
           const model = state.units.find(unit => unit.id === item.id);
@@ -11841,10 +11932,11 @@ import {
         const scaleX = TEST_MAP_WIDTH / Math.max(1, worldWidth());
         const scaleY = TEST_MAP_HEIGHT / Math.max(1, worldHeight());
         return {
-          version: 3,
+          version: 4,
           savedAt: new Date().toISOString(),
           name: state.scenario === "custom" ? "Local custom theater" : `${presets[state.scenario]?.name || "Test theater"} copy`,
           world: { width: TEST_MAP_WIDTH, height: TEST_MAP_HEIGHT, baseTerrain: state.world.baseTerrain },
+          dayNight: { ...state.dayNight },
           lighting: { ...state.lighting },
           clock: { running: state.clock.running, rate: state.clock.rate, elapsedSeconds: state.clock.elapsedSeconds },
           economicOverlay: { ...state.economicOverlay },
@@ -11928,7 +12020,22 @@ import {
           delete player.aiBehavior;
         }
         state.world.baseTerrain = payload.world?.baseTerrain || "grass";
-        state.lighting = { ...state.lighting, ...(payload.lighting || {}) };
+        const legacyLighting = payload.lighting || {};
+        state.dayNight = {
+          ...state.dayNight,
+          ...(payload.dayNight || {}),
+          ...(!payload.dayNight ? {
+            enabled: legacyLighting.enabled ?? state.dayNight.enabled,
+            mode: legacyLighting.mode ?? state.dayNight.mode,
+            startHour: legacyLighting.startHour ?? state.dayNight.startHour,
+            fixedHour: legacyLighting.fixedHour ?? state.dayNight.fixedHour,
+            dayLengthMinutes: legacyLighting.dayLengthMinutes ?? state.dayNight.dayLengthMinutes,
+            latitude: legacyLighting.latitude ?? state.dayNight.latitude,
+            season: legacyLighting.season ?? state.dayNight.season,
+            weather: legacyLighting.weather ?? state.dayNight.weather
+          } : {})
+        };
+        state.lighting = { ...state.lighting, ...legacyLighting, dynamicShadows: false, artificialGlows: false, searchlights: false, debugOverlay: false };
         state.clock = { ...state.clock, ...(payload.clock || {}), elapsedSeconds: Number(payload.clock?.elapsedSeconds) || 0 };
         state.economicOverlay = { ...state.economicOverlay, ...(payload.economicOverlay || {}) };
         resetBattle("custom", payload.features.filter(feature => !feature.resourceNode).map(feature => scaleFeatureToTestMap(feature, loadScaleX, loadScaleY)));
@@ -12615,44 +12722,44 @@ import {
       }
 
       function updateLightingButton() {
-        const enabled = Boolean(state.lighting.enabled);
-        const active = enabled && Boolean(state.lighting.overlay);
+        const enabled = Boolean(state.dayNight.enabled);
+        const active = enabled && Boolean(state.lighting.visualTint);
         els.lightingToggle.disabled = !enabled;
         els.lightingToggle.setAttribute("aria-pressed", String(active));
-        els.lightingToggle.innerHTML = `<i data-lucide="${enabled ? active ? "sun-medium" : "moon-star" : "circle-off"}" aria-hidden="true"></i>${enabled ? `Lighting map ${active ? "on" : "off"}` : "Lighting disabled"}`;
-        if (els.lightingOverlay) els.lightingOverlay.checked = active;
+        els.lightingToggle.innerHTML = `<i data-lucide="${enabled ? active ? "moon-star" : "sun-medium" : "circle-off"}" aria-hidden="true"></i>${enabled ? `Night tint ${active ? "on" : "off"}` : "Day/night disabled"}`;
+        if (els.castShadows) els.castShadows.checked = active;
         if (window.lucide) lucide.createIcons({ attrs: { width: 16, height: 16 } });
       }
 
       function syncLightingControls() {
-        const configuredHour = state.lighting.mode === "fixed" ? state.lighting.fixedHour : state.lighting.startHour;
-        const lightingDisabled = !state.lighting.enabled;
-        els.enableLighting.checked = state.lighting.enabled;
-        els.castShadows.checked = state.lighting.shadows;
-        els.castShadows.disabled = lightingDisabled;
-        els.timeMode.value = state.lighting.mode;
-        els.timeMode.disabled = lightingDisabled;
+        const configuredHour = state.dayNight.mode === "fixed" ? state.dayNight.fixedHour : state.dayNight.startHour;
+        const dayNightDisabled = !state.dayNight.enabled;
+        els.enableLighting.checked = state.dayNight.enabled;
+        els.castShadows.checked = state.lighting.visualTint;
+        els.castShadows.disabled = dayNightDisabled;
+        els.timeMode.value = state.dayNight.mode;
+        els.timeMode.disabled = dayNightDisabled;
         els.clockRunning.checked = state.clock.running;
-        els.clockRunning.disabled = lightingDisabled || state.lighting.mode === "fixed";
+        els.clockRunning.disabled = dayNightDisabled || state.dayNight.mode === "fixed";
         els.clockRate.value = String(state.clock.rate);
-        els.clockRate.disabled = lightingDisabled || state.lighting.mode === "fixed" || !state.clock.running;
+        els.clockRate.disabled = dayNightDisabled || state.dayNight.mode === "fixed" || !state.clock.running;
         els.timeOfDay.value = String(configuredHour);
-        els.timeOfDay.disabled = lightingDisabled;
+        els.timeOfDay.disabled = dayNightDisabled;
         els.timeOfDayValue.textContent = formatHour(configuredHour);
-        els.dayLength.value = String(state.lighting.dayLengthMinutes);
-        els.dayLengthValue.textContent = String(state.lighting.dayLengthMinutes);
-        els.dayLength.disabled = lightingDisabled || state.lighting.mode === "fixed";
-        els.latitude.value = String(state.lighting.latitude);
-        els.latitude.disabled = lightingDisabled;
-        els.latitudeValue.textContent = String(state.lighting.latitude);
-        els.season.value = state.lighting.season;
-        els.season.disabled = lightingDisabled;
-        els.lightingWeather.value = state.lighting.weather;
-        els.lightingWeather.disabled = lightingDisabled;
-        els.lightingOverlay.checked = state.lighting.overlay;
-        els.lightingOverlay.disabled = lightingDisabled;
-        els.artificialLights.checked = state.lighting.artificial;
-        els.artificialLights.disabled = lightingDisabled;
+        els.dayLength.value = String(state.dayNight.dayLengthMinutes);
+        els.dayLengthValue.textContent = String(state.dayNight.dayLengthMinutes);
+        els.dayLength.disabled = dayNightDisabled || state.dayNight.mode === "fixed";
+        els.latitude.value = String(state.dayNight.latitude);
+        els.latitude.disabled = dayNightDisabled;
+        els.latitudeValue.textContent = String(state.dayNight.latitude);
+        els.season.value = state.dayNight.season;
+        els.season.disabled = dayNightDisabled;
+        els.lightingWeather.value = state.dayNight.weather;
+        els.lightingWeather.disabled = dayNightDisabled;
+        els.lightingOverlay.checked = state.lighting.affectsDetection;
+        els.lightingOverlay.disabled = dayNightDisabled;
+        els.artificialLights.checked = false;
+        els.artificialLights.disabled = true;
         els.buildingColors.checked = state.lighting.buildingColors;
         els.colorIntensity.value = String(Math.round(state.lighting.colorIntensity * 100));
         els.colorIntensityValue.textContent = String(Math.round(state.lighting.colorIntensity * 100));
@@ -13285,7 +13392,7 @@ import {
         draw();
       });
       els.lightingToggle.addEventListener("click", () => {
-        state.lighting.overlay = !state.lighting.overlay;
+        state.lighting.visualTint = !state.lighting.visualTint;
         updateLightingButton();
         draw();
       });
@@ -13354,6 +13461,9 @@ import {
       els.scalePreset.addEventListener("change", () => {
         state.performanceRequested = els.scalePreset.value;
         state.performancePreset = scalePresetFor(state.units.length, state.performanceRequested);
+        const requestedScale = state.performanceRequested === "auto" ? "skirmish" : state.performanceRequested;
+        const battleScalePreset = scalePresetFor(0, requestedScale);
+        state.battleScale = { id: battleScalePreset.id, targetUnits: battleScalePreset.targetUnits };
       });
       els.playerCountSelect.addEventListener("change", () => {
         const count = Number(els.playerCountSelect.value);
@@ -13459,7 +13569,7 @@ import {
             : state.editorTool === "economic-node"
               ? "Economic landmarks ready · create a node, configure imports and exports, then click to place it."
             : state.editorTool === "lighting"
-              ? "Lighting map ready · configure the sun, weather, artificial lights, and faction materials."
+              ? "Day/night ready · configure the theater clock, weather, global tint, detection, and faction materials."
             : zone?.shape === "custom"
               ? "Click the map to add custom zone points."
               : "Choose Custom as the spawn-zone shape first.";
@@ -13467,10 +13577,10 @@ import {
       });
       els.timeMode.addEventListener("change", () => {
         const currentHour = lightingHour();
-        state.lighting.mode = els.timeMode.value;
-        if (state.lighting.mode === "fixed") state.lighting.fixedHour = currentHour;
+        state.dayNight.mode = els.timeMode.value;
+        if (state.dayNight.mode === "fixed") state.dayNight.fixedHour = currentHour;
         else {
-          state.lighting.startHour = currentHour;
+          state.dayNight.startHour = currentHour;
           state.clock.elapsedSeconds = 0;
         }
         syncLightingControls();
@@ -13479,9 +13589,9 @@ import {
       });
       els.timeOfDay.addEventListener("input", () => {
         const hour = Number(els.timeOfDay.value);
-        if (state.lighting.mode === "fixed") state.lighting.fixedHour = hour;
+        if (state.dayNight.mode === "fixed") state.dayNight.fixedHour = hour;
         else {
-          state.lighting.startHour = hour;
+          state.dayNight.startHour = hour;
           state.clock.elapsedSeconds = 0;
         }
         els.timeOfDayValue.textContent = formatHour(hour);
@@ -13498,55 +13608,51 @@ import {
         updateUI(true);
       });
       els.dayLength.addEventListener("input", () => {
-        state.lighting.dayLengthMinutes = Number(els.dayLength.value);
+        state.dayNight.dayLengthMinutes = Number(els.dayLength.value);
         els.dayLengthValue.textContent = els.dayLength.value;
         updateUI(true);
         draw();
       });
       els.latitude.addEventListener("input", () => {
-        state.lighting.latitude = Number(els.latitude.value);
+        state.dayNight.latitude = Number(els.latitude.value);
         els.latitudeValue.textContent = els.latitude.value;
         updateUI(true);
         draw();
       });
       els.season.addEventListener("change", () => {
-        state.lighting.season = els.season.value;
+        state.dayNight.season = els.season.value;
         updateUI(true);
         draw();
       });
       els.lightingWeather.addEventListener("change", () => {
-        state.lighting.weather = els.lightingWeather.value;
+        state.dayNight.weather = els.lightingWeather.value;
         invalidateLightingCaches();
         updateUI(true);
         draw();
       });
       els.enableLighting.addEventListener("change", () => {
-        state.lighting.enabled = els.enableLighting.checked;
+        state.dayNight.enabled = els.enableLighting.checked;
         invalidateLightingCaches();
         syncLightingControls();
-        els.editorTip.textContent = state.lighting.enabled
-          ? "Lighting restored · natural light, artificial sources, and optional shadows are active."
-          : "Lighting removed · neutral visibility and shadow-free rendering are active.";
+        els.editorTip.textContent = state.dayNight.enabled
+          ? "Day/night cycle restored with global tint and visibility effects."
+          : "Day/night cycle disabled; the theater clock state remains independent.";
         updateUI(true);
         draw();
       });
       els.castShadows.addEventListener("change", () => {
-        state.lighting.shadows = els.castShadows.checked;
-        invalidateLightingCaches();
-        els.editorTip.textContent = state.lighting.shadows ? "Dynamic cast shadows enabled." : "Cast shadows removed from terrain, buildings, units, and gameplay visibility.";
+        state.lighting.visualTint = els.castShadows.checked;
+        els.editorTip.textContent = state.lighting.visualTint ? "Global day/night tint enabled." : "Global tint disabled; the clock and detection rules remain active.";
         updateUI(true);
         draw();
       });
       els.lightingOverlay.addEventListener("change", () => {
-        state.lighting.overlay = els.lightingOverlay.checked;
-        invalidateLightingCaches();
+        state.lighting.affectsDetection = els.lightingOverlay.checked;
         updateLightingButton();
         draw();
       });
       els.artificialLights.addEventListener("change", () => {
-        state.lighting.artificial = els.artificialLights.checked;
-        invalidateLightingCaches();
-        draw();
+        els.artificialLights.checked = false;
       });
       els.buildingColors.addEventListener("change", () => {
         state.lighting.buildingColors = els.buildingColors.checked;
@@ -13948,7 +14054,7 @@ import {
       });
       root.querySelector("#awt-deploy-map").addEventListener("click", () => {
         state.incidents = [];
-        state.snapshots = [];
+        state.snapshots = new SnapshotRingBuffer(180);
         state.nextSnapshot = 0;
         captureSnapshot();
         startSimulation();
@@ -14090,27 +14196,31 @@ import {
               state.replay = false;
             }
           }
-          if (state.clock.running && state.lighting.mode === "dynamic" && state.mode !== "menu" && !state.replay) {
+          if (state.clock.running && state.dayNight.enabled && state.dayNight.mode === "dynamic" && state.mode !== "menu" && !state.replay) {
             state.clock.elapsedSeconds += rawDt * state.clock.rate;
           }
           if (!state.paused && state.mode === "sim" && !state.replay) {
             try {
               const simulationStep = 1 / 20;
               state.simulationAccumulator = Math.min(0.6, state.simulationAccumulator + rawDt * state.speed);
-              let steps = 0;
-              const maxSteps = state.speed >= 8 ? 40 : state.speed >= 4 ? 20 : 10;
-              while (state.simulationAccumulator >= simulationStep && steps < maxSteps) {
-                if (state.debugSimulationFault) {
-                  const message = state.debugSimulationFault;
-                  state.debugSimulationFault = null;
-                  throw new Error(message);
-                }
-                updateBattle(simulationStep);
-                state.lastSuccessfulSimulationAt = now;
-                state.simulationAccumulator -= simulationStep;
-                steps += 1;
-              }
-              if (steps >= maxSteps) state.simulationAccumulator = Math.min(state.simulationAccumulator, simulationStep * 2);
+              const simulationResult = runFixedStepBudget({
+                accumulator: state.simulationAccumulator,
+                stepSeconds: simulationStep,
+                maxSteps: 3,
+                maxWorkMs: 8,
+                backlogSteps: 4,
+                update: step => profiler.profile("simulation", () => {
+                  if (state.debugSimulationFault) {
+                    const message = state.debugSimulationFault;
+                    state.debugSimulationFault = null;
+                    throw new Error(message);
+                  }
+                  updateBattle(step);
+                  state.lastSuccessfulSimulationAt = now;
+                })
+              });
+              state.simulationAccumulator = simulationResult.accumulator;
+              state.lastSimulationFrame = simulationResult;
             } catch (error) {
               state.paused = true;
               state.simulationAccumulator = 0;
@@ -14125,7 +14235,7 @@ import {
           const renderInterval = state.speed >= 8 ? 1 / 6 : 1 / 30;
           if (state.renderAccumulator >= renderInterval) {
             try {
-              draw();
+              profiler.profile("render", draw);
               state.renderAccumulator %= renderInterval;
             } catch (error) {
               state.renderAccumulator = 0;
@@ -14134,12 +14244,13 @@ import {
           }
           if (state.uiAccumulator >= (state.speed >= 8 ? 0.5 : 0.25)) {
             try {
-              updateUI();
+              profiler.profile("ui", updateUI);
             } catch (error) {
               state.uiAccumulator = 0;
               recordFrameFailure(error, "ui");
             }
           }
+          updateRuntimeTelemetry(now);
         } catch (error) {
           recordFrameFailure(error, "frame");
         } finally {
@@ -14151,6 +14262,7 @@ import {
       showMainMenu();
       draw();
       updateUI(true);
+      updateRuntimeTelemetry(performance.now(), true);
       updateFullscreenButton();
       updateFogButton();
       updateLightingButton();
