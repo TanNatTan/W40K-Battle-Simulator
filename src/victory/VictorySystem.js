@@ -24,6 +24,17 @@ export const INCAPACITATED_POLICIES = Object.freeze({
   Tyranids: "consume-biomass"
 });
 
+export function battleObjectiveVictoryReady({
+  elapsedSeconds = 0,
+  contenderEstablishedMilitary = false,
+  opposingTeamReadiness = []
+} = {}) {
+  return Number(elapsedSeconds) >= 30
+    && Boolean(contenderEstablishedMilitary)
+    && opposingTeamReadiness.length > 0
+    && opposingTeamReadiness.every(Boolean);
+}
+
 export function assessFactionCapability({
   factionId,
   units = [],

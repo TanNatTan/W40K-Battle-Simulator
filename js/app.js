@@ -67,9 +67,10 @@ import {
   serializeRelationshipMemory
 } from "../src/relationships/RelationshipSystem.js";
 import { createFactionLearningMemory } from "../src/learning/LearningSystem.js";
-import { assessFactionCapability, chooseEndgameDirective } from "../src/victory/VictorySystem.js";
+import { assessFactionCapability, battleObjectiveVictoryReady, chooseEndgameDirective } from "../src/victory/VictorySystem.js";
 import { buildAIInspector } from "../src/replay/ReplayAnalysisSystem.js";
 import { WorkBudget, scalePresetFor, shouldUpdateEntity } from "../src/performance/ScaleSystem.js";
+import { DISTANT_HINT_NEIGHBORS, packDistantUnits } from "../src/performance/DistantSimulation.js";
 import { createFactionGameplayState, updateFactionGameplay } from "../src/factions/DistinctiveGameplaySystem.js";
 import { expiredDeadUnitIds, scheduleDeathRemoval } from "../src/simulation/DeathLifecycle.js";
 import { runFixedStepBudget } from "../src/simulation/FixedStepRunner.js";
@@ -81,6 +82,8 @@ import { canAfford, constructionCostFor, economyProfileFor, formationCostFor } f
 import { allocateForceCaps, commandPresenceFor, createForceState, updateForceState } from "../src/ai/ForceCommitmentSystem.js";
 import { combineStrategicBias, chaosTargetMultiplier, evaluateChaosStrategy } from "../src/ai/chaos/ChaosStrategySystem.js";
 import { createChaosOperationalMemory } from "../src/ai/chaos/ChaosOperationalState.js";
+import { applyObjectiveLeash, createOperationalMemory, evaluateOperationalPhase } from "../src/ai/OperationalPhaseSystem.js";
+import { RateGate, activityRateMultiplier } from "../src/ai/WarfareDoctrineSystem.js";
 import { StrategicCellIndex } from "../src/performance/StrategicCellIndex.js";
 import { evaluateProximityAwareness, proximityCombatModifiers } from "../src/ai/ProximityAwareness.js";
 import {
@@ -128,10 +131,14 @@ import {
   ECONOMY_OVERLAY_GROUPS,
   RESOURCE_FLOW_DIRECTIONS,
   TRADE_ROUTE_TYPES,
+  captureStockForLandmarkType,
+  claimEconomicNode,
   createEconomicNode,
   createTradeRoute,
   factionCanUseRoute,
   flowsForLandmarkType,
+  modifiersForLandmarkType,
+  normalizeCaptureStock,
   normalizeResourceFlows,
   routeIsAuthoredAndComplete,
   scoreAuthoredTradeRoute,
@@ -387,6 +394,7 @@ import {
         economicNodeType: root.querySelector("#awt-economic-node-type"),
         economicNodeOwner: root.querySelector("#awt-economic-node-owner"),
         economicNodeFlows: root.querySelector("#awt-economic-node-flows"),
+        economicNodeCaptureStock: root.querySelector("#awt-economic-node-capture-stock"),
         economicNodeUseDefaults: root.querySelector("#awt-economic-node-use-defaults"),
         economicNodeValidation: root.querySelector("#awt-economic-node-validation"),
         economicNodeCapacity: root.querySelector("#awt-economic-node-capacity"),
@@ -1203,6 +1211,10 @@ import {
         armyAIAccumulator: 0,
         roadAIAccumulator: 0,
         factionAIAccumulator: 0,
+        factionAIPlayerCursor: 0,
+        doctrineCadenceCursor: 0,
+        doctrineReady: { strategy: new Set(), commander: new Set(), squad: new Set() },
+        economyPlayerCursor: 0,
         spatialGrid: new Map(),
         entityIndex: { units: new Map(), structures: new Map(), squads: new Map() },
         spatialMembership: new WeakMap(),
@@ -1233,6 +1245,8 @@ import {
         navigationCacheHits: 0,
         navigationPlansDeferred: 0,
         navigationBudgetUsed: 0,
+        awarenessBudgetUsed: 0,
+        sensorBudgetUsed: 0,
         ended: false,
         fogPlayer: "observer",
         explored: {},
@@ -1246,27 +1260,49 @@ import {
       state.routeHistory = new globalThis.AWTSystems.RouteHistory();
       const navigationPlanner = new NavigationPlanner({ cellSize: 32, maxVisited: 5200, maxCacheEntries: 256 });
       const navigationWorkBudget = new WorkBudget(state.performancePreset.pathBudget);
+      const awarenessWorkBudget = new WorkBudget(64);
+      const sensorWorkBudget = new WorkBudget(40);
+      const doctrineRateGate = new RateGate();
       let distantSimulationWorker = null;
+      const distantWorkerRequests = new Map();
       try {
         if (typeof Worker !== "undefined") {
           distantSimulationWorker = new Worker(new URL("../src/performance/simulation-worker.js", import.meta.url), { type: "module" });
           distantSimulationWorker.onmessage = event => {
             state.distantWorkerBusy = false;
-            if (event.data?.battleGeneration !== state.workerBattleGeneration) return;
-            state.distantCombatSummary = event.data;
+            const request = distantWorkerRequests.get(event.data?.requestId);
+            distantWorkerRequests.delete(event.data?.requestId);
+            if (event.data?.battleGeneration !== state.workerBattleGeneration || !request) return;
+            const hostileIndices = new Int32Array(event.data.hostileBuffer);
+            const allyIndices = new Int32Array(event.data.allyBuffer);
+            const nearestDistances = new Float32Array(event.data.distanceBuffer);
+            state.distantCombatSummary = {
+              requestId: event.data.requestId,
+              battleGeneration: event.data.battleGeneration,
+              analysisMs: event.data.analysisMs,
+              processed: event.data.processed,
+              factions: Object.fromEntries((event.data.factionSummaries || []).map(summary => [summary.faction, summary]))
+            };
             if ((event.data?.requestId || 0) < state.distantWorkerLastApplied) return;
             state.distantWorkerLastApplied = event.data?.requestId || state.distantWorkerLastApplied;
-            for (const hint of event.data?.unitHints || []) {
-              const unit = unitById(hint.id);
+            for (let index = 0; index < request.ids.length; index += 1) {
+              const unit = unitById(request.ids[index]);
               if (!unit?.alive) continue;
-              unit.workerThreatIds = hint.hostileIds || [];
-              unit.workerAllyIds = hint.allyIds || [];
-              unit.workerThreatDistance = hint.nearestHostileDistance ?? Infinity;
+              const base = index * DISTANT_HINT_NEIGHBORS;
+              unit.workerThreatIds = [];
+              unit.workerAllyIds = [];
+              for (let slot = 0; slot < DISTANT_HINT_NEIGHBORS; slot += 1) {
+                const hostileIndex = hostileIndices[base + slot];
+                const allyIndex = allyIndices[base + slot];
+                if (hostileIndex >= 0) unit.workerThreatIds.push(request.ids[hostileIndex]);
+                if (allyIndex >= 0) unit.workerAllyIds.push(request.ids[allyIndex]);
+              }
+              unit.workerThreatDistance = nearestDistances[index] ?? Infinity;
               unit.workerSenseAt = state.time;
               unit.workerSenseRealAt = performance.now();
             }
           };
-          distantSimulationWorker.onerror = () => { state.distantWorkerBusy = false; };
+          distantSimulationWorker.onerror = () => { state.distantWorkerBusy = false; distantWorkerRequests.clear(); };
         }
       } catch {
         distantSimulationWorker = null;
@@ -1311,6 +1347,104 @@ import {
             returnAfterMission: squad.returnAfterMission,
             roleCount: Object.keys(SQUAD_ROLE_DEFINITIONS).length
           };
+        },
+        prepareFullRosterStressFixture(spawnRadius = 160) {
+          if (state.mode !== "editor") throw new Error("The full-roster fixture must be prepared from the map editor.");
+          const radius = clamp(Number(spawnRadius) || 160, 80, 320);
+          for (const player of state.players) player.spawnZone = { shape: "circle", size: radius, points: [] };
+          state.territories = state.players.map(player => createTerritory(player.id, player.base, radius, {
+            name: `${player.faction} full-roster deployment zone`,
+            status: "controlled",
+            resourceValue: 100,
+            strategicValue: 100,
+            defensibility: 80,
+            claimedAt: -20,
+            reason: "Full-roster performance fixture",
+            maxStructures: 32
+          }));
+          state.structures = [];
+          state.squads = [];
+          const audit = [];
+          for (const player of state.players) {
+            const profile = factionProfile(player);
+            const expectedBuildings = Object.keys(profile.buildings).filter(type => buildingCatalog[type]);
+            const expectedUnits = [];
+            const economy = economyFor(player.id);
+            const capacity = economyCapacity(player.id);
+            for (const resource of economy.activeResources) economy.inventory[resource] = Math.max(capacity[resource] || 0, 5000);
+            economy.approvedBuilds = [];
+            expectedBuildings.forEach((type, index) => {
+              const spec = buildingCatalog[type];
+              const ringIndex = Math.max(0, index - 1);
+              const outerRing = ringIndex >= 5;
+              const ringCount = outerRing ? Math.max(1, expectedBuildings.length - 6) : 5;
+              const ringSlot = outerRing ? ringIndex - 5 : ringIndex;
+              const angle = -Math.PI / 2 + ringSlot * Math.PI * 2 / ringCount + player.index * 0.07;
+              const placementRadius = index === 0 ? 0 : outerRing ? 125 : 68;
+              const structure = ensureStructureRuntime({
+                id: `stress-building-${player.id}-${type}`,
+                type,
+                faction: player.id,
+                x: clamp(player.base.x + Math.cos(angle) * placementRadius, 24, worldWidth() - 24),
+                y: clamp(player.base.y + Math.sin(angle) * placementRadius, 24, worldHeight() - 24),
+                progress: 1,
+                condition: 1,
+                maxHp: spec.maxHp || 400,
+                hp: spec.maxHp || 400,
+                hitbox: { ...(spec.hitbox || { w: 28, h: 24 }) },
+                displayName: factionBuildingLabel(player.id, type),
+                biological: player.race === "Tyranids",
+                constructionMethod: "full-roster performance fixture",
+                inventory: Object.fromEntries(economy.activeResources.map(resource => [resource, 200])),
+                alive: true,
+                createdAt: state.time,
+                completedAt: state.time,
+                leadBuilderId: null,
+                contributors: {}
+              });
+              state.structures.push(structure);
+            });
+            let rosterIndex = 0;
+            for (const [role, names] of Object.entries(profile.roster)) {
+              for (const rosterName of names) {
+                const unit = makeUnit(player.id, role, "Full-roster performance fixture · authored spawn zone");
+                const angle = rosterIndex * 2.399963229728653 + player.index * 0.11;
+                const placementRadius = 112 + rosterIndex % 3 * 18;
+                unit.x = clamp(player.base.x + Math.cos(angle) * placementRadius, 24, worldWidth() - 24);
+                unit.y = clamp(player.base.y + Math.sin(angle) * placementRadius, 24, worldHeight() - 24);
+                unit.name = `${rosterName} ${unit.index + 1}`;
+                unit.stressRosterName = rosterName;
+                unit.status = "Full roster deployed";
+                state.units.push(unit);
+                expectedUnits.push({ role, name: rosterName });
+                rosterIndex += 1;
+              }
+            }
+            player.forceCapOverride = state.units.filter(unit => unit.faction === player.id && unit.alive !== false).length;
+            player.structureCapOverride = expectedBuildings.length;
+            const rosterUnits = state.units.filter(unit => unit.faction === player.id && unit.stressRosterName);
+            const completedBuildings = state.structures.filter(structure => structure.faction === player.id && structure.progress >= 1 && structure.alive !== false);
+            audit.push({
+              playerId: player.id,
+              faction: player.faction,
+              spawnRadius: radius,
+              expectedUnitCount: expectedUnits.length,
+              expectedBuildingCount: expectedBuildings.length,
+              missingUnits: expectedUnits.filter(expected => !rosterUnits.some(unit => unit.role === expected.role && unit.stressRosterName === expected.name)),
+              missingBuildings: expectedBuildings.filter(type => !completedBuildings.some(structure => structure.type === type)),
+              unitsOutsideSpawnZone: rosterUnits.filter(unit => !pointInSpawnZone(unit, player)).map(unit => unit.id),
+              buildingsOutsideSpawnZone: completedBuildings.filter(structure => !pointInSpawnZone(structure, player)).map(structure => structure.id)
+            });
+          }
+          state.stressFixtureAudit = { spawnRadius: radius, players: audit };
+          state.navigationRevision += 1;
+          navigationPlanner.clear();
+          rebuildSpatialGrid();
+          rebuildStrategicTerritorySystem();
+          rebuildUnitSelect();
+          state.minimapMarkerDirty = true;
+          updateExploration(0, true);
+          return structuredClone(state.stressFixtureAudit);
         }
       };
 
@@ -2006,7 +2140,19 @@ import {
           if (structure.faction !== faction || structure.progress < 1 || structure.alive === false) continue;
           for (const [key, value] of Object.entries(buildingCatalog[structure.type]?.storage || {})) capacity[key] = (capacity[key] || 0) + value;
         }
+        for (const node of state.economicNodes.filter(item => item.active && item.owner === faction)) {
+          const storageMultiplier = Math.max(1, Number(node.modifiers?.storageMultiplier) || 1);
+          const resources = economy.activeResources.filter(resource => Object.hasOwn(capacity, resource));
+          const bonusPerResource = node.capacity * (storageMultiplier - 1) / Math.max(1, resources.length);
+          for (const resource of resources) capacity[resource] = (capacity[resource] || 0) + bonusPerResource;
+        }
         return capacity;
+      }
+
+      function landmarkModifierFor(faction, key) {
+        return state.economicNodes
+          .filter(node => node.active && node.owner === faction)
+          .reduce((best, node) => Math.max(best, Number(node.modifiers?.[key]) || (key.endsWith("Multiplier") ? 1 : 0)), key.endsWith("Multiplier") ? 1 : 0);
       }
 
       function resourceNeedScore(playerOrFaction, resource) {
@@ -2038,7 +2184,16 @@ import {
 
       function structureCollisionAt(point, radius = 4, ignoreId = null, proposedHitbox = null) {
         const proposed = proposedHitbox || { w: radius * 2, h: radius * 2 };
-        return state.structures.find(structure => {
+        const queryRadius = Math.max(proposed.w || 0, proposed.h || 0) / 2 + 28;
+        const candidates = state.spatialGrid?.size
+          ? spatialObjectsInBounds({
+              left: point.x - queryRadius,
+              right: point.x + queryRadius,
+              top: point.y - queryRadius,
+              bottom: point.y + queryRadius
+            }).structures
+          : state.structures;
+        return candidates.find(structure => {
           if (structure.id === ignoreId || structure.alive === false || structure.progress < 0.05) return false;
           ensureStructureRuntime(structure);
           return Math.abs(point.x - structure.x) < (structure.hitbox.w + proposed.w) / 2 + 2
@@ -3275,6 +3430,8 @@ import {
           player.spawnZone = { shape: "circle", size: 84, points: [] };
           player.deploymentMethod = factionProfile(player).deployment;
           player.forceState = createForceState();
+          player.forceCapOverride = null;
+          player.structureCapOverride = null;
           player.scenarioTags = [];
         });
         const requestedScale = state.performanceRequested === "auto" ? "skirmish" : state.performanceRequested;
@@ -3401,6 +3558,7 @@ import {
           player.battleObjectivePlan = resolveBattleObjectivePlan(player, factionAIProfile);
           player.battleObjectiveState = null;
           player.dynamicAIBehavior = deriveDynamicAIBehavior(factionAIProfile, player.battleObjectivePlan);
+          player.operationalMemory = createOperationalMemory();
           player.chaosOperationalMemory = factionAIProfile.branch === "Chaos" ? createChaosOperationalMemory() : null;
           player.chaosStrategy = null;
           player.convoysDelivered = 0;
@@ -3465,6 +3623,11 @@ import {
         state.armyAIAccumulator = 0;
         state.roadAIAccumulator = 0;
         state.factionAIAccumulator = 0;
+        state.factionAIPlayerCursor = 0;
+        state.doctrineCadenceCursor = 0;
+        state.doctrineReady = { strategy: new Set(), commander: new Set(), squad: new Set() };
+        doctrineRateGate.reset();
+        state.economyPlayerCursor = 0;
         state.spatialGrid = new Map();
         state.spatialMembership = new WeakMap();
         state.fastUnitPhase = 0;
@@ -3475,6 +3638,7 @@ import {
         state.distantCombatSummary = null;
         state.distantWorkerLastApplied = 0;
         state.workerBattleGeneration += 1;
+        distantWorkerRequests.clear();
         state.lastWorkerDispatchAt = 0;
         state.selectedId = state.units[0]?.id || null;
         state.selectedStructureId = null;
@@ -3967,7 +4131,10 @@ import {
         }
 
         const factionStructureCount = state.structures.filter(item => item.faction === unit.faction && item.alive !== false).length;
-        const structureCap = state.players.length > 8 ? 22 : state.players.length > 4 ? 30 : 42;
+        const owningPlayer = playerFor(unit.faction);
+        const structureCap = Number.isFinite(owningPlayer?.structureCapOverride)
+          ? owningPlayer.structureCapOverride
+          : state.players.length > 8 ? 22 : state.players.length > 4 ? 30 : 42;
         if (factionStructureCount >= structureCap) {
           unit.status = "Maintaining base";
           unit.lastAction = `Simulation safety cap ${structureCap} reached; repairs and supply continue.`;
@@ -4037,6 +4204,7 @@ import {
           completedAt: null
         };
         state.structures.push(structure);
+        rebuildSpatialGrid();
         state.navigationRevision += 1;
         navigationPlanner.clear();
         unit.buildProject = structure.id;
@@ -4096,11 +4264,20 @@ import {
           unit.nextNavigationPlanAt = state.time + 0.18 + (unit.index % 7) * 0.035;
           return false;
         }
-        const path = cachedPath || navigationPlanner.findPath({
-          ...request,
-          isPassable: (point, movementProfile) => navigationPassableAt(point, unit, movementProfile),
-          costAt: (point, movementProfile) => navigationCostAt(point, unit, movementProfile)
-        });
+        let path = cachedPath;
+        if (!path) {
+          const normalVisitLimit = navigationPlanner.maxVisited;
+          if (state.performancePreset.id === "total" && profile === "vehicle") navigationPlanner.maxVisited = Math.min(normalVisitLimit, 96);
+          try {
+            path = profiler.profile(`navigation.${profile}`, () => navigationPlanner.findPath({
+              ...request,
+              isPassable: (point, movementProfile) => navigationPassableAt(point, unit, movementProfile),
+              costAt: (point, movementProfile) => navigationCostAt(point, unit, movementProfile)
+            }));
+          } finally {
+            navigationPlanner.maxVisited = normalVisitLimit;
+          }
+        }
         state.navigationBudgetUsed = navigationWorkBudget.used;
         if (!path.length) return false;
         unit.navigationPath = path;
@@ -4805,9 +4982,11 @@ import {
         return { anchor, segment, atPost, friendlies, hostiles, friendlyPower, hostilePower, overrun, valuableConvoy };
       }
 
-      function updateSquadAI() {
+      function updateSquadAI(players = state.players) {
+        const allowedFactions = new Set(players.map(player => player.id));
         const membersBySquad = livingSquadMemberMap();
         for (const squad of state.squads) {
+          if (!allowedFactions.has(squad.faction)) continue;
           ensureSquadRuntime(squad);
           const roster = [...(membersBySquad.get(squad.id) || [])];
           const fieldRoster = roster.filter(member => !member.reinforcementRendezvous);
@@ -5034,6 +5213,17 @@ import {
               emergency: "Defend the critical objective and preserve recovery capability",
               endgame: "Complete the battle objective and destroy remaining resistance"
             }[player.chaosStrategy.phase] || goal;
+            if (player.chaosStrategy.selectedAction) goal = `${player.chaosStrategy.selectedAction.purpose} · objective remains ${player.battleObjectivePlan?.name || "active"}`;
+          } else if (player.operationalPlan) {
+            goal = {
+              assess: `Assess routes and threats for ${player.battleObjectivePlan?.name || "the objective"}`,
+              shape: `Shape the battlefield for ${player.battleObjectivePlan?.name || "the objective"}`,
+              commit: `Commit combat power to ${player.battleObjectivePlan?.name || "the objective"}`,
+              exploit: "Exploit the opening without outrunning support",
+              consolidate: "Consolidate the objective foothold and restore routes",
+              recover: "Recover combat power while maintaining the objective leash",
+              endgame: "Finish the battle objective and deny enemy recovery"
+            }[player.operationalPlan.phase] || goal;
           }
           if (player.forceState?.allIn) goal = "Commit every reserve and force a decisive result";
           if (player.endgameDirective) goal = player.endgameDirective.goal;
@@ -5044,8 +5234,9 @@ import {
             issuedAt: state.time,
             combinedArms: player.combinedArmsGroups,
             branchChoice: player.factionAIChoice || null,
-            operationalPhase: player.chaosStrategy?.phase || null,
-            operationalReason: player.chaosStrategy?.reason || null
+            operationalPhase: player.chaosStrategy?.phase || player.operationalPlan?.phase || null,
+            operationalReason: player.chaosStrategy?.reason || player.operationalPlan?.reason || null,
+            operationalAction: player.chaosStrategy?.selectedAction?.id || null
           };
         }
       }
@@ -5246,10 +5437,10 @@ import {
           || squad.primaryRole === "reinforcement" && battle.threatenedAssets.length === 0 && battle.baseThreats.length === 0;
       }
 
-      function updateCommanderAI() {
+      function updateCommanderAI(players = state.players) {
         const membersBySquad = livingSquadMemberMap();
         const unitById = new Map(state.units.map(unit => [unit.id, unit]));
-        for (const player of state.players) {
+        for (const player of players) {
           const squads = state.squads.filter(squad => squad.faction === player.id && membersBySquad.has(squad.id));
           if (!squads.length) continue;
           const commander = state.units.filter(unit => unit.alive && unit.faction === player.id && unit.role === "commander")
@@ -6357,8 +6548,15 @@ import {
       function observedEnemiesFor(player) {
         const observers = state.units.filter(unit => unit.alive && !unit.incapacitated && unit.faction === player.id);
         if (!observers.length) return [];
-        return state.units.filter(enemy => enemy.alive && !enemy.incapacitated && !areAllies(enemy.faction, player.id)
-          && observers.some(observer => canDetectTarget(observer, enemy)));
+        const observed = new Map();
+        for (const observer of observers) {
+          const broadphaseRadius = Math.max(80, observer.range * (state.visibility / 100) * 2.2);
+          for (const enemy of nearbyCombatObjects(observer, broadphaseRadius).units) {
+            if (observed.has(enemy.id) || !enemy.alive || enemy.incapacitated || areAllies(enemy.faction, player.id)) continue;
+            if (canDetectTarget(observer, enemy)) observed.set(enemy.id, enemy);
+          }
+        }
+        return [...observed.values()];
       }
 
       function updateSharedFactionBranch(player) {
@@ -6424,6 +6622,10 @@ import {
           enemyExpansion: observedEnemyBehavior.expansion / enemyBehaviorDivisor,
           timePressure: clamp(state.time / duration, 0, 1),
           objectiveProgress: player.battleObjectiveState?.progress || 0,
+          scoreDeficit01: clamp(Math.max(0, ...state.players
+            .filter(candidate => !areAllies(candidate.id, player.id))
+            .map(candidate => candidate.battleObjectiveState?.progress || 0)) - (player.battleObjectiveState?.progress || 0), 0, 1),
+          timeRemaining01: 1 - clamp(state.time / duration, 0, 1),
           intelligenceConfidence: clamp(observedEnemies.length / 8 + visibleEnemyStructures.length / 6, 0.08, 1),
           localStrengthRatio: ownUnits.length / Math.max(1, observedEnemies.length),
           enemyCohesion,
@@ -6438,7 +6640,17 @@ import {
           newStrategicOpportunity: clamp((state.resourceZones.filter(zone => !zone.owner || !areAllies(zone.owner, player.id)).length + visibleEnemyStructures.length) / 8, 0, 1)
         };
         player.dynamicAIBehavior = deriveDynamicAIBehavior(profile, plan, context);
-        context.objectiveBias = objectiveStrategicBias(plan, context);
+        player.operationalMemory ||= createOperationalMemory({ enteredAt: state.time });
+        player.operationalPlan = evaluateOperationalPhase({
+          now: state.time,
+          plan,
+          context,
+          memory: player.operationalMemory
+        });
+        context.objectiveBias = applyObjectiveLeash(
+          combineStrategicBias(objectiveStrategicBias(plan, context), player.operationalPlan.strategicBias),
+          player.operationalPlan.objectiveLeash
+        );
         if (profile.branch === "Chaos") {
           player.chaosOperationalMemory ||= createChaosOperationalMemory({ enteredAt: state.time });
           player.chaosStrategy = profiler.profile("ai.chaosPlanning", () => evaluateChaosStrategy({
@@ -6448,14 +6660,19 @@ import {
             context,
             memory: player.chaosOperationalMemory
           }));
-          context.objectiveBias = combineStrategicBias(context.objectiveBias, player.chaosStrategy.strategicBias);
+          context.objectiveBias = applyObjectiveLeash(
+            combineStrategicBias(context.objectiveBias, player.chaosStrategy.strategicBias),
+            player.operationalPlan.objectiveLeash
+          );
         } else player.chaosStrategy = null;
         const decision = selectStrategicChoice(profile, context, memory.learnedWeights);
         player.factionAIContext = { ...context };
         player.factionAIProfileId = profile.id;
+        player.warfareDoctrine = profile.doctrine;
         player.factionAIChoice = decision.choice;
         player.factionAIScores = decision.scores;
         player.battleObjectiveMethod = plan.method;
+        player.battleObjectiveLeash = player.operationalPlan.objectiveLeash;
 
         if ((player.nextEnemyPatternMemoryAt || 0) <= state.time && observedEnemies.length) {
           const roleCounts = observedEnemies.reduce((counts, enemy) => {
@@ -6495,8 +6712,8 @@ import {
         }
       }
 
-      function updateFactionAI() {
-        for (const player of state.players) {
+      function updateFactionAI(players = state.players) {
+        for (const player of players) {
           updateSharedFactionBranch(player);
           if (player.race === "Orks") updateOrkCulture(player);
           else if (player.race === "Tyranids") updateTyranidSwarm(player);
@@ -6531,6 +6748,11 @@ import {
         if (!unit || unit.deathProcessed) return;
         unit.deathProcessed = true;
         const player = playerFor(unit.faction);
+        doctrineRateGate.requestImmediate(`squad:${unit.faction}`);
+        if (unit.role === "commander") {
+          doctrineRateGate.requestImmediate(`commander:${unit.faction}`);
+          doctrineRateGate.requestImmediate(`strategy:${unit.faction}`);
+        }
         for (const ally of nearbyCombatObjects(unit, unit.role === "commander" ? 190 : 110).units.filter(other => other.alive && other.faction === unit.faction && other.id !== unit.id)) {
           const baseShock = unit.role === "commander" ? 0.24 : unit.role === "standard" ? 0.14 : 0.065;
           const shock = baseShock * (1 + Math.max(0, relationshipEffect(relationshipScore(ally, unit), "morale")));
@@ -6711,25 +6933,50 @@ import {
         }
       }
 
+      function perceptionIntervalFor(unit, alerted = false) {
+        const player = playerFor(unit.faction);
+        const profile = state.factionAIProfiles[unit.faction] ||= resolveFactionAIProfile(player);
+        const hz = Math.max(1, profile.doctrine?.tickProfile?.perceptionHz || 10);
+        const rate = hz * activityRateMultiplier(doctrineActivityTierFor(player));
+        const loadDelay = state.performancePreset.id === "total"
+          ? alerted ? 0.25 : 0.45
+          : state.performancePreset.id === "major"
+            ? alerted ? 0.12 : 0.24
+            : alerted ? 0.03 : 0.08;
+        return 1 / Math.max(0.25, rate) + loadDelay;
+      }
+
       function updateProximityAwareness(unit, dt) {
         unit.alertSenseCooldown = (unit.alertSenseCooldown || 0) - dt;
         unit.alertSenseElapsed = (unit.alertSenseElapsed || 0) + dt;
         if (unit.alertSenseCooldown > 0) return proximityCombatModifiers(unit);
+        if (!awarenessWorkBudget.take()) return proximityCombatModifiers(unit);
+        state.awarenessBudgetUsed = awarenessWorkBudget.used;
         const senseDt = unit.alertSenseElapsed;
         unit.alertSenseElapsed = 0;
-        unit.alertSenseCooldown = ((unit.alertLevel || 0) > 0.35 ? 0.1 : 0.2) + (unit.index % 7) * 0.011;
+        const denseBattle = ["major", "total"].includes(state.performancePreset.id);
+        const senseInterval = perceptionIntervalFor(unit, (unit.alertLevel || 0) > 0.35);
+        unit.alertSenseCooldown = senseInterval + (unit.index % 7) * (denseBattle ? 0.023 : 0.011);
         const supportRole = ["builder", "supply"].includes(unit.role);
         const awarenessRadius = clamp(Math.max(supportRole ? 170 : 120, (unit.range || 0) * 1.35), 110, 230);
         const workerSense = hasFreshWorkerSense(unit);
         const nearby = workerSense
           ? [...(unit.workerThreatIds || []), ...(unit.workerAllyIds || [])].map(id => unitById(id)).filter(Boolean)
           : nearbyCombatObjects(unit, awarenessRadius).units;
-        const hostiles = nearby
-          .filter(other => other.alive && !other.incapacitated && distance(unit, other) <= awarenessRadius && !areAllies(other.faction, unit.faction) && canDetectTarget(unit, other))
-          .map(other => ({ unit: other, distance: distance(unit, other) }));
+        const hostileCandidates = nearby
+          .filter(other => other.alive && !other.incapacitated && !areAllies(other.faction, unit.faction))
+          .map(other => ({ unit: other, distance: distance(unit, other) }))
+          .filter(candidate => candidate.distance <= awarenessRadius)
+          .sort((a, b) => a.distance - b.distance)
+          .slice(0, state.performancePreset.id === "total" ? 6 : state.performancePreset.id === "major" ? 8 : 16);
+        const hostiles = hostileCandidates.filter(candidate => canDetectTarget(unit, candidate.unit));
         const allies = nearby.filter(other => other.alive && !other.incapacitated && distance(unit, other) <= awarenessRadius && areAllies(other.faction, unit.faction) && other.id !== unit.id);
+        const previousAlertState = unit.alertState;
         const awareness = evaluateProximityAwareness(unit, hostiles, allies, senseDt, awarenessRadius);
         Object.assign(unit, awareness);
+        if (hostiles.length && (previousAlertState !== unit.alertState || unit.nearestThreatDistance < 56)) {
+          doctrineRateGate.requestImmediate(`squad:${unit.faction}`);
+        }
         if (unit.alertState === "Afraid") {
           unit.suppression = clamp((unit.suppression || 0) + senseDt * unit.alertLevel * 0.045, 0, 1);
           unit.aimShake = clamp((unit.aimShake || 0) + senseDt * unit.alertLevel * 0.55, 0, 1);
@@ -6944,7 +7191,7 @@ import {
           }
         }
 
-        updateProximityAwareness(unit, dt);
+        profiler.profile(`simulation.awareness.${unit.role || "unknown"}`, () => updateProximityAwareness(unit, dt));
         if (unit.retreating && unit.role === "builder") {
           updateBuilder(unit, dt);
           return;
@@ -6990,7 +7237,8 @@ import {
         if (holdingAmbush) {
           unit.cachedTargetId = null;
           unit.targetId = null;
-        } else if (unit.sensorCooldown <= 0) {
+        } else if (unit.sensorCooldown <= 0 && sensorWorkBudget.take()) {
+          state.sensorBudgetUsed = sensorWorkBudget.used;
           const sharedTarget = assignedSquad?.orderType === "Regroup" ? null : combatTargetById(assignedSquad?.targetId);
           const retainedTarget = combatTargetById(unit.cachedTargetId);
           const retainCommitment = retainedTarget
@@ -6998,10 +7246,14 @@ import {
             && unit.combatCommitment.active !== false
             && !unit.combatCommitment.rejected
             && canDetectTarget(unit, retainedTarget);
-          target = sharedTarget && !areAllies(sharedTarget.faction, unit.faction) ? sharedTarget : retainCommitment ? retainedTarget : findTarget(unit);
+          target = sharedTarget && !areAllies(sharedTarget.faction, unit.faction)
+            ? sharedTarget
+            : retainCommitment ? retainedTarget : profiler.profile(`simulation.targeting.${unit.role || "unknown"}`, () => findTarget(unit));
           unit.cachedTargetId = target?.id || null;
-          unit.sensorCooldown = (state.speed >= 8 ? (unit.role === "scout" ? 4 : 6) : (unit.role === "scout" ? 0.2 : 0.4)) + (unit.index % 9) * 0.013;
-          if ((unit.alertLevel || 0) > 0.4) unit.sensorCooldown = Math.min(unit.sensorCooldown, state.speed >= 8 ? 1.5 : 0.12);
+          const doctrineSensorInterval = perceptionIntervalFor(unit, (unit.alertLevel || 0) > 0.4) * (unit.role === "scout" ? 0.72 : 1);
+          unit.sensorCooldown = (state.speed >= 8 ? (unit.role === "scout" ? 4 : 6) : doctrineSensorInterval) + (unit.index % 9) * 0.013;
+          if ((unit.alertLevel || 0) > 0.4) unit.sensorCooldown = Math.min(unit.sensorCooldown,
+            state.speed >= 8 ? 1.5 : state.performancePreset.id === "total" ? 0.4 : state.performancePreset.id === "major" ? 0.25 : 0.12);
         } else if (unit.cachedTargetId) {
           target = combatTargetById(unit.cachedTargetId);
         }
@@ -7693,6 +7945,7 @@ import {
       }
 
       function unitCapFor(player) {
+        if (Number.isFinite(player?.forceCapOverride)) return Math.max(4, player.forceCapOverride);
         return allocateForceCaps(state.players, state.battleScale.targetUnits)[player.id] || 4;
       }
 
@@ -8133,6 +8386,8 @@ import {
       }
 
       function bestDropPodLandingZone(player) {
+        const cached = player.dropPodLandingCache;
+        if (cached && state.time - cached.at < 4 && cached.unitCount === state.units.length && cached.structureCount === state.structures.length) return cached.landing;
         const candidates = [];
         const addAround = (center, count = 8, radius = 72) => {
           if (!center) return;
@@ -8143,14 +8398,25 @@ import {
           }
         };
         addAround(player.base, 6, 70);
-        for (const ally of state.units.filter(unit => unit.alive && areAllies(unit.faction, player.id) && (unit.hp < unit.maxHp * 0.72 || unit.role === "commander")).slice(0, 10)) addAround(ally, 6, 64);
-        for (const structure of state.structures.filter(structure => structure.alive !== false && !areAllies(structure.faction, player.id)).slice(0, 12)) addAround(structure, 10, 95);
-        for (const road of state.roads.slice(0, 12)) addAround(roadMidpoint(road), 8, 78);
+        for (const ally of state.units.filter(unit => unit.alive && areAllies(unit.faction, player.id) && (unit.hp < unit.maxHp * 0.72 || unit.role === "commander")).slice(0, 6)) addAround(ally, 6, 64);
+        for (const structure of state.structures.filter(structure => structure.alive !== false && !areAllies(structure.faction, player.id)).slice(0, 8)) addAround(structure, 8, 95);
+        for (const road of state.roads.slice(0, 8)) addAround(roadMidpoint(road), 6, 78);
         for (const territory of state.territories.filter(item => item.cellBacked)) {
-          for (const key of [...(territory.frontierCells || [])].slice(0, 12)) addAround(territoryCellCenter(key), 4, 52);
+          for (const key of [...(territory.frontierCells || [])].slice(0, 4)) addAround(territoryCellCenter(key), 4, 52);
         }
-        const evaluated = candidates.map(point => dropPodLandingScore(player, point)).filter(Boolean).sort((a, b) => b.score - a.score);
-        return evaluated[0] || dropPodLandingScore(player, player.base) || { point: { ...player.base }, score: 0, ownership: player.id };
+        const seen = new Set();
+        const boundedCandidates = [];
+        for (const point of candidates) {
+          const key = `${Math.round(point.x / 12)},${Math.round(point.y / 12)}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          boundedCandidates.push(point);
+          if (boundedCandidates.length >= 180) break;
+        }
+        const evaluated = boundedCandidates.map(point => dropPodLandingScore(player, point)).filter(Boolean).sort((a, b) => b.score - a.score);
+        const landing = evaluated[0] || dropPodLandingScore(player, player.base) || { point: { ...player.base }, score: 0, ownership: player.id };
+        player.dropPodLandingCache = { at: state.time, unitCount: state.units.length, structureCount: state.structures.length, landing };
+        return landing;
       }
 
       function shouldUseDropPod(player) {
@@ -8349,7 +8615,7 @@ import {
             if (player.forceState?.allIn) {
               economy.research.status = "Suspended · all resources committed to the battle";
             } else {
-            economy.research.progress += 7 * clamp(structure.condition, 0.2, 1);
+            economy.research.progress += 7 * landmarkModifierFor(player.id, "researchRateMultiplier") * clamp(structure.condition, 0.2, 1);
             economy.research.status = `Research level ${economy.research.level} · ${Math.floor(economy.research.progress)}%`;
             if (economy.research.progress >= 100) {
               economy.research.progress -= 100;
@@ -8441,10 +8707,10 @@ import {
           : 1;
         const cargo = Object.fromEntries(Object.entries(origin.exports || {})
           .filter(([resource]) => activeResources.has(resource) && allowed.has(resource) && (!economy.shortages.length || economy.shortages.includes(resource)))
-          .map(([resource, amount]) => [resource, Math.min(amount * importEfficiency, selected.route.capacity, origin.capacity)]));
+          .map(([resource, amount]) => [resource, Math.min(amount * importEfficiency * selected.throughputMultiplier, selected.route.capacity * selected.throughputMultiplier, origin.capacity)]));
         if (!Object.keys(cargo).length) {
           for (const [resource, amount] of Object.entries(origin.exports || {})) {
-            if (activeResources.has(resource) && allowed.has(resource)) cargo[resource] = Math.min(amount * importEfficiency, selected.route.capacity, origin.capacity);
+            if (activeResources.has(resource) && allowed.has(resource)) cargo[resource] = Math.min(amount * importEfficiency * selected.throughputMultiplier, selected.route.capacity * selected.throughputMultiplier, origin.capacity);
           }
         }
         const convoy = createConvoy(player.id, cargo, origin, destination, {
@@ -8465,8 +8731,15 @@ import {
         const capacity = economyCapacity(player.id);
         if (player.index === 0) {
           for (const node of state.economicNodes) {
-            const territoryOwner = territoryAt(node)?.owner;
-            node.owner = territoryOwner || node.owner || node.startingOwner || "";
+            const territoryCell = territoryAt(node);
+            const resolvedOwner = territoryCell ? territoryCell.owner || "" : node.owner || node.startingOwner || "";
+            if (resolvedOwner && resolvedOwner !== node.owner) {
+              const ownerEconomy = economyFor(resolvedOwner);
+              const result = claimEconomicNode(node, resolvedOwner, ownerEconomy.inventory, economyCapacity(resolvedOwner));
+              if (Object.keys(result.granted).length) {
+                incident(`${playerFor(resolvedOwner)?.faction || resolvedOwner} captured ${node.name} and secured ${Object.entries(result.granted).map(([resource, amount]) => `${Math.round(amount)} ${resource}`).join(", ")}.`, node.id, "info");
+              }
+            } else node.owner = resolvedOwner;
           }
         }
         const prioritizedZones = state.resourceZones.map(syncResourceZone)
@@ -8583,8 +8856,8 @@ import {
         state.nextSupportTrain[player.id] = state.time + (role === "builder" ? 24 : 18);
       }
 
-      function economyTick() {
-        for (const player of state.players) {
+      function economyTick(players = state.players) {
+        for (const player of players) {
           updatePlayerForceCommitment(player);
           const unitCap = desiredFieldStrengthFor(player);
           const economy = economyFor(player.id);
@@ -9477,9 +9750,11 @@ import {
         });
         const enemyEliminated = enemies.length > 0 && enemies.every(enemy => state.strategicOutcomes[enemy.id]?.defeated);
         const ownUnits = state.units.filter(unit => unit.alive && !unit.incapacitated && unit.faction === player.id);
+        const objectiveForces = ownUnits.filter(unit => !["builder", "supply"].includes(unit.role)
+          && (unit.damage > 0 || unit.role === "vehicle" || unit.role === "commander"));
         const enemyBases = enemies.map(enemy => enemy.base).filter(Boolean);
-        const breakthroughProgress = ownUnits.length && enemyBases.length
-          ? Math.max(...ownUnits.map(unit => Math.max(...enemyBases.map(base => {
+        const breakthroughProgress = objectiveForces.length && enemyBases.length
+          ? Math.max(...objectiveForces.map(unit => Math.max(...enemyBases.map(base => {
             const startDistance = distance(player.base, base) || 1;
             return clamp(1 - distance(unit, base) / startDistance, 0, 1);
           }))))
@@ -9547,7 +9822,18 @@ import {
           outcome.battleObjective = plan.name;
           outcome.objectiveMethod = plan.method;
           outcome.objectiveProgress = player.battleObjectiveState.progress;
-          if (player.battleObjectiveState.complete) {
+          const opposingTeams = [...new Set(state.players.filter(other => !areAllies(other.id, player.id)).map(other => String(other.team)))];
+          const opposingTeamReadiness = opposingTeams.map(team => {
+            const members = state.players.filter(other => String(other.team) === team);
+            return members.some(member => member.hasEstablishedMilitaryForce)
+              || members.every(member => state.strategicOutcomes[member.id]?.defeated);
+          });
+          const victoryReady = battleObjectiveVictoryReady({
+            elapsedSeconds: state.time,
+            contenderEstablishedMilitary: player.hasEstablishedMilitaryForce,
+            opposingTeamReadiness
+          });
+          if (player.battleObjectiveState.complete && victoryReady) {
             outcome.objectiveVictory = true;
             outcome.status = `Objective complete · ${plan.name}`;
             completed.push(player);
@@ -9666,18 +9952,71 @@ import {
         evaluateBattleObjectiveOutcomes();
       }
 
+      function doctrineActivityTierFor(player) {
+        const context = player?.factionAIContext || {};
+        if ((context.enemyPressure || 0) >= 0.65 || player?.operationalPlan?.phase === "emergency") return "critical";
+        if (state.performancePreset.id === "total") return "distant";
+        if (state.performancePreset.id === "major") return "nearby";
+        return "active";
+      }
+
+      function queueDoctrineCadences(dt) {
+        for (const player of state.players) {
+          const profile = state.factionAIProfiles[player.id] ||= resolveFactionAIProfile(player);
+          const tick = profile.doctrine?.tickProfile || { perceptionHz: 10, squadAIHz: 8, commanderAIHz: 3, strategyHz: 1 };
+          const multiplier = activityRateMultiplier(doctrineActivityTierFor(player));
+          if (doctrineRateGate.shouldRun(`strategy:${player.id}`, tick.strategyHz, dt, multiplier)) state.doctrineReady.strategy.add(player.id);
+          if (doctrineRateGate.shouldRun(`commander:${player.id}`, tick.commanderAIHz, dt, multiplier)) state.doctrineReady.commander.add(player.id);
+          if (doctrineRateGate.shouldRun(`squad:${player.id}`, tick.squadAIHz, dt, multiplier)) state.doctrineReady.squad.add(player.id);
+        }
+      }
+
+      function nextDoctrineCadenceJob() {
+        const channels = ["strategy", "commander", "squad"];
+        for (let channelOffset = 0; channelOffset < channels.length; channelOffset += 1) {
+          const channel = channels[(state.doctrineCadenceCursor + channelOffset) % channels.length];
+          const ready = state.doctrineReady[channel];
+          for (let playerOffset = 0; playerOffset < state.players.length; playerOffset += 1) {
+            const player = state.players[(state.doctrineCadenceCursor + playerOffset) % state.players.length];
+            if (!ready.has(player.id)) continue;
+            ready.delete(player.id);
+            state.doctrineCadenceCursor = (state.doctrineCadenceCursor + channelOffset + playerOffset + 1) % Math.max(1, state.players.length * channels.length);
+            return { channel, player };
+          }
+        }
+        return null;
+      }
+
+      function runDoctrineCadenceJob(job) {
+        if (job.channel === "strategy") profiler.profile("ai.factions", () => updateFactionAI([job.player]));
+        else if (job.channel === "commander") profiler.profile("ai.commanders", () => updateCommanderAI([job.player]));
+        else profiler.profile("ai.squads", () => updateSquadAI([job.player]));
+      }
+
       function updateBattle(dt) {
         state.time += dt;
         rebuildEntityIdIndex();
         state.performancePreset = scalePresetFor(state.units.length, state.performanceRequested);
+        const staggerHeavySystems = state.players.length > 4 && ["major", "total"].includes(state.performancePreset.id);
+        let heavySystemRan = false;
+        const heavySystemAvailable = () => !staggerHeavySystems || !heavySystemRan;
+        const markHeavySystemRun = () => { heavySystemRan = true; };
         navigationPlanner.maxVisited = state.performancePreset.pathVisited;
         navigationWorkBudget.begin(state.performancePreset.pathBudget);
+        const denseTotalBattle = state.performancePreset.id === "total";
+        const denseMajorBattle = state.performancePreset.id === "major";
+        awarenessWorkBudget.begin(denseTotalBattle ? 6 : denseMajorBattle ? 16 : state.performancePreset.id === "battle" ? 32 : 64);
+        sensorWorkBudget.begin(denseTotalBattle ? 4 : denseMajorBattle ? 10 : state.performancePreset.id === "battle" ? 20 : 40);
         state.navigationBudgetUsed = 0;
+        state.awarenessBudgetUsed = 0;
+        state.sensorBudgetUsed = 0;
+        queueDoctrineCadences(dt);
         profiler.profile("economy.convoys", () => updateConvoys(dt));
         updateDropPods();
         if (state.time >= state.nextTerritoryTick) {
           profiler.profile("territory.update", territoryTick);
           profiler.profile("economy.resourceZones", resourceZoneCaptureTick);
+          markHeavySystemRun();
           state.nextTerritoryTick += 2;
         }
         state.environmentAccumulator += dt;
@@ -9685,9 +10024,17 @@ import {
           updateEnvironment(state.environmentAccumulator);
           state.environmentAccumulator = 0;
         }
-        if (state.time >= state.nextEconomy) {
-          profiler.profile("economy.update", economyTick);
-          state.nextEconomy += 5;
+        if (state.time >= state.nextEconomy && heavySystemAvailable()) {
+          if (state.players.length > 4) {
+            const player = state.players[state.economyPlayerCursor % state.players.length];
+            profiler.profile("economy.update", () => economyTick([player]));
+            state.economyPlayerCursor = (state.economyPlayerCursor + 1) % state.players.length;
+            state.nextEconomy += 5 / state.players.length;
+          } else {
+            profiler.profile("economy.update", economyTick);
+            state.nextEconomy += 5;
+          }
+          markHeavySystemRun();
         }
         state.spatialAccumulator += dt;
         const spatialInterval = 0.2 * Math.max(1, state.speed);
@@ -9701,34 +10048,27 @@ import {
           state.roadAIAccumulator = 0;
         }
         state.armyAIAccumulator += dt;
-        if (state.armyAIAccumulator >= 5) {
+        if (state.armyAIAccumulator >= 5 && heavySystemAvailable()) {
           profiler.profile("ai.strategic", updateArmyAI);
           state.armyAIAccumulator = 0;
+          markHeavySystemRun();
         }
-        state.factionAIAccumulator += dt;
-        if (state.factionAIAccumulator >= 3) {
-          profiler.profile("ai.factions", updateFactionAI);
-          state.factionAIAccumulator = 0;
-        }
-        state.commanderAIAccumulator += dt;
-        if (state.commanderAIAccumulator >= 3) {
-          profiler.profile("ai.commanders", updateCommanderAI);
-          state.commanderAIAccumulator = 0;
-        }
-        state.squadAIAccumulator += dt;
-        if (state.squadAIAccumulator >= 0.5) {
-          profiler.profile("ai.squads", updateSquadAI);
-          state.squadAIAccumulator = 0;
+        const doctrineJob = heavySystemAvailable() ? nextDoctrineCadenceJob() : null;
+        if (doctrineJob) {
+          runDoctrineCadenceJob(doctrineJob);
+          markHeavySystemRun();
         }
         state.socialAccumulator += dt;
-        if (state.socialAccumulator >= 2) {
+        if (state.socialAccumulator >= 2 && heavySystemAvailable()) {
           updateSocialAI();
           state.socialAccumulator = 0;
+          markHeavySystemRun();
         }
         state.victoryEvaluationAccumulator += dt;
-        if (state.victoryEvaluationAccumulator >= 5) {
+        if (state.victoryEvaluationAccumulator >= 5 && heavySystemAvailable()) {
           evaluateStrategicOutcomes();
           state.victoryEvaluationAccumulator = 0;
+          markHeavySystemRun();
         }
         state.performanceFrame += 1;
         state.performanceWorkerAccumulator += dt;
@@ -9745,42 +10085,45 @@ import {
             const dx = unit.x - state.camera.x;
             const dy = unit.y - state.camera.y;
             if (dx * dx + dy * dy < 810000) continue;
-            workerUnits.push({
-              id: unit.id,
-              faction: unit.faction,
-              team: String(playerFor(unit.faction).team),
-              x: unit.x,
-              y: unit.y,
-              alive: unit.alive,
-              damage: unit.damage,
-              accuracy: unit.accuracy,
-              morale: unit.morale
-            });
+            workerUnits.push(unit);
           }
+          const packed = packDistantUnits(workerUnits, unit => playerFor(unit.faction)?.team);
+          const requestId = state.performanceFrame;
+          distantWorkerRequests.set(requestId, { ids: packed.ids });
           distantSimulationWorker.postMessage({
-            requestId: state.performanceFrame,
+            requestId,
             battleGeneration: state.workerBattleGeneration,
             dt: 1,
-            units: workerUnits
-          });
+            count: packed.count,
+            factionNames: packed.factionNames,
+            teamNames: packed.teamNames,
+            valuesBuffer: packed.values.buffer,
+            factionBuffer: packed.factions.buffer,
+            teamBuffer: packed.teams.buffer
+          }, [packed.values.buffer, packed.factions.buffer, packed.teams.buffer]);
         }
         profiler.profile("simulation.units", () => {
           state.units.forEach((unit, index) => {
             unit.deferredSimulationDt = (unit.deferredSimulationDt || 0) + dt;
+            const supportUnit = ["builder", "supply"].includes(unit.role);
+            const supportStride = state.performancePreset.id === "total" ? 6 : state.performancePreset.id === "major" ? 3 : state.performancePreset.id === "battle" ? 2 : 1;
+            const supportUpdateDue = !supportUnit || unit.targetId || unit.id === state.selectedId
+              || (index + state.performanceFrame) % supportStride === 0;
+            if (!supportUpdateDue) return;
             const distanceFromCamera = distance(unit, state.camera);
             unit.distantSimulation = distanceFromCamera >= 900 && ["major", "total"].includes(state.performancePreset.id);
             const updateNow = shouldUpdateEntity({
               index,
               frame: state.performanceFrame,
               distanceFromCamera,
-              critical: unit.role === "builder" || unit.role === "commander" || unit.id === state.selectedId,
+              critical: unit.id === state.selectedId || unit.role === "commander" && state.performancePreset.nearEngagedStride === 1,
               engaged: Boolean(unit.targetId),
               preset: state.performancePreset
             });
             if (!updateNow) return;
             const elapsed = Math.min(1.5, unit.deferredSimulationDt);
             unit.deferredSimulationDt = 0;
-            updateUnit(unit, elapsed);
+            profiler.profile(`simulation.unit.${unit.role || "unknown"}`, () => updateUnit(unit, elapsed));
           });
         });
         state.separationAccumulator += dt;
@@ -9788,7 +10131,11 @@ import {
           profiler.profile("physics.separation", separateUnits);
           state.separationAccumulator = 0;
         }
-        profiler.profile("combat.projectiles", () => updateProjectiles(dt));
+        const activeCombatSubsteps = state.projectiles.length && state.units.some(unit => unit.alive && unit.targetId) ? 2 : 1;
+        profiler.profile("combat.projectiles", () => {
+          const combatDt = dt / activeCombatSubsteps;
+          for (let step = 0; step < activeCombatSubsteps; step += 1) updateProjectiles(combatDt);
+        });
         cleanupCompletedDeathAnimations();
         updateExploration(dt);
         if (state.time >= state.nextSnapshot) {
@@ -9847,8 +10194,10 @@ import {
               utilityScores: { ...(player.factionAIScores || {}) },
               threatEstimate: player.factionAIContext?.enemyPressure || 0,
               battleObjectiveMethod: player.battleObjectiveMethod,
-              operationalPhase: player.chaosStrategy?.phase || null,
-              operationalReason: player.chaosStrategy?.reason || null,
+              operationalPhase: player.chaosStrategy?.phase || player.operationalPlan?.phase || null,
+              operationalReason: player.chaosStrategy?.reason || player.operationalPlan?.reason || null,
+              operationalAction: player.chaosStrategy?.selectedAction?.id || null,
+              objectiveLeash: player.battleObjectiveLeash ? { ...player.battleObjectiveLeash, primaryChoices: [...player.battleObjectiveLeash.primaryChoices] } : null,
               chaosProfileId: player.chaosStrategy?.profileId || null,
               commitmentStage: player.forceState?.commitmentStage || "contact",
               commitment: player.forceState?.commitment || 0.35,
@@ -12138,9 +12487,9 @@ import {
         els.aiConfidence.textContent = `Confidence ${Math.round(aiInspection.confidence * 100)}%`;
         els.aiGoal.textContent = `Current goal: ${aiInspection.currentGoal}`;
         els.aiThreat.textContent = `Threat estimate: ${Math.round(aiInspection.threatEstimate * 100)}%`;
-        const recordedChaosPhase = recordedAI?.operationalPhase || player.chaosStrategy?.phase;
-        const recordedChaosReason = recordedAI?.operationalReason || player.chaosStrategy?.reason;
-        const chaosOperation = recordedChaosPhase ? ` · Chaos phase ${recordedChaosPhase} (${String(recordedChaosReason || "active_plan").replaceAll("_", " ")})` : "";
+        const recordedOperationalPhase = recordedAI?.operationalPhase || player.chaosStrategy?.phase || player.operationalPlan?.phase;
+        const recordedOperationalReason = recordedAI?.operationalReason || player.chaosStrategy?.reason || player.operationalPlan?.reason;
+        const chaosOperation = recordedOperationalPhase ? ` · Operational phase ${recordedOperationalPhase} (${String(recordedOperationalReason || "active_plan").replaceAll("_", " ")})` : "";
         els.aiDoctrine.textContent = `Battle-objective influence: ${prettyObjectiveMethod(aiInspection.doctrineInfluence)} · ${player.distinctiveDoctrine || "shared core"} · Commitment ${recordedAI?.commitmentStage || player.forceState?.commitmentStage || "contact"} ${Math.round((recordedAI?.commitment || player.forceState?.commitment || 0.35) * 100)}%${chaosOperation}`;
         els.aiUtilities.textContent = "";
         for (const [choice, score] of Object.entries(aiInspection.utilityScores).slice(0, 6)) {
@@ -12292,7 +12641,8 @@ import {
         const objectivePlan = battleObjectivePlanFor(player);
         const strategicOutcome = state.strategicOutcomes[player.id]?.status || "Building operational capability";
         const pressureLabel = economy.territoryPressure > 0 ? ` · Territory support pressure ${Math.round(economy.territoryPressure * 100)}%` : "";
-        const operationalPhase = player.chaosStrategy ? ` · ${player.chaosStrategy.phase.toUpperCase()} / ${player.chaosStrategy.reason.replaceAll("_", " ")}` : "";
+        const liveOperationalPlan = player.chaosStrategy || player.operationalPlan;
+        const operationalPhase = liveOperationalPlan ? ` · ${liveOperationalPlan.phase.toUpperCase()} / ${liveOperationalPlan.reason.replaceAll("_", " ")}${player.chaosStrategy?.selectedAction ? ` / ${player.chaosStrategy.selectedAction.id.replaceAll("_", " ")}` : ""}` : "";
         els.logisticsPersonality.textContent = `${objectivePlan.name} · ${prettyObjectiveMethod(objectivePlan.method)}${operationalPhase} · Commitment ${player.forceState?.commitmentStage || "contact"} ${Math.round((player.forceState?.commitment || 0.35) * 100)}% · Live tendencies A${Math.round(behavior.aggression)} C${Math.round(behavior.caution)} X${Math.round(behavior.expansion)} E${Math.round(behavior.economy)} · Army goal: ${armyPlan.goal} · ${strategicOutcome}${pressureLabel} · ${economy.emergency}`;
         els.logisticsResources.textContent = "";
         for (const key of economy.activeResources) {
@@ -13146,6 +13496,7 @@ import {
         els.economicNodeActive.checked = node.active;
         els.economicNodeStrategic.checked = node.strategicObjective !== false;
         renderEconomicNodeFlows(node);
+        renderEconomicNodeCaptureStock(node);
         updateEconomicNodeValidation(node);
       }
 
@@ -13248,6 +13599,75 @@ import {
         })));
       }
 
+      function economicCaptureStockRow(item) {
+        const row = document.createElement("div");
+        row.className = "awt-landmark-flow-row";
+        const resourceLabel = document.createElement("label");
+        resourceLabel.className = "form-label text-small";
+        resourceLabel.append("Resource");
+        const resource = document.createElement("select");
+        resource.className = "form-select";
+        resource.dataset.captureField = "resource";
+        for (const id of RESOURCE_IDS) {
+          const option = document.createElement("option");
+          option.value = id;
+          option.textContent = RESOURCE_DEFINITIONS[id].name;
+          resource.append(option);
+        }
+        resource.value = item.resource;
+        resourceLabel.append(resource);
+        const amountLabel = document.createElement("label");
+        amountLabel.className = "form-label text-small";
+        amountLabel.append("Capture amount");
+        const amount = document.createElement("input");
+        amount.className = "form-control";
+        amount.type = "number";
+        amount.min = "0.1";
+        amount.max = "1000000";
+        amount.step = "0.1";
+        amount.value = String(item.amount);
+        amount.dataset.captureField = "amount";
+        amountLabel.append(amount);
+        const enabledLabel = document.createElement("label");
+        enabledLabel.className = "form-check awt-landmark-flow-enabled";
+        const enabled = document.createElement("input");
+        enabled.className = "form-check-input";
+        enabled.type = "checkbox";
+        enabled.checked = item.enabled !== false;
+        enabled.dataset.captureField = "enabled";
+        const enabledText = document.createElement("span");
+        enabledText.className = "form-check-label";
+        enabledText.textContent = "Enabled";
+        enabledLabel.append(enabled, enabledText);
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "btn btn-ghost awt-landmark-flow-remove";
+        remove.textContent = "Remove";
+        remove.addEventListener("click", () => { row.remove(); saveEconomicNodeForm({ rebuildSelect: false }); });
+        for (const control of [resource, amount, enabled]) control.addEventListener("change", () => saveEconomicNodeForm({ rebuildSelect: false }));
+        row.append(resourceLabel, amountLabel, enabledLabel, remove);
+        return row;
+      }
+
+      function renderEconomicNodeCaptureStock(node) {
+        els.economicNodeCaptureStock.textContent = "";
+        for (const item of normalizeCaptureStock(node.captureStock)) els.economicNodeCaptureStock.append(economicCaptureStockRow(item));
+        if (!els.economicNodeCaptureStock.children.length) {
+          const empty = document.createElement("p");
+          empty.className = "text-small awt-landmark-flow-empty";
+          empty.textContent = "No resources transfer on capture.";
+          els.economicNodeCaptureStock.append(empty);
+        }
+      }
+
+      function readEconomicNodeCaptureStock() {
+        return normalizeCaptureStock([...els.economicNodeCaptureStock.querySelectorAll(".awt-landmark-flow-row")].map(row => ({
+          resource: row.querySelector('[data-capture-field="resource"]').value,
+          amount: Number(row.querySelector('[data-capture-field="amount"]').value),
+          enabled: row.querySelector('[data-capture-field="enabled"]').checked
+        })));
+      }
+
       function updateEconomicNodeValidation(node) {
         const result = validateEconomicNode(node);
         els.economicNodeValidation.dataset.valid = String(result.valid);
@@ -13264,6 +13684,7 @@ import {
         node.startingOwner = els.economicNodeOwner.value;
         node.owner = node.startingOwner;
         node.flows = readEconomicNodeFlows();
+        node.captureStock = readEconomicNodeCaptureStock();
         node.useTypeDefaults = els.economicNodeUseDefaults.checked;
         node.capacity = clamp(Number(els.economicNodeCapacity.value) || 1, 1, 1000000);
         node.strategicValue = clamp(Number(els.economicNodeValue.value) || 0, 0, 100);
@@ -14623,7 +15044,11 @@ import {
         const node = selectedEconomicNode();
         if (!node) return;
         node.type = els.economicNodeType.value;
-        if (els.economicNodeUseDefaults.checked) node.flows = flowsForLandmarkType(node.type);
+        if (els.economicNodeUseDefaults.checked) {
+          node.flows = flowsForLandmarkType(node.type);
+          node.captureStock = captureStockForLandmarkType(node.type);
+          node.modifiers = modifiersForLandmarkType(node.type);
+        }
         syncEconomicNodeResources(node);
         loadEconomicNodeForm();
         saveEconomicNodeForm();
@@ -14632,7 +15057,11 @@ import {
         const node = selectedEconomicNode();
         if (!node) return;
         node.useTypeDefaults = els.economicNodeUseDefaults.checked;
-        if (node.useTypeDefaults) node.flows = flowsForLandmarkType(node.type);
+        if (node.useTypeDefaults) {
+          node.flows = flowsForLandmarkType(node.type);
+          node.captureStock = captureStockForLandmarkType(node.type);
+          node.modifiers = modifiersForLandmarkType(node.type);
+        }
         syncEconomicNodeResources(node);
         loadEconomicNodeForm();
         saveEconomicNodeForm({ rebuildSelect: false });
@@ -14643,6 +15072,13 @@ import {
         node.flows.push({ resource: "materials", direction: "produce", rate: 1, enabled: true });
         node.useTypeDefaults = false;
         syncEconomicNodeResources(node);
+        loadEconomicNodeForm();
+        saveEconomicNodeForm({ rebuildSelect: false });
+      });
+      root.querySelector("#awt-add-economic-capture-stock").addEventListener("click", () => {
+        const node = selectedEconomicNode();
+        if (!node) return;
+        node.captureStock.push({ resource: "ammunition", amount: 25, enabled: true });
         loadEconomicNodeForm();
         saveEconomicNodeForm({ rebuildSelect: false });
       });
@@ -14927,7 +15363,7 @@ import {
           }
           if (!state.paused && state.mode === "sim" && !state.replay) {
             try {
-              const simulationStep = 1 / 20;
+              const simulationStep = 1 / 30;
               state.simulationAccumulator = Math.min(0.6, state.simulationAccumulator + rawDt * state.speed);
               const simulationResult = runFixedStepBudget({
                 accumulator: state.simulationAccumulator,
@@ -14958,8 +15394,11 @@ import {
           }
           state.uiAccumulator += rawDt;
           state.renderAccumulator += rawDt;
-          const renderInterval = state.speed >= 8 ? 1 / 6 : 1 / 30;
-          if (state.renderAccumulator >= renderInterval) {
+          const renderInterval = state.speed >= 8 ? 1 / 6 : state.performancePreset.id === "total" ? 1 / 20 : 1 / 30;
+          const deferOverBudgetTotalDraw = state.performancePreset.id === "total"
+            && (state.lastSimulationFrame?.workMs || 0) > 32
+            && state.frameCount % 2 === 1;
+          if (state.renderAccumulator >= renderInterval && !deferOverBudgetTotalDraw) {
             try {
               profiler.profile("render", draw);
               state.renderAccumulator %= renderInterval;

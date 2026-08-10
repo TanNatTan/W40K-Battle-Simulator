@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { assessFactionCapability, chooseEndgameDirective, ENDGAME_ACTIONS } from "../src/victory/VictorySystem.js";
+import { assessFactionCapability, battleObjectiveVictoryReady, chooseEndgameDirective, ENDGAME_ACTIONS } from "../src/victory/VictorySystem.js";
 import { ReplayAnalysisSystem, buildAIInspector } from "../src/replay/ReplayAnalysisSystem.js";
 import { ObjectPool, SCALE_PRESETS, scalePresetFor, shouldUpdateEntity, statisticalDistantCombat } from "../src/performance/ScaleSystem.js";
 import { FACTION_GAMEPLAY_BRANCHES, createFactionGameplayState, updateFactionGameplay } from "../src/factions/DistinctiveGameplaySystem.js";
@@ -25,6 +25,13 @@ test("Phase 20 requires all five annihilation conditions rather than headquarter
   const annihilated = assessFactionCapability({ factionId: "red", units: [], structures: [], reinforcementAccess: [], isAllied });
   assert.equal(annihilated.defeated, true);
   assert.ok(Object.values(annihilated.conditions).every(Boolean));
+});
+
+test("battle objectives cannot end during builder-only opening deployment", () => {
+  assert.equal(battleObjectiveVictoryReady({ elapsedSeconds: 20, contenderEstablishedMilitary: true, opposingTeamReadiness: [true] }), false);
+  assert.equal(battleObjectiveVictoryReady({ elapsedSeconds: 40, contenderEstablishedMilitary: false, opposingTeamReadiness: [true] }), false);
+  assert.equal(battleObjectiveVictoryReady({ elapsedSeconds: 40, contenderEstablishedMilitary: true, opposingTeamReadiness: [false, true] }), false);
+  assert.equal(battleObjectiveVictoryReady({ elapsedSeconds: 40, contenderEstablishedMilitary: true, opposingTeamReadiness: [true, true] }), true);
 });
 
 test("Phase 20 selects active endgame work instead of stopping after a headquarters", () => {
@@ -78,6 +85,10 @@ test("Phase 22 scales thousands of distant units and preserves critical updates"
   assert.ok(engaged.filter(Boolean).length > scheduled.filter(Boolean).length);
   assert.ok(engaged.filter(Boolean).length <= 610);
   assert.equal(shouldUpdateEntity({ index: 1, frame: 1, distanceFromCamera: 5000, critical: true, preset }), true);
+  assert.equal(shouldUpdateEntity({ index: 1, frame: 5, distanceFromCamera: 200, engaged: true, preset }), true);
+  assert.equal(shouldUpdateEntity({ index: 1, frame: 5, distanceFromCamera: 200, preset }), true);
+  assert.equal(shouldUpdateEntity({ index: 1, frame: 4, distanceFromCamera: 200, preset }), false);
+  assert.equal(shouldUpdateEntity({ index: 1, frame: 4, distanceFromCamera: 200, engaged: true, preset }), false);
   const first = { faction: "a", alive: true, hp: 100, damage: 10, accuracy: 1, morale: 1 };
   const second = { faction: "b", alive: true, hp: 100, damage: 8, accuracy: 1, morale: 1 };
   assert.ok(statisticalDistantCombat(first, second, 5, () => 0.5).firstLoss > 0);

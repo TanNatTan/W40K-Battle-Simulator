@@ -1,8 +1,8 @@
 export const SCALE_PRESETS = Object.freeze({
-  skirmish: Object.freeze({ label: "Skirmish", targetUnits: 120, distantStride: 2, snapshotSeconds: 1.5, pathBudget: 16, pathVisited: 5200, logBatch: 24 }),
-  battle: Object.freeze({ label: "Battle", targetUnits: 400, distantStride: 3, snapshotSeconds: 3, pathBudget: 12, pathVisited: 4200, logBatch: 40 }),
-  major: Object.freeze({ label: "Major Battle", targetUnits: 1000, distantStride: 6, snapshotSeconds: 6, pathBudget: 8, pathVisited: 2800, logBatch: 64 }),
-  total: Object.freeze({ label: "Total Battlefield", targetUnits: 4000, distantStride: 10, snapshotSeconds: 12, pathBudget: 4, pathVisited: 1800, logBatch: 96 })
+  skirmish: Object.freeze({ label: "Skirmish", targetUnits: 120, nearStride: 1, nearEngagedStride: 1, distantStride: 2, snapshotSeconds: 1.5, pathBudget: 16, pathVisited: 5200, logBatch: 24 }),
+  battle: Object.freeze({ label: "Battle", targetUnits: 400, nearStride: 1, nearEngagedStride: 1, distantStride: 3, snapshotSeconds: 3, pathBudget: 12, pathVisited: 4200, logBatch: 40 }),
+  major: Object.freeze({ label: "Major Battle", targetUnits: 1000, nearStride: 2, nearEngagedStride: 2, distantStride: 6, snapshotSeconds: 6, pathBudget: 8, pathVisited: 2800, logBatch: 64 }),
+  total: Object.freeze({ label: "Total Battlefield", targetUnits: 4000, nearStride: 6, nearEngagedStride: 6, distantStride: 15, snapshotSeconds: 12, pathBudget: 1, pathVisited: 900, logBatch: 96 })
 });
 
 export function scalePresetFor(unitCount = 0, requested = "auto") {
@@ -12,7 +12,11 @@ export function scalePresetFor(unitCount = 0, requested = "auto") {
 }
 
 export function shouldUpdateEntity({ index = 0, frame = 0, distanceFromCamera = 0, critical = false, engaged = false, preset } = {}) {
-  if (critical || distanceFromCamera < 900) return true;
+  if (critical) return true;
+  if (distanceFromCamera < 900) {
+    const nearStride = Math.max(1, engaged ? preset?.nearEngagedStride || 1 : preset?.nearStride || 1);
+    return (index + frame) % nearStride === 0;
+  }
   const baseStride = Math.max(1, preset?.distantStride || 1);
   const stride = engaged ? Math.max(1, Math.ceil(baseStride / 2)) : baseStride;
   return (index + frame) % stride === 0;

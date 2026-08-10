@@ -26,9 +26,10 @@ test("map-authored economic nodes define imports and exports independently of te
   assert.equal(formatResourceMap(node.imports), "fuel:6, medical:4");
   assert.equal(node.terrain, undefined);
   const saved = serializeEconomicNode(node, 2, 3);
-  assert.equal(saved.schemaVersion, 2);
+  assert.equal(saved.schemaVersion, 3);
   assert.deepEqual(saved.position, { x: 240, y: 240, space: "world" });
   assert.deepEqual(saved.economy.flows, node.flows);
+  assert.deepEqual(saved.economy.captureStock, node.captureStock);
   assert.equal(saved.economy.capacity, node.capacity);
 });
 

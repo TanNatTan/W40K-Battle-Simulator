@@ -38,18 +38,27 @@ function subfactionProfile(subfaction, catalog) {
   return Object.entries(catalog?.subfactions || {}).find(([name]) => key.includes(normalize(name)) || normalize(name).includes(key))?.[1] || {};
 }
 
-export function resolveFactionAIProfile(player = {}, catalog = globalThis.AWTData?.factionAI) {
+export function resolveFactionAIProfile(player = {}, catalog = globalThis.AWTData?.factionAI, doctrineDatabase = globalThis.AWTData?.warfareDoctrines) {
   const branch = raceBranchFor(player);
   const raceProfile = catalog?.races?.[branch] || FALLBACK_FACTION_BRANCHES[branch];
   const subProfile = subfactionProfile(player.subfaction, catalog);
+  const doctrine = resolveWarfareDoctrine(player, doctrineDatabase, { branch, ...raceProfile, identity: { ...raceProfile.identity, ...(subProfile.identity || {}) } });
+  const modifiers = doctrine.modifiers;
   return {
     id: `${branch}:${player.subfaction || "default"}`,
     branch,
     subfaction: player.subfaction || "default",
     sharedCore: SHARED_AI_SYSTEMS,
-    behavior: { ...raceProfile.behavior, ...(subProfile.behavior || {}) },
+    behavior: {
+      aggression: modifiers.aggression * 100,
+      caution: (modifiers.preservation * 0.65 + modifiers.defense * 0.35) * 100,
+      expansion: modifiers.expansion * 100,
+      economy: (modifiers.techPreservation * 0.55 + modifiers.lootSalvage * 0.25 + modifiers.objectiveFocus * 0.2) * 100,
+      ...(subProfile.behavior || {})
+    },
     weights: { ...raceProfile.weights, ...(subProfile.weights || {}) },
-    identity: { ...raceProfile.identity, ...(subProfile.identity || {}) }
+    identity: { ...raceProfile.identity, ...(subProfile.identity || {}) },
+    doctrine
   };
 }
 
@@ -81,8 +90,46 @@ export function scoreStrategicChoices(profile, context = {}, learnedWeights = {}
     regroup: 12 + casualtyRatio * 78 + Math.max(0, enemyStrength - ownStrength) * 54
   };
   const objectiveBias = context.objectiveBias || {};
-  for (const choice of STRATEGIC_CHOICES) scores[choice] *= clamp(objectiveBias[choice] ?? 1, 0.35, 1.8);
+  for (const choice of STRATEGIC_CHOICES) {
+    scores[choice] *= clamp(objectiveBias[choice] ?? 1, 0.35, 1.8);
+    if (profile.doctrine?.modifiers) scores[choice] += scoreTacticalOpportunity(
+      profile.doctrine.modifiers,
+      strategicOpportunityFor(choice, context, objectiveBias),
+      context
+    ) * 22;
+  }
   return scores;
+}
+
+function strategicOpportunityFor(choice, context, objectiveBias) {
+  const own = clamp(context.ownStrength ?? 0.5, 0, 1);
+  const enemy = clamp(context.observedEnemyStrength ?? 0.5, 0, 1);
+  const pressure = clamp(context.enemyPressure, 0, 1);
+  const shortage = clamp(context.resourceShortage, 0, 1);
+  const territory = clamp(context.territoryOpportunity ?? 0.5, 0, 1);
+  const routeRisk = clamp(context.routeRisk, 0, 1);
+  const casualties = clamp(context.casualtyRatio, 0, 1);
+  const objectiveGain = clamp((objectiveBias[choice] ?? 1) / 1.8, 0, 1);
+  const base = {
+    objectiveGain,
+    enemyDamagePotential: 0,
+    defensiveGain: 0,
+    territorialGain: 0,
+    salvageGain: 0,
+    expectedFriendlyLoss: casualties,
+    expectedTechLoss: 0,
+    mobilityGain: 0,
+    isolationRisk: 0,
+    supplyRisk: routeRisk,
+    counterAttackRisk: pressure,
+    distanceFromObjective: clamp(1 - objectiveGain)
+  };
+  if (choice === "attack") return { ...base, enemyDamagePotential: clamp(own * 0.55 + enemy * 0.45), territorialGain: territory * 0.25, salvageGain: enemy * 0.3, expectedFriendlyLoss: clamp(casualties + Math.max(0, enemy - own) * 0.7), expectedTechLoss: enemy * 0.35, isolationRisk: routeRisk * 0.7, mobilityGain: territory * 0.25 };
+  if (choice === "defend") return { ...base, defensiveGain: clamp(pressure * 0.75 + 0.25), expectedFriendlyLoss: casualties * 0.55, expectedTechLoss: pressure * 0.2, isolationRisk: 0.1, supplyRisk: routeRisk * 0.45, counterAttackRisk: pressure * 0.25 };
+  if (choice === "expand") return { ...base, territorialGain: territory, salvageGain: territory * 0.4, mobilityGain: territory * 0.55, expectedFriendlyLoss: enemy * 0.25, expectedTechLoss: routeRisk * 0.25, isolationRisk: clamp(routeRisk * 0.7 + pressure * 0.35), supplyRisk: routeRisk };
+  if (choice === "research") return { ...base, defensiveGain: 0.25, salvageGain: 0.15, expectedFriendlyLoss: pressure * 0.2, expectedTechLoss: pressure * 0.55, isolationRisk: 0, supplyRisk: shortage * 0.3, counterAttackRisk: pressure * 0.65 };
+  if (choice === "logistics") return { ...base, defensiveGain: shortage * 0.5, territorialGain: territory * 0.15, salvageGain: shortage * 0.35, expectedFriendlyLoss: routeRisk * 0.3, expectedTechLoss: routeRisk * 0.2, mobilityGain: 0.35, isolationRisk: routeRisk * 0.2, supplyRisk: shortage * 0.15, counterAttackRisk: pressure * 0.35 };
+  return { ...base, defensiveGain: clamp(casualties + pressure * 0.45), expectedFriendlyLoss: casualties * 0.15, expectedTechLoss: pressure * 0.15, mobilityGain: 0.25, isolationRisk: 0.08, supplyRisk: shortage * 0.35, counterAttackRisk: pressure * 0.2 };
 }
 
 export function selectStrategicChoice(profile, context = {}, learnedWeights = {}) {
@@ -102,3 +149,4 @@ export function selectStrategicChoice(profile, context = {}, learnedWeights = {}
 export function branchBehaviorFor(player, catalog = globalThis.AWTData?.factionAI) {
   return resolveFactionAIProfile(player, catalog).behavior;
 }
+import { resolveWarfareDoctrine, scoreTacticalOpportunity } from "./WarfareDoctrineSystem.js";

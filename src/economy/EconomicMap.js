@@ -21,20 +21,38 @@ export const ECONOMY_OVERLAY_GROUPS = Object.freeze({
 });
 
 const flow = (resource, direction, rate, enabled = true) => Object.freeze({ resource, direction, rate, enabled });
+const capture = (resource, amount, enabled = true) => Object.freeze({ resource, amount, enabled });
+const modifiers = overrides => Object.freeze({
+  storageMultiplier: 1,
+  routeThroughputMultiplier: 1,
+  convoyLoadRateMultiplier: 1,
+  reinforcementRateMultiplier: 1,
+  productionRateMultiplier: 1,
+  vehicleProductionMultiplier: 1,
+  constructionRateMultiplier: 1,
+  repairRateMultiplier: 1,
+  researchRateMultiplier: 1,
+  moraleAura: 0,
+  sensorRadiusBonus: 0,
+  fortificationSlots: 0,
+  extractionRateMultiplier: 1,
+  storageLossMultiplier: 1,
+  ...overrides
+});
 
 export const LANDMARK_TYPE_DEFINITIONS = Object.freeze({
-  "hive-city": Object.freeze({ capacity: 2400, strategicValue: 92, tags: ["population-center", "command", "trade-hub"], routeTypes: ["road", "rail", "air", "orbital"], flows: [flow("requisition", "produce", 22), flow("influence", "produce", 8), flow("food", "produce", 8), flow("fuel", "consume", 12), flow("energy", "consume", 10), flow("medical", "consume", 9), flow("ammunition", "consume", 8), flow("security", "consume", 10)] }),
-  manufactorum: Object.freeze({ capacity: 1900, strategicValue: 88, tags: ["industry", "production", "trade-hub"], routeTypes: ["road", "rail", "orbital"], flows: [flow("materials", "produce", 18), flow("parts", "produce", 14), flow("ammunition", "produce", 12), flow("energy", "consume", 13), flow("fuel", "consume", 10), flow("food", "consume", 5)] }),
-  "mechanicus-enclave": Object.freeze({ capacity: 1700, strategicValue: 90, tags: ["technology", "repair", "energy"], routeTypes: ["road", "rail", "air", "orbital"], flows: [flow("energy", "produce", 16), flow("parts", "produce", 14), flow("influence", "produce", 7), flow("materials", "consume", 11), flow("fuel", "consume", 7)] }),
-  "agri-complex": Object.freeze({ capacity: 1800, strategicValue: 74, tags: ["agriculture", "population-support"], routeTypes: ["road", "rail", "river", "air"], flows: [flow("food", "produce", 28), flow("medical", "produce", 9), flow("fuel", "consume", 7), flow("energy", "consume", 5), flow("security", "consume", 4)] }),
-  "mining-colony": Object.freeze({ capacity: 2100, strategicValue: 80, tags: ["extraction", "industry"], routeTypes: ["road", "rail", "underground"], flows: [flow("materials", "produce", 26), flow("scrap", "produce", 9), flow("food", "consume", 7), flow("fuel", "consume", 9), flow("medical", "consume", 4)] }),
-  "fuel-refinery": Object.freeze({ capacity: 2200, strategicValue: 91, tags: ["fuel", "energy", "hazardous"], routeTypes: ["road", "rail", "river", "sea"], flows: [flow("fuel", "produce", 30), flow("energy", "produce", 9), flow("materials", "consume", 7), flow("parts", "consume", 6), flow("security", "consume", 4)] }),
-  "space-port": Object.freeze({ capacity: 2000, strategicValue: 93, tags: ["trade-hub", "reinforcement", "extraction"], routeTypes: ["road", "rail", "air", "orbital"], flows: [flow("requisition", "produce", 15), flow("influence", "produce", 6), flow("fuel", "produce", 9), flow("food", "consume", 7), flow("ammunition", "consume", 7), flow("security", "consume", 8)] }),
-  "civilian-settlement": Object.freeze({ capacity: 1100, strategicValue: 55, tags: ["population-center", "trade"], routeTypes: ["road", "river", "air"], flows: [flow("food", "produce", 9), flow("requisition", "produce", 7), flow("influence", "produce", 3), flow("medical", "consume", 6), flow("security", "consume", 8), flow("energy", "consume", 4)] }),
-  "orbital-elevator": Object.freeze({ capacity: 2600, strategicValue: 98, tags: ["trade-hub", "orbital", "reinforcement", "extraction"], routeTypes: ["road", "rail", "air", "orbital"], flows: [flow("requisition", "produce", 20), flow("materials", "produce", 12), flow("parts", "produce", 6), flow("energy", "consume", 12), flow("security", "consume", 10), flow("fuel", "consume", 6)] }),
-  "fortress-monastery": Object.freeze({ capacity: 1800, strategicValue: 96, tags: ["command", "fortress", "military"], routeTypes: ["road", "air", "orbital"], flows: [flow("security", "produce", 20), flow("ammunition", "produce", 12), flow("influence", "produce", 7), flow("food", "consume", 7), flow("fuel", "consume", 8), flow("medical", "consume", 6), flow("materials", "consume", 5)] }),
-  "supply-depot": Object.freeze({ capacity: 3000, strategicValue: 86, tags: ["trade-hub", "storage", "logistics"], routeTypes: ["road", "rail", "air", "river", "sea"], flows: [flow("ammunition", "produce", 18), flow("food", "produce", 13), flow("medical", "produce", 11), flow("fuel", "produce", 10), flow("parts", "produce", 8), flow("materials", "consume", 7), flow("energy", "consume", 5), flow("security", "consume", 5)] }),
-  "forward-operating-base": Object.freeze({ capacity: 950, strategicValue: 76, tags: ["military", "logistics", "forward-base"], routeTypes: ["road", "air", "underground"], flows: [flow("security", "produce", 12), flow("ammunition", "produce", 6), flow("ammunition", "consume", 9), flow("food", "consume", 6), flow("medical", "consume", 6), flow("fuel", "consume", 5)] })
+  "hive-city": Object.freeze({ capacity: 3600, strategicValue: 92, tags: ["population-center", "command", "trade-hub", "civilian-unrest"], routeTypes: ["road", "rail", "air", "orbital"], flows: [flow("requisition", "produce", 28), flow("influence", "produce", 10), flow("food", "consume", 18), flow("energy", "consume", 14), flow("fuel", "consume", 8), flow("medical", "consume", 8), flow("security", "consume", 12)], captureStock: [capture("requisition", 180), capture("food", 90), capture("medical", 45)], modifiers: modifiers({ storageMultiplier: 1.25, routeThroughputMultiplier: 1.2, reinforcementRateMultiplier: 1.25 }) }),
+  manufactorum: Object.freeze({ capacity: 2400, strategicValue: 88, tags: ["industry", "production", "trade-hub"], routeTypes: ["road", "rail", "orbital"], flows: [flow("parts", "produce", 18), flow("ammunition", "produce", 16), flow("requisition", "produce", 6), flow("materials", "consume", 16), flow("energy", "consume", 14), flow("fuel", "consume", 8), flow("food", "consume", 4)], captureStock: [capture("parts", 120), capture("ammunition", 160), capture("materials", 90)], modifiers: modifiers({ productionRateMultiplier: 1.25, vehicleProductionMultiplier: 1.25, constructionRateMultiplier: 1.2, repairRateMultiplier: 1.1 }) }),
+  "mechanicus-enclave": Object.freeze({ capacity: 2100, strategicValue: 90, tags: ["technology", "repair", "energy", "sensor"], routeTypes: ["road", "rail", "air", "orbital"], flows: [flow("energy", "produce", 18), flow("parts", "produce", 12), flow("influence", "produce", 8), flow("materials", "consume", 10), flow("fuel", "consume", 6)], captureStock: [capture("energy", 140), capture("parts", 100)], modifiers: modifiers({ researchRateMultiplier: 1.3, repairRateMultiplier: 1.35, sensorRadiusBonus: 0.15 }) }),
+  "agri-complex": Object.freeze({ capacity: 2600, strategicValue: 74, tags: ["agriculture", "population-support"], routeTypes: ["road", "rail", "river", "air"], flows: [flow("food", "produce", 36), flow("medical", "produce", 10), flow("fuel", "consume", 8), flow("energy", "consume", 6), flow("security", "consume", 5)], captureStock: [capture("food", 240), capture("medical", 60)], modifiers: modifiers({ storageMultiplier: 1.4 }) }),
+  "mining-colony": Object.freeze({ capacity: 2800, strategicValue: 80, tags: ["extraction", "industry"], routeTypes: ["road", "rail", "underground"], flows: [flow("materials", "produce", 32), flow("scrap", "produce", 12), flow("fuel", "consume", 10), flow("food", "consume", 8), flow("medical", "consume", 4), flow("energy", "consume", 3)], captureStock: [capture("materials", 220), capture("scrap", 120)], modifiers: modifiers({ productionRateMultiplier: 1.25, routeThroughputMultiplier: 1.2 }) }),
+  "fuel-refinery": Object.freeze({ capacity: 3000, strategicValue: 91, tags: ["fuel", "energy", "explosive-hazard"], routeTypes: ["road", "rail", "river", "sea"], flows: [flow("fuel", "produce", 40), flow("energy", "produce", 8), flow("parts", "consume", 6), flow("materials", "consume", 5), flow("security", "consume", 6)], captureStock: [capture("fuel", 300), capture("energy", 80)], modifiers: modifiers({ routeThroughputMultiplier: 1.35 }) }),
+  "space-port": Object.freeze({ capacity: 2900, strategicValue: 93, tags: ["trade-hub", "reinforcement", "extraction"], routeTypes: ["road", "rail", "air", "orbital"], flows: [flow("requisition", "produce", 14), flow("influence", "produce", 5), flow("food", "consume", 6), flow("fuel", "consume", 6), flow("ammunition", "consume", 5), flow("security", "consume", 7)], captureStock: [capture("fuel", 120), capture("ammunition", 110), capture("medical", 50)], modifiers: modifiers({ routeThroughputMultiplier: 1.5, reinforcementRateMultiplier: 1.35, extractionRateMultiplier: 1.35 }) }),
+  "civilian-settlement": Object.freeze({ capacity: 1300, strategicValue: 55, tags: ["population-center", "civilian", "unrest"], routeTypes: ["road", "river", "air"], flows: [flow("requisition", "produce", 8), flow("influence", "produce", 3), flow("food", "consume", 5), flow("energy", "consume", 4), flow("medical", "consume", 4), flow("security", "consume", 7)], captureStock: [capture("food", 65), capture("medical", 25)], modifiers: modifiers({ reinforcementRateMultiplier: 1.08 }) }),
+  "orbital-elevator": Object.freeze({ capacity: 3400, strategicValue: 98, tags: ["trade-hub", "orbital", "reinforcement", "extraction"], routeTypes: ["road", "rail", "air", "orbital"], flows: [flow("requisition", "produce", 18), flow("influence", "produce", 6), flow("energy", "consume", 15), flow("fuel", "consume", 6), flow("security", "consume", 10)], captureStock: [capture("requisition", 220), capture("fuel", 150), capture("parts", 90)], modifiers: modifiers({ routeThroughputMultiplier: 1.8, reinforcementRateMultiplier: 1.45, extractionRateMultiplier: 1.45 }) }),
+  "fortress-monastery": Object.freeze({ capacity: 2500, strategicValue: 96, tags: ["command", "fortress", "military"], routeTypes: ["road", "air", "orbital"], flows: [flow("security", "produce", 24), flow("ammunition", "produce", 10), flow("influence", "produce", 8), flow("food", "consume", 8), flow("fuel", "consume", 8), flow("medical", "consume", 6), flow("materials", "consume", 5), flow("energy", "consume", 4)], captureStock: [capture("ammunition", 180), capture("medical", 80), capture("fuel", 90)], modifiers: modifiers({ moraleAura: 0.18, fortificationSlots: 4, reinforcementRateMultiplier: 1.2, repairRateMultiplier: 1.2 }) }),
+  "supply-depot": Object.freeze({ capacity: 5000, strategicValue: 86, tags: ["trade-hub", "storage", "logistics"], routeTypes: ["road", "rail", "air", "river", "sea"], flows: [flow("security", "consume", 3)], captureStock: [capture("food", 220), capture("fuel", 220), capture("ammunition", 260), capture("medical", 140), capture("parts", 120)], modifiers: modifiers({ storageMultiplier: 1.5, routeThroughputMultiplier: 1.4, convoyLoadRateMultiplier: 1.5, storageLossMultiplier: 0.5 }) }),
+  "forward-operating-base": Object.freeze({ capacity: 1600, strategicValue: 76, tags: ["military", "logistics", "forward-base"], routeTypes: ["road", "air", "underground"], flows: [flow("ammunition", "consume", 7), flow("food", "consume", 5), flow("medical", "consume", 4), flow("fuel", "consume", 4)], captureStock: [capture("ammunition", 100), capture("food", 70), capture("medical", 45), capture("fuel", 55)], modifiers: modifiers({ fortificationSlots: 2, reinforcementRateMultiplier: 1.2, repairRateMultiplier: 1.2, convoyLoadRateMultiplier: 1.2 }) })
 });
 
 export const NODE_DEFAULTS = Object.freeze(Object.fromEntries(Object.entries(LANDMARK_TYPE_DEFINITIONS).map(([type, definition]) => {
@@ -80,6 +98,27 @@ export function normalizeResourceFlows(flows = []) {
   return result;
 }
 
+export function normalizeCaptureStock(stock = []) {
+  const result = [];
+  for (const candidate of Array.isArray(stock) ? stock : []) {
+    const resource = normalizeResourceId(candidate?.resource);
+    const amount = Math.max(0, Number(candidate?.amount) || 0);
+    if (!resource || amount <= 0) continue;
+    result.push({ resource, amount, enabled: candidate.enabled !== false });
+  }
+  return result;
+}
+
+export function modifiersForLandmarkType(type) {
+  const definition = LANDMARK_TYPE_DEFINITIONS[ECONOMIC_NODE_TYPES.includes(type) ? type : "hive-city"];
+  return { ...definition.modifiers };
+}
+
+export function captureStockForLandmarkType(type) {
+  const definition = LANDMARK_TYPE_DEFINITIONS[ECONOMIC_NODE_TYPES.includes(type) ? type : "hive-city"];
+  return definition.captureStock.map(item => ({ ...item }));
+}
+
 export function resourceFlowsFromMaps(exports = {}, imports = {}) {
   return [
     ...Object.entries(cleanResourceMap(exports)).map(([resource, rate]) => ({ resource, direction: "produce", rate, enabled: true })),
@@ -120,6 +159,7 @@ export function createEconomicNode(id, point, overrides = {}) {
   const nestedStrategic = overrides.strategic || {};
   const hasExplicitFlows = Array.isArray(overrides.flows) || Array.isArray(nestedEconomy.flows);
   const hasLegacyMaps = overrides.exports || overrides.imports;
+  const hasExplicitCaptureStock = Array.isArray(overrides.captureStock) || Array.isArray(nestedEconomy.captureStock);
   const flows = hasExplicitFlows
     ? normalizeResourceFlows(overrides.flows || nestedEconomy.flows)
     : hasLegacyMaps
@@ -127,7 +167,7 @@ export function createEconomicNode(id, point, overrides = {}) {
       : flowsForLandmarkType(type);
   const node = {
     id,
-    schemaVersion: 2,
+    schemaVersion: 3,
     name: overrides.name || type.split("-").map(word => word[0].toUpperCase() + word.slice(1)).join(" "),
     type,
     x: Number(overrides.x ?? nestedPosition.x ?? point?.x) || 0,
@@ -137,6 +177,9 @@ export function createEconomicNode(id, point, overrides = {}) {
     flows,
     useTypeDefaults: overrides.useTypeDefaults ?? (!hasExplicitFlows && !hasLegacyMaps),
     capacity: Math.max(1, Number(overrides.capacity ?? nestedEconomy.capacity) || definition.capacity),
+    captureStock: normalizeCaptureStock(hasExplicitCaptureStock ? overrides.captureStock || nestedEconomy.captureStock : definition.captureStock),
+    modifiers: { ...definition.modifiers, ...(overrides.modifiers || {}) },
+    captureHistory: { ...(overrides.captureHistory || nestedOwnership.captureHistory || {}) },
     strategicValue: clamp(overrides.strategicValue ?? nestedStrategic.value ?? definition.strategicValue, 0, 100),
     strategicObjective: overrides.strategicObjective ?? nestedStrategic.enabled ?? true,
     tags: [...new Set((overrides.tags || nestedStrategic.tags || definition.tags).map(String))],
@@ -159,6 +202,10 @@ export function validateEconomicNode(node) {
     if (!isKnownResource(candidate.resource)) errors.push(`Unknown resource: ${candidate.resource || "empty"}.`);
     if (!RESOURCE_FLOW_DIRECTIONS.includes(candidate.direction)) errors.push(`Unknown flow direction: ${candidate.direction || "empty"}.`);
     if (!Number.isFinite(Number(candidate.rate)) || Number(candidate.rate) <= 0) errors.push("Resource flow rates must be greater than zero.");
+  }
+  for (const candidate of node?.captureStock || []) {
+    if (!isKnownResource(candidate.resource)) errors.push(`Unknown capture-stock resource: ${candidate.resource || "empty"}.`);
+    if (!Number.isFinite(Number(candidate.amount)) || Number(candidate.amount) <= 0) errors.push("Capture-stock amounts must be greater than zero.");
   }
   const activeFlows = normalizeResourceFlows(node?.flows).filter(item => item.enabled);
   for (const resource of RESOURCE_IDS) {
@@ -249,22 +296,45 @@ export function scoreAuthoredTradeRoute(route, nodes, player, context = {}) {
   const ownership = from?.owner === player.id || to?.owner === player.id ? 24 : 0;
   const danger = clamp(context.danger ?? 0, 0, 1);
   const blocked = Boolean(context.blocked);
-  const score = (direction.shortageValue + ownership + route.capacity * 0.08) * routeTypePreference(player, route.type) - danger * 38 - (blocked ? 42 : 0);
+  const throughput = Math.max(0.1, Number(from?.modifiers?.routeThroughputMultiplier) || 1);
+  const score = (direction.shortageValue + ownership + route.capacity * 0.08 * throughput) * routeTypePreference(player, route.type) - danger * 38 - (blocked ? 42 : 0);
   const action = blocked ? (score > 5 ? "reroute" : "abandon") : danger > 0.65 ? "defend" : score > 18 ? "use" : "abandon";
-  return { score, action, from, to, relevantResources: direction.relevantResources };
+  return { score, action, from, to, relevantResources: direction.relevantResources, throughputMultiplier: throughput };
+}
+
+export function claimEconomicNode(node, ownerId, inventory = {}, capacity = {}) {
+  const owner = String(ownerId || "");
+  if (!node || !owner || node.owner === owner) return { changed: false, granted: {} };
+  const previousOwner = node.owner || "";
+  node.owner = owner;
+  node.captureHistory ||= {};
+  const captureKey = `${owner}:${previousOwner || "neutral"}`;
+  if (node.captureHistory[captureKey]) return { changed: true, previousOwner, granted: {} };
+  const granted = {};
+  for (const item of normalizeCaptureStock(node.captureStock)) {
+    if (!item.enabled || !Object.hasOwn(inventory, item.resource)) continue;
+    const before = Number(inventory[item.resource]) || 0;
+    const maximum = Math.max(before, Number(capacity[item.resource]) || Infinity);
+    inventory[item.resource] = Math.min(maximum, before + item.amount);
+    const received = inventory[item.resource] - before;
+    if (received > 0) granted[item.resource] = received;
+  }
+  node.captureHistory[captureKey] = true;
+  return { changed: true, previousOwner, granted };
 }
 
 export function serializeEconomicNode(node, scaleX = 1, scaleY = 1) {
   syncEconomicNodeResources(node);
   return {
     id: node.id,
-    schemaVersion: 2,
+    schemaVersion: 3,
     name: node.name,
     type: node.type,
     position: { x: node.x * scaleX, y: node.y * scaleY, space: "world" },
-    ownership: { startingOwner: node.startingOwner || "", owner: node.owner || "" },
+    ownership: { startingOwner: node.startingOwner || "", owner: node.owner || "", captureHistory: { ...(node.captureHistory || {}) } },
     strategic: { enabled: node.strategicObjective !== false, value: node.strategicValue, tags: [...(node.tags || [])] },
-    economy: { capacity: node.capacity, flows: normalizeResourceFlows(node.flows) },
+    economy: { capacity: node.capacity, flows: normalizeResourceFlows(node.flows), captureStock: normalizeCaptureStock(node.captureStock) },
+    modifiers: { ...node.modifiers },
     allowedRouteTypes: [...(node.allowedRouteTypes || [])],
     useTypeDefaults: Boolean(node.useTypeDefaults),
     active: node.active !== false,

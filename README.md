@@ -68,7 +68,7 @@ The migration is intentionally incremental: `js/app.js` remains operational whil
 ## Performance controls
 
 - Canvas drawing no longer performs the expensive diagnostic world scans. Runtime telemetry is collected outside rendering once per second and updates DOM dataset values only when they change.
-- Fixed 20 Hz simulation catch-up is limited to three updates and an 8 ms work budget per animation frame. Excess backlog is capped so a slow frame degrades into controlled slow motion instead of a self-reinforcing freeze.
+- Fixed 30 Hz simulation catch-up is limited to three updates and an 8 ms work budget per animation frame. Precision projectile combat can use two substeps, while doctrine-specific perception, squad, commander, and strategy decisions use accumulator cadence gates. Excess backlog is capped so a slow frame degrades into controlled slow motion instead of a self-reinforcing freeze.
 - Uncached A* searches consume a scale-aware per-step budget and use smaller expansion limits in Major and Total Battlefield modes. Cached routes remain available without consuming that budget, while excess requests are staggered across later ticks.
 - A module worker builds coarse distant-unit neighbor lists and faction pressure summaries. Offscreen AI reuses those hints, idle and engaged distant forces run at separate cadences, and nearby combat remains fully responsive.
 - Projectile collision and suppression query the shared spatial grid instead of scanning every unit and structure. Projectile arrays are compacted in place and high-churn projectile objects are recycled.
@@ -93,7 +93,7 @@ The current Phase 0-19 implementation matrix is maintained in [`docs/phase-audit
 - Every player starts with the larger stockpile defined in both `economy-config.js` and `003_starting_stockpiles.sql`.
 - The map designer places all resource polygons, economic landmarks, and trade routes. Terrain randomization never creates or moves economic assets.
 - Resource zones remain separate from terrain and define type, finite or infinite capacity, gather rate, regeneration, owner, building requirement, and collector roles.
-- Economic landmarks use schema-v2 resource-flow rows: resource, produce/consume direction, rate, and enabled state. The editor provides catalog-backed dropdowns, numeric rate fields, enable checkboxes, type defaults, validation, and backward migration from legacy import/export maps.
+- Economic landmarks use schema-v3 resource-flow rows: resource, produce/consume direction, rate, and enabled state. A second structured row editor defines one-time capture stock; landmark modifiers cover storage, routes, reinforcement, production, repair, research, sensors, fortification, and extraction. Existing schema-v2 and legacy import/export maps migrate automatically.
 - Landmark defaults are purpose-specific. Fuel Refineries and Agri Complexes specialize heavily, while Hive Cities, Supply Depots, orbital infrastructure, fortresses, and manufactoria expose broader high-capacity economies.
 - Trade routes connect authored landmarks with map-authored waypoints. Supported types are road, rail, sea, river, air, orbital, underground, and warp.
 - The AI cannot create trade routes. It may use, defend, sabotage, abandon, or reroute along the links the designer supplied.
@@ -103,7 +103,7 @@ The current Phase 0-19 implementation matrix is maintained in [`docs/phase-audit
 - Faction-specific research centers consume physically delivered energy, materials, influence, and parts; completed research levels improve newly deployed units.
 - Buildings reserve collision boxes from the foundation stage, block movement and projectiles, retain HP and armor, and can be selected as combat targets.
 - Combat is data-driven through `data/weapons.json`: magazines, reloads, heat, target restrictions, traveled projectiles, misses, cover interception, splash damage, tracer trails, projectile pooling, armor facing, ricochets, critical subsystem damage, and distinct melee wind-up/recovery/block/parry/cleave/charge behavior all run in the live simulation.
-- The simulation advances at a fixed 20 Hz timestep and uses a spatial combat index plus slower economy and strategic update rates.
+- The simulation advances at a fixed 30 Hz timestep and uses a spatial combat index plus doctrine-specific multi-rate AI, slower economy and strategic work, and activity-level cadence reduction for large battles.
 
 ## Four-level AI and route warfare
 
@@ -128,9 +128,12 @@ The AI resolves decisions through a hierarchy: army goal → commander order →
 - Chaos uses a persistent Assess → Shape → Commit → Exploit → Consolidate/Recover → Endgame planner layered between Battle Objectives and the shared strategic AI. Emergency transitions can interrupt a plan, while commitment windows prevent utility-score oscillation.
 - Black Legion, Iron Warriors, Word Bearers, Night Lords, Alpha Legion, Emperor's Children, World Eaters, Death Guard, Thousand Sons, and the four daemon hosts each resolve distinct strategic weights, thresholds, target policy, construction bias, reserve policy, and objective-specific methods.
 - Battle Objectives remain authoritative. Aggressive branches use objective leashes for escort, evacuation, and defense; stealth/deception branches score only observed targets and never gain hidden-state information.
+- All factions now move through Assess, Shape, Commit, Exploit, Consolidate, Recover, and Endgame phases. A universal objective leash keeps at least one objective-relevant strategic choice above a minimum utility floor, so personality changes the method rather than the victory condition.
+- Chaos differences are capability-based as well as weight-based. Every legion and daemon host has at least three available battlefield actions, while persistent corruption, god favor, glory, ritual charge, Warp instability, sacrifice value, daemon reserve power, and enemy fear determine which actions are currently legal.
 - Territory expansion rebuilds one strategic spatial index per strategic tick, then queries local unit, structure, resource, and landmark buckets instead of scanning whole battlefield arrays for every candidate cell.
 - Resource-zone polygon centroid, bounds, and area are revision-cached. Extraction and regeneration update stock only and do not recalculate unchanged geometry.
 - Route validation and scoring use stable landmark-ID maps and allocation-free best-choice scans. Target selection and strategic choice selection also avoid hot-path sorting.
+- Major and Total Battlefield worker updates pack distant-unit numeric state into transferable typed arrays, use numeric spatial keys, and return fixed-size typed neighbor buffers. This removes per-unit structured cloning from the main-thread/worker boundary.
 - Add `?profile` to the URL to collect named simulation, AI, economy, territory, render, and minimap spans with p50/p90/p95/p99, maximum, over-budget count, and calls per second.
 
 ## Territory, faction ecology, and environmental collision

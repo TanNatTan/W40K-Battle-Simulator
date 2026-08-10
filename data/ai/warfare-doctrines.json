@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "objectiveInterpretation": {
+    "space_marines": { "method": "mission_command_combined_arms", "capture": "seize_key_ground_then_consolidate", "defend": "layered_defense_with_mobile_counterattack", "destroy": "identify_center_of_gravity_then_concentrate", "recover": "precision_secure_and_extract", "breakthrough": "concentrated_elite_spearhead", "objectiveLeash": 0.92, "reserveBias": 0.72, "consolidationBias": 0.78 },
+    "imperial_guard": { "method": "layered_firepower_and_mass", "capture": "fire_supported_sequential_advance", "defend": "defense_in_depth", "destroy": "attrit_then_finish_with_reserves", "recover": "escort_and_corridor_security", "breakthrough": "artillery_then_armor_infantry_corridor", "objectiveLeash": 0.93, "reserveBias": 0.82, "consolidationBias": 0.90 },
+    "adeptus_mechanicus": { "method": "networked_fire_control", "capture": "secure_nodes_and_establish_sensor_control", "defend": "protect_technology_and_interlocking_fire", "destroy": "analyze_target_then_apply_specialized_weaponry", "recover": "technology_first_secure_and_extract", "breakthrough": "machine_spearhead_with_noospheric_support", "objectiveLeash": 0.93, "reserveBias": 0.70, "consolidationBias": 0.86 },
+    "chaos": { "method": "assess_shape_commit_exploit", "capture": "seize_then_exploit_or_corrupt", "defend": "screens_then_elite_counterattack", "destroy": "shape_target_before_decisive_commitment", "recover": "relic_loot_or_ritual_asset_recovery", "breakthrough": "weaken_then_overmatch_selected_sector", "objectiveLeash": 0.82, "reserveBias": 0.64, "consolidationBias": 0.55 },
+    "orks": { "method": "waaagh_momentum", "capture": "fight_onto_objective", "defend": "countercharge_intruders", "destroy": "seek_biggest_profitable_scrap", "recover": "loot_while_advancing", "breakthrough": "mass_and_momentum", "objectiveLeash": 0.65, "reserveBias": 0.35, "consolidationBias": 0.40 },
+    "necrons": { "method": "inexorable_reclamation", "capture": "sequential_dynastic_reclamation", "defend": "durable_phalanx_and_reanimation", "destroy": "systematic_priority_extermination", "recover": "dynastic_asset_recovery", "breakthrough": "concentrated_relentless_advance", "objectiveLeash": 0.96, "reserveBias": 0.70, "consolidationBias": 0.90 },
+    "tau": { "method": "standoff_maneuver_and_focus_fire", "capture": "control_by_fire_then_secure", "defend": "kill_zones_with_mobile_fallback", "destroy": "concentrated_killing_blow", "recover": "protected_mobile_extraction", "breakthrough": "mobile_firepower_corridor", "objectiveLeash": 0.95, "reserveBias": 0.78, "consolidationBias": 0.72 },
+    "tyranids": { "method": "isolate_encircle_consume", "capture": "infest_and_extend_synapse", "defend": "swarm_and_regenerate_local_control", "destroy": "isolate_then_consume_enemy_center", "recover": "biomass_or_genetic_reclamation", "breakthrough": "saturation_then_exploitation", "objectiveLeash": 0.89, "reserveBias": 0.80, "consolidationBias": 0.62 }
+  },
+  "tickProfiles": {
+    "elite_balanced": { "coreHz": 30, "activeCombatSubsteps": 2, "perceptionHz": 12, "squadAIHz": 8, "commanderAIHz": 3, "strategyHz": 1 },
+    "elite_reactive": { "coreHz": 30, "activeCombatSubsteps": 2, "perceptionHz": 15, "squadAIHz": 12, "commanderAIHz": 4, "strategyHz": 1 },
+    "fortress_methodical": { "coreHz": 30, "activeCombatSubsteps": 2, "perceptionHz": 10, "squadAIHz": 8, "commanderAIHz": 3, "strategyHz": 1 },
+    "human_combined": { "coreHz": 30, "activeCombatSubsteps": 2, "perceptionHz": 10, "squadAIHz": 8, "commanderAIHz": 3, "strategyHz": 1 },
+    "machine_precision": { "coreHz": 30, "activeCombatSubsteps": 2, "perceptionHz": 15, "squadAIHz": 10, "commanderAIHz": 4, "strategyHz": 1 },
+    "ranged_precision": { "coreHz": 30, "activeCombatSubsteps": 2, "perceptionHz": 15, "squadAIHz": 10, "commanderAIHz": 4, "strategyHz": 1 },
+    "chaos_planner": { "coreHz": 30, "activeCombatSubsteps": 2, "perceptionHz": 12, "squadAIHz": 9, "commanderAIHz": 3, "strategyHz": 1 },
+    "chaos_speed": { "coreHz": 30, "activeCombatSubsteps": 2, "perceptionHz": 15, "squadAIHz": 12, "commanderAIHz": 3, "strategyHz": 1 },
+    "chaos_deception": { "coreHz": 30, "activeCombatSubsteps": 2, "perceptionHz": 15, "squadAIHz": 10, "commanderAIHz": 4, "strategyHz": 2 },
+    "chaos_berserk": { "coreHz": 30, "activeCombatSubsteps": 2, "perceptionHz": 10, "squadAIHz": 12, "commanderAIHz": 2, "strategyHz": 1 },
+    "chaos_attrition": { "coreHz": 30, "activeCombatSubsteps": 2, "perceptionHz": 10, "squadAIHz": 8, "commanderAIHz": 3, "strategyHz": 1 },
+    "chaos_sorcery": { "coreHz": 30, "activeCombatSubsteps": 2, "perceptionHz": 15, "squadAIHz": 10, "commanderAIHz": 4, "strategyHz": 2 },
+    "horde_brawler": { "coreHz": 30, "activeCombatSubsteps": 2, "perceptionHz": 8, "squadAIHz": 8, "commanderAIHz": 2, "strategyHz": 1 },
+    "horde_fast": { "coreHz": 30, "activeCombatSubsteps": 2, "perceptionHz": 12, "squadAIHz": 10, "commanderAIHz": 3, "strategyHz": 1 },
+    "swarm_direct": { "coreHz": 30, "activeCombatSubsteps": 2, "perceptionHz": 10, "squadAIHz": 8, "commanderAIHz": 2, "strategyHz": 1 },
+    "swarm_hunter": { "coreHz": 30, "activeCombatSubsteps": 2, "perceptionHz": 15, "squadAIHz": 10, "commanderAIHz": 3, "strategyHz": 1 }
+  },
+  "subfactions": {
+    "space_marines": {
+      "ultramarines": { "loreStatus": "specific", "aggression": 0.64, "defense": 0.68, "expansion": 0.58, "lootSalvage": 0.18, "objectiveFocus": 0.92, "preservation": 0.78, "techPreservation": 0.82, "mobility": 0.72, "tick": "elite_balanced" },
+      "blood_angels": { "loreStatus": "specific", "aggression": 0.86, "defense": 0.45, "expansion": 0.52, "lootSalvage": 0.12, "objectiveFocus": 0.76, "preservation": 0.55, "techPreservation": 0.70, "mobility": 0.88, "tick": "elite_reactive" },
+      "salamanders": { "loreStatus": "specific", "aggression": 0.61, "defense": 0.83, "expansion": 0.45, "lootSalvage": 0.15, "objectiveFocus": 0.90, "preservation": 0.91, "techPreservation": 0.91, "mobility": 0.52, "tick": "fortress_methodical" },
+      "white_scars": { "loreStatus": "specific", "aggression": 0.78, "defense": 0.40, "expansion": 0.80, "lootSalvage": 0.20, "objectiveFocus": 0.82, "preservation": 0.72, "techPreservation": 0.74, "mobility": 0.98, "tick": "elite_reactive" }
+    },
+    "imperial_guard": {
+      "krieg": { "loreStatus": "specific", "aggression": 0.75, "defense": 0.88, "expansion": 0.57, "lootSalvage": 0.10, "objectiveFocus": 0.94, "preservation": 0.22, "techPreservation": 0.55, "mobility": 0.38, "tick": "human_combined" },
+      "cadian": { "loreStatus": "specific", "aggression": 0.61, "defense": 0.86, "expansion": 0.64, "lootSalvage": 0.12, "objectiveFocus": 0.95, "preservation": 0.58, "techPreservation": 0.72, "mobility": 0.56, "tick": "human_combined" }
+    },
+    "adeptus_mechanicus": {
+      "mars_forge": { "loreStatus": "specific", "aggression": 0.63, "defense": 0.74, "expansion": 0.60, "lootSalvage": 0.35, "objectiveFocus": 0.92, "preservation": 0.73, "techPreservation": 0.98, "mobility": 0.60, "tick": "machine_precision" },
+      "ryza_forge": { "loreStatus": "specific", "aggression": 0.76, "defense": 0.58, "expansion": 0.54, "lootSalvage": 0.28, "objectiveFocus": 0.86, "preservation": 0.57, "techPreservation": 0.94, "mobility": 0.62, "tick": "machine_precision" },
+      "lucius_forge": { "loreStatus": "specific", "aggression": 0.55, "defense": 0.88, "expansion": 0.62, "lootSalvage": 0.42, "objectiveFocus": 0.91, "preservation": 0.79, "techPreservation": 1.00, "mobility": 0.72, "tick": "fortress_methodical" }
+    },
+    "chaos": {
+      "black_legion": { "loreStatus": "specific", "aggression": 0.82, "defense": 0.61, "expansion": 0.66, "lootSalvage": 0.46, "objectiveFocus": 0.91, "preservation": 0.48, "techPreservation": 0.68, "mobility": 0.72, "tick": "chaos_planner" },
+      "iron_warriors": { "loreStatus": "specific", "aggression": 0.73, "defense": 0.86, "expansion": 0.52, "lootSalvage": 0.42, "objectiveFocus": 0.93, "preservation": 0.39, "techPreservation": 0.81, "mobility": 0.43, "tick": "fortress_methodical" },
+      "word_bearers": { "loreStatus": "specific", "aggression": 0.72, "defense": 0.65, "expansion": 0.72, "lootSalvage": 0.34, "objectiveFocus": 0.93, "preservation": 0.35, "techPreservation": 0.61, "mobility": 0.55, "tick": "chaos_planner" },
+      "night_lords": { "loreStatus": "specific", "aggression": 0.79, "defense": 0.39, "expansion": 0.67, "lootSalvage": 0.78, "objectiveFocus": 0.79, "preservation": 0.66, "techPreservation": 0.64, "mobility": 0.93, "tick": "chaos_speed" },
+      "alpha_legion": { "loreStatus": "specific", "aggression": 0.58, "defense": 0.61, "expansion": 0.64, "lootSalvage": 0.49, "objectiveFocus": 0.96, "preservation": 0.82, "techPreservation": 0.76, "mobility": 0.86, "tick": "chaos_deception" },
+      "emperors_children": { "loreStatus": "specific", "aggression": 0.84, "defense": 0.40, "expansion": 0.57, "lootSalvage": 0.47, "objectiveFocus": 0.74, "preservation": 0.46, "techPreservation": 0.69, "mobility": 0.92, "tick": "chaos_speed" },
+      "world_eaters": { "loreStatus": "specific", "aggression": 0.99, "defense": 0.22, "expansion": 0.61, "lootSalvage": 0.14, "objectiveFocus": 0.62, "preservation": 0.18, "techPreservation": 0.37, "mobility": 0.85, "tick": "chaos_berserk" },
+      "death_guard": { "loreStatus": "specific", "aggression": 0.65, "defense": 0.93, "expansion": 0.69, "lootSalvage": 0.35, "objectiveFocus": 0.92, "preservation": 0.56, "techPreservation": 0.70, "mobility": 0.34, "tick": "chaos_attrition" },
+      "thousand_sons": { "loreStatus": "specific", "aggression": 0.57, "defense": 0.74, "expansion": 0.58, "lootSalvage": 0.62, "objectiveFocus": 0.94, "preservation": 0.88, "techPreservation": 0.92, "mobility": 0.64, "tick": "chaos_sorcery" },
+      "khorne_host": { "loreStatus": "unspecified", "aggression": 1.00, "defense": 0.16, "expansion": 0.54, "lootSalvage": 0.08, "objectiveFocus": 0.55, "preservation": 0.08, "techPreservation": 0.20, "mobility": 0.82, "tick": "chaos_berserk" },
+      "tzeentch_coven": { "loreStatus": "unspecified", "aggression": 0.54, "defense": 0.67, "expansion": 0.69, "lootSalvage": 0.54, "objectiveFocus": 0.92, "preservation": 0.78, "techPreservation": 0.88, "mobility": 0.76, "tick": "chaos_sorcery" },
+      "nurgle_host": { "loreStatus": "unspecified", "aggression": 0.61, "defense": 0.96, "expansion": 0.76, "lootSalvage": 0.22, "objectiveFocus": 0.91, "preservation": 0.60, "techPreservation": 0.48, "mobility": 0.25, "tick": "chaos_attrition" },
+      "slaanesh_host": { "loreStatus": "unspecified", "aggression": 0.88, "defense": 0.31, "expansion": 0.67, "lootSalvage": 0.39, "objectiveFocus": 0.68, "preservation": 0.34, "techPreservation": 0.43, "mobility": 1.00, "tick": "chaos_speed" }
+    },
+    "orks": {
+      "goffs": { "loreStatus": "specific", "aggression": 0.98, "defense": 0.28, "expansion": 0.68, "lootSalvage": 0.68, "objectiveFocus": 0.66, "preservation": 0.12, "techPreservation": 0.22, "mobility": 0.61, "tick": "horde_brawler" },
+      "evil_sunz": { "loreStatus": "specific", "aggression": 0.91, "defense": 0.24, "expansion": 0.90, "lootSalvage": 0.64, "objectiveFocus": 0.72, "preservation": 0.20, "techPreservation": 0.34, "mobility": 1.00, "tick": "horde_fast" }
+    },
+    "necrons": {
+      "sautekh": { "loreStatus": "specific", "aggression": 0.68, "defense": 0.85, "expansion": 0.70, "lootSalvage": 0.18, "objectiveFocus": 0.96, "preservation": 0.74, "techPreservation": 0.97, "mobility": 0.52, "tick": "machine_precision" }
+    },
+    "tau": {
+      "farsight_enclaves": { "loreStatus": "specific", "aggression": 0.74, "defense": 0.52, "expansion": 0.69, "lootSalvage": 0.14, "objectiveFocus": 0.95, "preservation": 0.85, "techPreservation": 0.91, "mobility": 0.86, "tick": "ranged_precision" }
+    },
+    "tyranids": {
+      "behemoth": { "loreStatus": "specific", "aggression": 0.96, "defense": 0.25, "expansion": 0.86, "lootSalvage": 0.05, "objectiveFocus": 0.81, "preservation": 0.08, "techPreservation": 0.08, "mobility": 0.72, "tick": "swarm_direct" },
+      "kraken": { "loreStatus": "specific", "aggression": 0.80, "defense": 0.34, "expansion": 0.98, "lootSalvage": 0.05, "objectiveFocus": 0.91, "preservation": 0.18, "techPreservation": 0.08, "mobility": 0.99, "tick": "swarm_hunter" }
+    }
+  }
+}

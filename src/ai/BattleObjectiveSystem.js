@@ -1,4 +1,5 @@
 import { raceBranchFor, resolveFactionAIProfile } from "./FactionAISystem.js";
+import { objectiveInterpretationMethod } from "./WarfareDoctrineSystem.js";
 
 export const DEFAULT_BATTLE_OBJECTIVE = "annihilation";
 
@@ -34,6 +35,7 @@ export function resolveBattleObjectivePlan(player, profile = resolveFactionAIPro
   const branch = profile?.branch || raceBranchFor(player);
   const interpretation = catalog?.raceInterpretations?.[branch] || {};
   const subfaction = matchingSubfaction(player, catalog);
+  const doctrine = profile?.doctrine;
   const signals = { ...(objective.aiSignals || {}) };
   for (const [signal, modifier] of Object.entries(interpretation.signalModifiers || {})) signals[signal] = clamp((signals[signal] || 0) + modifier);
   for (const [signal, modifier] of Object.entries(subfaction.signals || {})) signals[signal] = clamp((signals[signal] || 0) + modifier);
@@ -51,7 +53,18 @@ export function resolveBattleObjectivePlan(player, profile = resolveFactionAIPro
     signals,
     behaviorModifiers: { ...(subfaction.behavior || {}) },
     branch,
-    subfaction: player?.subfaction || "default"
+    subfaction: player?.subfaction || "default",
+    doctrine: doctrine ? {
+      raceMethod: doctrine.objectiveInterpretation.method,
+      objectiveMethod: objectiveInterpretationMethod(doctrine.objectiveInterpretation, { id, category: objective.category }),
+      objectiveLeash: doctrine.objectiveInterpretation.objectiveLeash,
+      reserveBias: doctrine.objectiveInterpretation.reserveBias,
+      consolidationBias: doctrine.objectiveInterpretation.consolidationBias,
+      modifiers: doctrine.modifiers,
+      tickProfileId: doctrine.tickProfileId,
+      tickProfile: doctrine.tickProfile,
+      loreStatus: doctrine.loreStatus
+    } : null
   };
 }
 

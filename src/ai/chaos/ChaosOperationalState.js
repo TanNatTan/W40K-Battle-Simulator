@@ -1,3 +1,5 @@
+import { createChaosStrategicState } from "./ChaosCapabilitySystem.js";
+
 export const CHAOS_OPERATIONAL_PHASES = Object.freeze([
   "assess", "shape", "commit", "exploit", "consolidate", "recover", "emergency", "endgame"
 ]);
@@ -19,7 +21,8 @@ export function createChaosOperationalMemory(overrides = {}) {
     failureCount: Math.max(0, Number(overrides.failureCount) || 0),
     successfulRaids: Math.max(0, Number(overrides.successfulRaids) || 0),
     lastReason: overrides.lastReason || "battle_started",
-    recentReasons: Array.isArray(overrides.recentReasons) ? overrides.recentReasons.slice(-8) : []
+    recentReasons: Array.isArray(overrides.recentReasons) ? overrides.recentReasons.slice(-8) : [],
+    strategicState: createChaosStrategicState(overrides.strategicState)
   };
 }
 
@@ -40,6 +43,12 @@ export function transitionChaosPhase(memory, phase, now, reason, commitmentSecon
 export function serializeChaosOperationalMemory(memory) {
   return {
     ...memory,
+    strategicState: {
+      ...memory.strategicState,
+      corruptionByTerritory: { ...(memory.strategicState?.corruptionByTerritory || {}) },
+      favor: { ...(memory.strategicState?.favor || {}) },
+      fearPressureByEnemySquad: { ...(memory.strategicState?.fearPressureByEnemySquad || {}) }
+    },
     recentReasons: memory.recentReasons.map(reason => ({ ...reason }))
   };
 }

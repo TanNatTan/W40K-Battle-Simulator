@@ -7,7 +7,7 @@ import { SnapshotRingBuffer } from "../src/replay/SnapshotRingBuffer.js";
 import { runFixedStepBudget } from "../src/simulation/FixedStepRunner.js";
 import { NavigationPlanner } from "../src/map/NavigationPlanner.js";
 import { WorkBudget } from "../src/performance/ScaleSystem.js";
-import { analyzeDistantUnits } from "../src/performance/DistantSimulation.js";
+import { analyzeDistantSnapshot, analyzeDistantUnits, packDistantUnits } from "../src/performance/DistantSimulation.js";
 
 test("runtime telemetry is throttled and avoids unchanged dataset writes", () => {
   const telemetry = new RuntimeTelemetry({ intervalMs: 1000 });
@@ -86,7 +86,9 @@ test("large-battle runtime uses worker broadphase and spatial projectile collisi
   assert.match(app, /state\.projectiles\.length = activeCount/);
   assert.match(app, /workerThreatIds/);
   assert.match(app, /workerClock - state\.lastWorkerDispatchAt >= 750/);
-  assert.match(worker, /analyzeDistantUnits/);
+  assert.match(worker, /analyzeDistantSnapshot/);
+  assert.match(worker, /hostileBuffer.*allyBuffer.*distanceBuffer/s);
+  assert.match(app, /postMessage\([^]*packed\.values\.buffer[^]*\[packed\.values\.buffer/);
 
   const analysis = analyzeDistantUnits([
     { id: "a1", faction: "a", team: "1", x: 0, y: 0, alive: true, damage: 10, accuracy: 1, morale: 1 },
@@ -97,4 +99,12 @@ test("large-battle runtime uses worker broadphase and spatial projectile collisi
   assert.deepEqual(hint.allyIds, ["ally"]);
   assert.deepEqual(hint.hostileIds, ["enemy"]);
   assert.ok(analysis.factions.a.expectedAttrition > 0);
+
+  const packed = packDistantUnits([
+    { id: "a", faction: "a", team: "1", x: 0, y: 0, damage: 10, accuracy: 1, morale: 1 },
+    { id: "b", faction: "b", team: "2", x: 20, y: 0, damage: 10, accuracy: 1, morale: 1 }
+  ]);
+  const typed = analyzeDistantSnapshot(packed, 1);
+  assert.ok(packed.values instanceof Float32Array);
+  assert.equal(typed.hostileIndices[0], 1);
 });

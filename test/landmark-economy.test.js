@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import {
   createEconomicNode,
+  claimEconomicNode,
   flowsForLandmarkType,
   resourceMapsFromFlows,
   serializeEconomicNode,
@@ -24,22 +25,36 @@ test("specific landmarks have richer validated flow defaults", () => {
   const depot = createEconomicNode("depot", { x: 40, y: 50 }, { type: "supply-depot" });
   assert.ok(refinery.exports.fuel >= 30);
   assert.ok(farm.exports.food >= 28);
-  assert.ok(Object.keys(hive.exports).length >= 3 && Object.keys(hive.imports).length >= 4);
-  assert.ok(Object.keys(depot.exports).length >= 5);
+  assert.ok(Object.keys(hive.exports).length >= 2 && Object.keys(hive.imports).length >= 5);
+  assert.deepEqual(depot.exports, {});
+  assert.ok(depot.captureStock.length >= 5);
   for (const node of [refinery, farm, hive, depot]) assert.equal(validateEconomicNode(node).valid, true);
 });
 
-test("legacy landmark maps migrate to v2 resource-flow serialization", () => {
+test("legacy landmark maps migrate to v3 resource-flow serialization", () => {
   const node = createEconomicNode("legacy", { x: 50, y: 70 }, { type: "manufactorum", exports: { materials: 12, ammunition: 5 }, imports: { fuel: 4 } });
   assert.equal(node.useTypeDefaults, false);
   assert.deepEqual(resourceMapsFromFlows(node.flows), { exports: { materials: 12, ammunition: 5 }, imports: { fuel: 4 } });
   const saved = serializeEconomicNode(node, 2, 3);
-  assert.equal(saved.schemaVersion, 2);
+  assert.equal(saved.schemaVersion, 3);
   assert.deepEqual(saved.position, { x: 100, y: 210, space: "world" });
   assert.equal(saved.economy.flows.length, 3);
   const restored = createEconomicNode(saved.id, null, saved);
   assert.deepEqual(restored.exports, node.exports);
   assert.deepEqual(restored.imports, node.imports);
+  assert.ok(restored.modifiers.storageMultiplier >= 1);
+});
+
+test("capture stock transfers once for each captor transition", () => {
+  const node = createEconomicNode("depot", { x: 0, y: 0 }, { type: "supply-depot", captureStock: [{ resource: "fuel", amount: 40 }] });
+  const inventory = { fuel: 5 };
+  const first = claimEconomicNode(node, "p1", inventory, { fuel: 100 });
+  assert.deepEqual(first.granted, { fuel: 40 });
+  assert.equal(inventory.fuel, 45);
+  assert.equal(claimEconomicNode(node, "p1", inventory, { fuel: 100 }).changed, false);
+  claimEconomicNode(node, "p2", { fuel: 0 }, { fuel: 100 });
+  const recapture = claimEconomicNode(node, "p1", inventory, { fuel: 100 });
+  assert.deepEqual(recapture.granted, { fuel: 40 });
 });
 
 test("landmark flow validation rejects unknown resources and bad directions", () => {

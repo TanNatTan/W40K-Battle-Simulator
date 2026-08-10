@@ -3,7 +3,7 @@
 import { EconomyZoneManager } from "./economy/EconomyZoneManager.js";
 import { SpatialPartition, TerritorySystem, OBJECTIVE_TYPES } from "./territory/TerritorySystem.js";
 import { ConvoyManager, RoadGraph, RouteAI, RouteHistory, RouteManager } from "./logistics/RouteSystem.js";
-import { assessFactionCapability, chooseEndgameDirective } from "./victory/VictorySystem.js";
+import { assessFactionCapability, battleObjectiveVictoryReady, chooseEndgameDirective } from "./victory/VictorySystem.js";
 import { ReplayAnalysisSystem, buildAIInspector } from "./replay/ReplayAnalysisSystem.js";
 import { SCALE_PRESETS, WorkBudget, scalePresetFor } from "./performance/ScaleSystem.js";
 import { FACTION_GAMEPLAY_BRANCHES, createFactionGameplayState } from "./factions/DistinctiveGameplaySystem.js";
@@ -17,8 +17,11 @@ import { allocateForceCaps, commandPresenceFor, createForceState, determineCommi
 import { combineStrategicBias, chaosTargetMultiplier, evaluateChaosStrategy } from "./ai/chaos/ChaosStrategySystem.js";
 import { CHAOS_SUBFACTION_PROFILES, chaosProfileFor } from "./ai/chaos/ChaosProfiles.js";
 import { createChaosOperationalMemory } from "./ai/chaos/ChaosOperationalState.js";
+import { CHAOS_PROFILE_ACTIONS, createChaosStrategicState, selectChaosAction } from "./ai/chaos/ChaosCapabilitySystem.js";
+import { createOperationalMemory, evaluateOperationalPhase } from "./ai/OperationalPhaseSystem.js";
+import { ACTIVITY_RATE_MULTIPLIER, RateGate, activityRateMultiplier, effectiveObjectiveFocus, objectiveInterpretationMethod, resolveWarfareDoctrine, scoreTacticalOpportunity } from "./ai/WarfareDoctrineSystem.js";
 import { StrategicCellIndex } from "./performance/StrategicCellIndex.js";
-import { analyzeDistantUnits } from "./performance/DistantSimulation.js";
+import { analyzeDistantSnapshot, analyzeDistantUnits, packDistantUnits } from "./performance/DistantSimulation.js";
 import { EXTRACTABLE_RESOURCE_IDS, RESOURCE_DEFINITIONS, RESOURCE_IDS } from "./economy/ResourceCatalog.js";
 
 globalThis.AWTSystems = Object.freeze({
@@ -32,6 +35,7 @@ globalThis.AWTSystems = Object.freeze({
   RouteHistory,
   RouteManager,
   assessFactionCapability,
+  battleObjectiveVictoryReady,
   chooseEndgameDirective,
   ReplayAnalysisSystem,
   buildAIInspector,
@@ -61,8 +65,22 @@ globalThis.AWTSystems = Object.freeze({
   CHAOS_SUBFACTION_PROFILES,
   chaosProfileFor,
   createChaosOperationalMemory,
+  CHAOS_PROFILE_ACTIONS,
+  createChaosStrategicState,
+  selectChaosAction,
+  createOperationalMemory,
+  evaluateOperationalPhase,
+  ACTIVITY_RATE_MULTIPLIER,
+  RateGate,
+  activityRateMultiplier,
+  effectiveObjectiveFocus,
+  objectiveInterpretationMethod,
+  resolveWarfareDoctrine,
+  scoreTacticalOpportunity,
   StrategicCellIndex,
   analyzeDistantUnits,
+  analyzeDistantSnapshot,
+  packDistantUnits,
   RESOURCE_DEFINITIONS,
   RESOURCE_IDS,
   EXTRACTABLE_RESOURCE_IDS
@@ -102,6 +120,15 @@ try {
 } catch (error) {
   globalThis.AWTData.battleObjectives = { version: 1, defaultObjective: "annihilation", objectives: {} };
   console.warn("Battle objective data could not be loaded; annihilation will be used as the fallback.", error);
+}
+
+try {
+  const response = await fetch(new URL("../data/ai/warfare-doctrines.json", import.meta.url));
+  if (!response.ok) throw new Error(`Warfare doctrine data returned ${response.status}`);
+  globalThis.AWTData.warfareDoctrines = await response.json();
+} catch (error) {
+  globalThis.AWTData.warfareDoctrines = { schemaVersion: 1, objectiveInterpretation: {}, tickProfiles: {}, subfactions: {} };
+  console.warn("Warfare doctrine data could not be loaded; race-profile fallbacks will be used.", error);
 }
 
 try {

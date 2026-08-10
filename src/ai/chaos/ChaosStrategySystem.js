@@ -1,5 +1,6 @@
 import { chaosProfileFor } from "./ChaosProfiles.js";
 import { createChaosOperationalMemory, transitionChaosPhase } from "./ChaosOperationalState.js";
+import { advanceChaosStrategicState, selectChaosAction } from "./ChaosCapabilitySystem.js";
 
 const clamp = (value, minimum = 0, maximum = 1) => Math.max(minimum, Math.min(maximum, Number(value) || 0));
 
@@ -138,13 +139,27 @@ export function evaluateChaosStrategy({ now = 0, player = {}, plan = {}, context
   const phase = evaluatePhase(now, profile, plan, current, operationalMemory);
   operationalMemory.primaryObjectiveId = plan.id || operationalMemory.primaryObjectiveId;
   operationalMemory.breachProgress = current.breachProgress;
+  advanceChaosStrategicState(operationalMemory.strategicState, context, context.elapsedSeconds ?? 1);
+  const actionPlan = selectChaosAction(profile.id, phase, operationalMemory.strategicState, current, now);
+  const strategicBias = strategicBiasFor(profile, phase, plan, current);
+  for (const [key, value] of Object.entries(actionPlan.selected.bias || {})) strategicBias[key] = clamp((strategicBias[key] ?? 1) * value, 0.2, 2.4);
+  // Legion flavor changes the method, never the authored victory condition.
+  if (["convoy_escort", "evacuation", "stronghold_defense"].includes(plan?.id)) {
+    strategicBias.defend = Math.max(strategicBias.defend, 0.9);
+    strategicBias.logistics = Math.max(strategicBias.logistics, 0.88);
+    strategicBias.expand = Math.min(strategicBias.expand, 0.92);
+  }
   return {
     phase,
     reason: operationalMemory.lastReason,
     method: plan.method || profile.style,
     style: profile.style,
     profileId: profile.id,
-    strategicBias: strategicBiasFor(profile, phase, plan, current),
+    strategicBias,
+    selectedAction: actionPlan.selected,
+    availableActions: actionPlan.available.map(action => action.id),
+    actionScores: actionPlan.scores,
+    strategicState: operationalMemory.strategicState,
     targetPolicy: { ...profile.priorities },
     constructionBias: constructionBiasFor(profile, phase),
     reservePolicy: {

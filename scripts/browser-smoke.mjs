@@ -369,33 +369,43 @@ try {
     || builderHealth.structures < builderHealth.buildersByFaction.length) {
     throw new Error(`Builder lifecycle failed: ${JSON.stringify(builderHealth)}`);
   }
-  const harvestPrepared = await evaluate(`(() => {
-    const state = document.querySelector('#autonomous-war-theater').awtDebugState;
-    const carrier = state.units.find(unit => unit.alive && unit.role === 'supply');
-    const zone = state.resourceZones[0];
-    if (!carrier || !zone) return false;
-    zone.resourceType = 'food';
-    zone.owner = carrier.faction;
-    zone.startingOwner = carrier.faction;
-    zone.ownershipInitialized = true;
-    zone.requiresBuilding = false;
-    zone.allowedCollectors = ['builder', 'supply'];
-    zone.capacity = 100;
-    zone.remaining = 100;
-    zone.reserve = 100;
-    zone.gatherRate = 40;
-    zone.points = [
-      { x: carrier.x - 18, y: carrier.y - 18 },
-      { x: carrier.x + 18, y: carrier.y - 18 },
-      { x: carrier.x + 18, y: carrier.y + 18 },
-      { x: carrier.x - 18, y: carrier.y + 18 }
-    ];
-    zone.geometryRevision = (zone.geometryRevision || 0) + 1;
-    zone.geometry = null;
-    carrier.resourceZoneTargetId = zone.id;
-    return true;
-  })()`);
-  if (!harvestPrepared) throw new Error("Could not prepare live supply-carrier harvest probe.");
+  let harvestPrepared = false;
+  for (let attempt = 0; attempt < 30 && !harvestPrepared; attempt += 1) {
+    harvestPrepared = await evaluate(`(() => {
+      const state = document.querySelector('#autonomous-war-theater').awtDebugState;
+      const carrier = state.units.find(unit => unit.alive && unit.role === 'supply');
+      const zone = state.resourceZones[0];
+      if (!carrier || !zone) return false;
+      zone.resourceType = 'food';
+      zone.owner = carrier.faction;
+      zone.startingOwner = carrier.faction;
+      zone.ownershipInitialized = true;
+      zone.requiresBuilding = false;
+      zone.allowedCollectors = ['builder', 'supply'];
+      zone.capacity = 100;
+      zone.remaining = 100;
+      zone.reserve = 100;
+      zone.gatherRate = 40;
+      zone.points = [
+        { x: carrier.x - 18, y: carrier.y - 18 },
+        { x: carrier.x + 18, y: carrier.y - 18 },
+        { x: carrier.x + 18, y: carrier.y + 18 },
+        { x: carrier.x - 18, y: carrier.y + 18 }
+      ];
+      zone.geometryRevision = (zone.geometryRevision || 0) + 1;
+      zone.geometry = null;
+      carrier.resourceZoneTargetId = zone.id;
+      return true;
+    })()`);
+    if (!harvestPrepared) await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  if (!harvestPrepared) {
+    const harvestState = await evaluate(`(() => {
+      const state = document.querySelector('#autonomous-war-theater').awtDebugState;
+      return { time: state.time, units: state.units.map(unit => ({ id: unit.id, faction: unit.faction, role: unit.role, alive: unit.alive })), resourceZones: state.resourceZones.length, structures: state.structures.map(item => ({ faction: item.faction, type: item.type, progress: item.progress, alive: item.alive })) };
+    })()`);
+    throw new Error(`Could not prepare live supply-carrier harvest probe: ${JSON.stringify(harvestState)}`);
+  }
   await new Promise(resolve => setTimeout(resolve, 450));
   const carrierHarvestProbe = await evaluate(`(() => {
     const state = document.querySelector('#autonomous-war-theater').awtDebugState;

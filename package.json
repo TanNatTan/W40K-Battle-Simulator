@@ -8,6 +8,8 @@
     "start": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start.ps1",
     "check": "node scripts/check.mjs",
     "smoke": "node scripts/browser-smoke.mjs",
+    "stress:12p": "node scripts/stress-12-player.mjs",
+    "stress:12p:full": "node scripts/stress-12-player.mjs --speed=4 --spawn-radius=160 --full-roster",
     "test": "node --test"
   }
 }
