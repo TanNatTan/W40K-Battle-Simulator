@@ -1,9 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { Profiler } from "../src/diagnostics/Profiler.js";
 import { RuntimeTelemetry } from "../src/diagnostics/RuntimeTelemetry.js";
 import { SnapshotRingBuffer } from "../src/replay/SnapshotRingBuffer.js";
 import { runFixedStepBudget } from "../src/simulation/FixedStepRunner.js";
+import { NavigationPlanner } from "../src/map/NavigationPlanner.js";
+import { WorkBudget } from "../src/performance/ScaleSystem.js";
+import { analyzeDistantUnits } from "../src/performance/DistantSimulation.js";
 
 test("runtime telemetry is throttled and avoids unchanged dataset writes", () => {
   const telemetry = new RuntimeTelemetry({ intervalMs: 1000 });
@@ -50,4 +54,47 @@ test("profiler records bounded system timing only when enabled", () => {
   }]);
   profiler.reset();
   assert.deepEqual(profiler.report(), []);
+});
+
+test("pathfinding work is bounded while cached routes remain free", () => {
+  const budget = new WorkBudget(2);
+  assert.equal(budget.take(), true);
+  assert.equal(budget.take(), true);
+  assert.equal(budget.take(), false);
+  assert.deepEqual({ used: budget.used, deferred: budget.deferred }, { used: 2, deferred: 1 });
+  budget.begin(1);
+  assert.equal(budget.remaining, 1);
+
+  const planner = new NavigationPlanner({ cellSize: 16, maxVisited: 1000 });
+  const request = { start: { x: 8, y: 8 }, goal: { x: 72, y: 72 }, profile: "infantry", revision: 1 };
+  assert.equal(planner.cachedPath(request), null);
+  const path = planner.findPath({ ...request, isPassable: () => true });
+  assert.ok(path.length > 0);
+  const cached = planner.cachedPath(request);
+  assert.deepEqual(cached, path);
+  cached[0].x = -1;
+  assert.notEqual(planner.cachedPath(request)[0].x, -1);
+});
+
+test("large-battle runtime uses worker broadphase and spatial projectile collision", async () => {
+  const [app, worker] = await Promise.all([
+    readFile(new URL("../js/app.js", import.meta.url), "utf8"),
+    readFile(new URL("../src/performance/simulation-worker.js", import.meta.url), "utf8")
+  ]);
+  assert.match(app, /navigationWorkBudget\.take\(\)/);
+  assert.match(app, /nearbyCombatObjects\(midpoint,/);
+  assert.match(app, /state\.projectiles\.length = activeCount/);
+  assert.match(app, /workerThreatIds/);
+  assert.match(app, /workerClock - state\.lastWorkerDispatchAt >= 750/);
+  assert.match(worker, /analyzeDistantUnits/);
+
+  const analysis = analyzeDistantUnits([
+    { id: "a1", faction: "a", team: "1", x: 0, y: 0, alive: true, damage: 10, accuracy: 1, morale: 1 },
+    { id: "ally", faction: "c", team: "1", x: 20, y: 0, alive: true, damage: 8, accuracy: 1, morale: 1 },
+    { id: "enemy", faction: "b", team: "2", x: 40, y: 0, alive: true, damage: 12, accuracy: 1, morale: 1 }
+  ], 1);
+  const hint = analysis.unitHints.find(item => item.id === "a1");
+  assert.deepEqual(hint.allyIds, ["ally"]);
+  assert.deepEqual(hint.hostileIds, ["enemy"]);
+  assert.ok(analysis.factions.a.expectedAttrition > 0);
 });

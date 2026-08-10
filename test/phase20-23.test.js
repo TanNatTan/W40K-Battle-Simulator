@@ -74,6 +74,9 @@ test("Phase 22 scales thousands of distant units and preserves critical updates"
   assert.equal(preset.id, "total");
   const scheduled = Array.from({ length: 3000 }, (_, index) => shouldUpdateEntity({ index, frame: 5, distanceFromCamera: 5000, preset }));
   assert.ok(scheduled.filter(Boolean).length <= 310);
+  const engaged = Array.from({ length: 3000 }, (_, index) => shouldUpdateEntity({ index, frame: 5, distanceFromCamera: 5000, engaged: true, preset }));
+  assert.ok(engaged.filter(Boolean).length > scheduled.filter(Boolean).length);
+  assert.ok(engaged.filter(Boolean).length <= 610);
   assert.equal(shouldUpdateEntity({ index: 1, frame: 1, distanceFromCamera: 5000, critical: true, preset }), true);
   const first = { faction: "a", alive: true, hp: 100, damage: 10, accuracy: 1, morale: 1 };
   const second = { faction: "b", alive: true, hp: 100, damage: 8, accuracy: 1, morale: 1 };

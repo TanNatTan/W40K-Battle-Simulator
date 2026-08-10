@@ -69,6 +69,10 @@ The migration is intentionally incremental: `js/app.js` remains operational whil
 
 - Canvas drawing no longer performs the expensive diagnostic world scans. Runtime telemetry is collected outside rendering once per second and updates DOM dataset values only when they change.
 - Fixed 20 Hz simulation catch-up is limited to three updates and an 8 ms work budget per animation frame. Excess backlog is capped so a slow frame degrades into controlled slow motion instead of a self-reinforcing freeze.
+- Uncached A* searches consume a scale-aware per-step budget and use smaller expansion limits in Major and Total Battlefield modes. Cached routes remain available without consuming that budget, while excess requests are staggered across later ticks.
+- A module worker builds coarse distant-unit neighbor lists and faction pressure summaries. Offscreen AI reuses those hints, idle and engaged distant forces run at separate cadences, and nearby combat remains fully responsive.
+- Projectile collision and suppression query the shared spatial grid instead of scanning every unit and structure. Projectile arrays are compacted in place and high-churn projectile objects are recycled.
+- Unit separation reuses the shared moving-object grid rather than allocating another grid every separation pass; target and proximity sensing start at deterministic offsets to avoid synchronized LOS spikes.
 - Replay snapshots use a fixed-capacity buffer, compact structure records, and territory revisions/counts instead of retaining another full territory-cell copy every snapshot.
 - Add `?profile` to the simulator URL to enable timing for simulation, rendering, and UI work. Inspect `awtProfiler.report()` in the browser console and call `awtProfiler.reset()` between measurements.
 - Day/night rendering uses one viewport tint and one faction-aware visibility multiplier. Dynamic shadows, radial artificial-light gradients, searchlights, per-location light sampling, and decorative light vision sources are not part of the live render or detection paths.

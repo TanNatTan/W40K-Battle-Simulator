@@ -69,7 +69,7 @@ import {
 import { createFactionLearningMemory } from "../src/learning/LearningSystem.js";
 import { assessFactionCapability, chooseEndgameDirective } from "../src/victory/VictorySystem.js";
 import { buildAIInspector } from "../src/replay/ReplayAnalysisSystem.js";
-import { scalePresetFor, shouldUpdateEntity } from "../src/performance/ScaleSystem.js";
+import { WorkBudget, scalePresetFor, shouldUpdateEntity } from "../src/performance/ScaleSystem.js";
 import { createFactionGameplayState, updateFactionGameplay } from "../src/factions/DistinctiveGameplaySystem.js";
 import { expiredDeadUnitIds, scheduleDeathRemoval } from "../src/simulation/DeathLifecycle.js";
 import { runFixedStepBudget } from "../src/simulation/FixedStepRunner.js";
@@ -1222,12 +1222,17 @@ import {
         performanceWorkerAccumulator: 0,
         distantWorkerBusy: false,
         distantCombatSummary: null,
+        distantWorkerLastApplied: 0,
+        workerBattleGeneration: 0,
+        lastWorkerDispatchAt: 0,
         environmentAccumulator: 0,
         separationAccumulator: 0,
         explorationAccumulator: 0,
         navigationRevision: 0,
         navigationPlans: 0,
         navigationCacheHits: 0,
+        navigationPlansDeferred: 0,
+        navigationBudgetUsed: 0,
         ended: false,
         fogPlayer: "observer",
         explored: {},
@@ -1240,13 +1245,26 @@ import {
       state.economyZoneManager = new globalThis.AWTSystems.EconomyZoneManager();
       state.routeHistory = new globalThis.AWTSystems.RouteHistory();
       const navigationPlanner = new NavigationPlanner({ cellSize: 32, maxVisited: 5200, maxCacheEntries: 256 });
+      const navigationWorkBudget = new WorkBudget(state.performancePreset.pathBudget);
       let distantSimulationWorker = null;
       try {
         if (typeof Worker !== "undefined") {
           distantSimulationWorker = new Worker(new URL("../src/performance/simulation-worker.js", import.meta.url), { type: "module" });
           distantSimulationWorker.onmessage = event => {
             state.distantWorkerBusy = false;
+            if (event.data?.battleGeneration !== state.workerBattleGeneration) return;
             state.distantCombatSummary = event.data;
+            if ((event.data?.requestId || 0) < state.distantWorkerLastApplied) return;
+            state.distantWorkerLastApplied = event.data?.requestId || state.distantWorkerLastApplied;
+            for (const hint of event.data?.unitHints || []) {
+              const unit = unitById(hint.id);
+              if (!unit?.alive) continue;
+              unit.workerThreatIds = hint.hostileIds || [];
+              unit.workerAllyIds = hint.allyIds || [];
+              unit.workerThreatDistance = hint.nearestHostileDistance ?? Infinity;
+              unit.workerSenseAt = state.time;
+              unit.workerSenseRealAt = performance.now();
+            }
           };
           distantSimulationWorker.onerror = () => { state.distantWorkerBusy = false; };
         }
@@ -2608,8 +2626,9 @@ import {
         unit.nearestThreatId ??= null;
         unit.nearestThreatDistance ??= Infinity;
         unit.aimShake ??= 0;
-        unit.alertSenseCooldown ??= 0;
+        unit.alertSenseCooldown ??= ((unit.index || 0) % 8) * 0.025;
         unit.alertSenseElapsed ??= 0;
+        unit.sensorCooldown ??= ((unit.index || 0) % 10) * 0.04;
         unit.combatCommitment ||= null;
         unit.protectTargetId ||= null;
         unit.protectionRequested ??= false;
@@ -2909,8 +2928,9 @@ import {
           alertState: "Calm",
           nearestThreatId: null,
           nearestThreatDistance: Infinity,
-          alertSenseCooldown: 0,
+          alertSenseCooldown: (index % 8) * 0.025,
           alertSenseElapsed: 0,
+          sensorCooldown: (index % 10) * 0.04,
           armorProtection: role === "vehicle" ? 16 : role === "commander" ? 12 : role === "scout" ? 6 : 9,
           facing: 0,
           bodyZones: { head: 1, chest: 1, leftArm: 1, rightArm: 1, leftLeg: 1, rightLeg: 1 },
@@ -3356,6 +3376,8 @@ import {
         state.navigationRevision += 1;
         state.navigationPlans = 0;
         state.navigationCacheHits = 0;
+        state.navigationPlansDeferred = 0;
+        state.navigationBudgetUsed = 0;
         navigationPlanner.clear();
         state.aiDiagnostics = { relationshipEdges: 0, killPursuits: 0, formationSquads: 0, routeOrders: 0, guardSquads: 0, securedRoads: 0, ambushRoads: 0, checkpoints: 0, environmentCollisions: 0, obstacleProjectileHits: 0 };
         state.explored = {};
@@ -3451,6 +3473,9 @@ import {
         state.performanceWorkerAccumulator = 0;
         state.distantWorkerBusy = false;
         state.distantCombatSummary = null;
+        state.distantWorkerLastApplied = 0;
+        state.workerBattleGeneration += 1;
+        state.lastWorkerDispatchAt = 0;
         state.selectedId = state.units[0]?.id || null;
         state.selectedStructureId = null;
         state.replay = false;
@@ -4063,15 +4088,20 @@ import {
             }
           : destination;
         const profile = navigationProfileFor(unit);
-        const cacheSize = navigationPlanner.cache.size;
-        const path = navigationPlanner.findPath({
-          start: unit,
-          goal: localGoal,
-          profile,
-          revision: state.navigationRevision,
+        const request = { start: unit, goal: localGoal, profile, revision: state.navigationRevision };
+        const cachedPath = navigationPlanner.cachedPath(request);
+        if (!cachedPath && !navigationWorkBudget.take()) {
+          state.navigationPlansDeferred += 1;
+          state.navigationBudgetUsed = navigationWorkBudget.used;
+          unit.nextNavigationPlanAt = state.time + 0.18 + (unit.index % 7) * 0.035;
+          return false;
+        }
+        const path = cachedPath || navigationPlanner.findPath({
+          ...request,
           isPassable: (point, movementProfile) => navigationPassableAt(point, unit, movementProfile),
           costAt: (point, movementProfile) => navigationCostAt(point, unit, movementProfile)
         });
+        state.navigationBudgetUsed = navigationWorkBudget.used;
         if (!path.length) return false;
         unit.navigationPath = path;
         unit.navigationDestination = { ...destination };
@@ -4079,7 +4109,8 @@ import {
         unit.detour = null;
         unit.nextNavigationPlanAt = state.time + 0.8;
         state.navigationPlans += 1;
-        if (navigationPlanner.cache.size === cacheSize) state.navigationCacheHits += 1;
+        state.navigationBudgetUsed = navigationWorkBudget.used;
+        if (cachedPath) state.navigationCacheHits += 1;
         return true;
       }
 
@@ -5465,12 +5496,22 @@ import {
         return distance(unit, target) < sensor * terrainAt(target).detection * clamp(0.45 + occlusion * 0.55, 0.45, 1);
       }
 
+      function hasFreshWorkerSense(unit) {
+        return Boolean(unit.distantSimulation && Number.isFinite(unit.workerSenseRealAt) && performance.now() - unit.workerSenseRealAt <= 2500);
+      }
+
       function findTarget(unit) {
         const terrain = terrainAt(unit);
         const objectivePlan = battleObjectivePlanFor(unit.faction);
         const sun = sunState();
         const visibilityMultiplier = globalDayNightVisibility({ period: sun.period, weather: state.dayNight.weather, nightVision: nightVisionFactor(unit.faction), affectsDetection: state.dayNight.enabled && state.lighting.affectsDetection });
         const sensor = unit.range * (state.visibility / 100) * terrain.detection * visibilityMultiplier * (unit.role === "scout" ? 1.35 : 1);
+        if (hasFreshWorkerSense(unit)) {
+          for (const id of unit.workerThreatIds || []) {
+            const candidate = unitById(id);
+            if (candidate?.alive && !candidate.incapacitated && !areAllies(candidate.faction, unit.faction) && canDetectTarget(unit, candidate)) return candidate;
+          }
+        }
         const nearby = nearbyCombatObjects(unit, sensor * 1.7);
         const chaosStrategy = playerFor(unit.faction)?.chaosStrategy;
         let bestTarget = null;
@@ -5550,8 +5591,8 @@ import {
       }
 
       function acquireProjectile(data) {
-        const projectile = state.projectilePool.pop() || {};
-        for (const key of Object.keys(projectile)) delete projectile[key];
+        const projectile = state.projectilePool.pop() || { previousPoint: { x: 0, y: 0 } };
+        projectile.previousPoint ||= { x: 0, y: 0 };
         Object.assign(projectile, data, { active: true });
         state.projectiles.push(projectile);
         return projectile;
@@ -5661,29 +5702,53 @@ import {
       }
 
       function projectileCollision(projectile, previous, current) {
-        const collisions = [];
         const bounds = { left: Math.min(previous.x, current.x) - 16, right: Math.max(previous.x, current.x) + 16, top: Math.min(previous.y, current.y) - 16, bottom: Math.max(previous.y, current.y) + 16 };
+        let nearestTarget = null;
+        let nearestPoint = null;
+        let nearestDistance = Infinity;
         for (const feature of visibleFeatures(bounds)) {
           const profile = ensureFeatureCollision(feature)?.collisionProfile;
           if (!profile || profile.movement === "soft" || feature.collisionState === "cleared") continue;
           const hit = segmentHitsFeature(previous, current, feature, "projectile", 0.8);
-          if (hit) collisions.push({ target: feature, point: hit, distance: distance(previous, hit) });
+          if (!hit) continue;
+          const hitDistance = distance(previous, hit);
+          if (hitDistance < nearestDistance) {
+            nearestTarget = feature;
+            nearestPoint = hit;
+            nearestDistance = hitDistance;
+          }
         }
-        const structures = state.structures.filter(structure => structure.alive !== false && structure.progress >= 0.2 && !areAllies(structure.faction, projectile.faction) && segmentIntersectsStructure(previous, current, structure));
-        for (const structure of structures) collisions.push({ target: structure, point: structure, distance: distance(previous, structure) });
-        const units = state.units.filter(unit => unit.alive && !areAllies(unit.faction, projectile.faction));
-        for (const unit of units.filter(unit => segmentDistanceSquared(previous, current, unit) <= (unit.collisionRadius || (unit.role === "vehicle" ? 8 : 4.5)) ** 2)) {
-          collisions.push({ target: unit, point: unit, distance: distance(previous, unit) });
+        const midpoint = projectile.collisionProbe ||= { x: 0, y: 0 };
+        midpoint.x = (previous.x + current.x) / 2;
+        midpoint.y = (previous.y + current.y) / 2;
+        const candidates = nearbyCombatObjects(midpoint, Math.hypot(current.x - previous.x, current.y - previous.y) / 2 + 24);
+        for (const structure of candidates.structures) {
+          if (structure.progress < 0.2 || areAllies(structure.faction, projectile.faction) || !segmentIntersectsStructure(previous, current, structure)) continue;
+          const hitDistance = distance(previous, structure);
+          if (hitDistance < nearestDistance) {
+            nearestTarget = structure;
+            nearestPoint = structure;
+            nearestDistance = hitDistance;
+          }
         }
-        const collision = collisions.sort((a, b) => a.distance - b.distance)[0];
-        if (!collision) return null;
-        if (collision.target.environmentObstacle) collision.target.impactPoint = collision.point;
-        return collision.target;
+        for (const unit of candidates.units) {
+          if (areAllies(unit.faction, projectile.faction)) continue;
+          const radius = unit.collisionRadius || (unit.role === "vehicle" ? 8 : 4.5);
+          if (segmentDistanceSquared(previous, current, unit) > radius * radius) continue;
+          const hitDistance = distance(previous, unit);
+          if (hitDistance < nearestDistance) {
+            nearestTarget = unit;
+            nearestPoint = unit;
+            nearestDistance = hitDistance;
+          }
+        }
+        if (nearestTarget?.environmentObstacle) nearestTarget.impactPoint = nearestPoint;
+        return nearestTarget;
       }
 
       function applySuppression(point, faction, intensity) {
-        for (const unit of state.units) {
-          if (!unit.alive || areAllies(unit.faction, faction)) continue;
+        for (const unit of nearbyCombatObjects(point, 34).units) {
+          if (areAllies(unit.faction, faction)) continue;
           const d = distance(point, unit);
           if (d > 34) continue;
           unit.suppression = clamp((unit.suppression || 0) + intensity * Math.exp(-d / 18), 0, 1);
@@ -5856,14 +5921,15 @@ import {
       function updateProjectiles(dt) {
         for (const projectile of state.projectiles) {
           if (!projectile.active) continue;
-          const previous = { x: projectile.x, y: projectile.y };
+          const previous = projectile.previousPoint ||= { x: projectile.x, y: projectile.y };
+          previous.x = projectile.x;
+          previous.y = projectile.y;
           projectile.previousX = projectile.x;
           projectile.previousY = projectile.y;
           projectile.x += projectile.vx * dt;
           projectile.y += projectile.vy * dt;
-          const current = { x: projectile.x, y: projectile.y };
-          projectile.traveled += distance(previous, current);
-          const collision = projectileCollision(projectile, previous, current);
+          projectile.traveled += Math.hypot(projectile.x - previous.x, projectile.y - previous.y);
+          const collision = projectileCollision(projectile, previous, projectile);
           if (collision) {
             projectile.x = collision.x;
             projectile.y = collision.y;
@@ -5875,12 +5941,12 @@ import {
             applyProjectileImpact(projectile, null);
           }
         }
-        const active = [];
+        let activeCount = 0;
         for (const projectile of state.projectiles) {
-          if (projectile.active) active.push(projectile);
+          if (projectile.active) state.projectiles[activeCount++] = projectile;
           else if (state.projectilePool.length < 512) state.projectilePool.push(projectile);
         }
-        state.projectiles = active;
+        state.projectiles.length = activeCount;
       }
 
       function destroyStructure(structure, attacker = null) {
@@ -6651,14 +6717,17 @@ import {
         if (unit.alertSenseCooldown > 0) return proximityCombatModifiers(unit);
         const senseDt = unit.alertSenseElapsed;
         unit.alertSenseElapsed = 0;
-        unit.alertSenseCooldown = (unit.alertLevel || 0) > 0.35 ? 0.1 : 0.2 + (unit.index % 4) * 0.018;
+        unit.alertSenseCooldown = ((unit.alertLevel || 0) > 0.35 ? 0.1 : 0.2) + (unit.index % 7) * 0.011;
         const supportRole = ["builder", "supply"].includes(unit.role);
         const awarenessRadius = clamp(Math.max(supportRole ? 170 : 120, (unit.range || 0) * 1.35), 110, 230);
-        const nearby = nearbyCombatObjects(unit, awarenessRadius).units;
+        const workerSense = hasFreshWorkerSense(unit);
+        const nearby = workerSense
+          ? [...(unit.workerThreatIds || []), ...(unit.workerAllyIds || [])].map(id => unitById(id)).filter(Boolean)
+          : nearbyCombatObjects(unit, awarenessRadius).units;
         const hostiles = nearby
-          .filter(other => other.alive && !other.incapacitated && !areAllies(other.faction, unit.faction) && canDetectTarget(unit, other))
+          .filter(other => other.alive && !other.incapacitated && distance(unit, other) <= awarenessRadius && !areAllies(other.faction, unit.faction) && canDetectTarget(unit, other))
           .map(other => ({ unit: other, distance: distance(unit, other) }));
-        const allies = nearby.filter(other => other.alive && !other.incapacitated && areAllies(other.faction, unit.faction) && other.id !== unit.id);
+        const allies = nearby.filter(other => other.alive && !other.incapacitated && distance(unit, other) <= awarenessRadius && areAllies(other.faction, unit.faction) && other.id !== unit.id);
         const awareness = evaluateProximityAwareness(unit, hostiles, allies, senseDt, awarenessRadius);
         Object.assign(unit, awareness);
         if (unit.alertState === "Afraid") {
@@ -6931,7 +7000,7 @@ import {
             && canDetectTarget(unit, retainedTarget);
           target = sharedTarget && !areAllies(sharedTarget.faction, unit.faction) ? sharedTarget : retainCommitment ? retainedTarget : findTarget(unit);
           unit.cachedTargetId = target?.id || null;
-          unit.sensorCooldown = state.speed >= 8 ? (unit.role === "scout" ? 4 : 6) : (unit.role === "scout" ? 0.2 : 0.4);
+          unit.sensorCooldown = (state.speed >= 8 ? (unit.role === "scout" ? 4 : 6) : (unit.role === "scout" ? 0.2 : 0.4)) + (unit.index % 9) * 0.013;
           if ((unit.alertLevel || 0) > 0.4) unit.sensorCooldown = Math.min(unit.sensorCooldown, state.speed >= 8 ? 1.5 : 0.12);
         } else if (unit.cachedTargetId) {
           target = combatTargetById(unit.cachedTargetId);
@@ -9354,32 +9423,32 @@ import {
       }
 
       function separateUnits() {
-        const living = state.units.filter(unit => unit.alive);
-        const cellSize = 28;
-        const buckets = new Map();
-        living.forEach((unit, index) => {
-          unit.separationIndex = index;
-          const key = `${Math.floor(unit.x / cellSize)},${Math.floor(unit.y / cellSize)}`;
-          if (!buckets.has(key)) buckets.set(key, []);
-          buckets.get(key).push(unit);
-        });
-        for (const a of living) {
-          const cx = Math.floor(a.x / cellSize);
-          const cy = Math.floor(a.y / cellSize);
+        if (!state.spatialGrid.size) rebuildSpatialGrid();
+        let livingIndex = 0;
+        for (const unit of state.units) {
+          if (unit.alive && !unit.embarkedInId) unit.separationIndex = livingIndex++;
+        }
+        for (const a of state.units) {
+          if (!a.alive || a.embarkedInId) continue;
+          const cx = Math.floor(a.x / spatialCellSize);
+          const cy = Math.floor(a.y / spatialCellSize);
           for (let ox = -1; ox <= 1; ox += 1) {
             for (let oy = -1; oy <= 1; oy += 1) {
-              for (const b of buckets.get(`${cx + ox},${cy + oy}`) || []) {
+              const bucket = state.spatialGrid.get(spatialGridKey(cx + ox, cy + oy));
+              if (!bucket) continue;
+              for (const b of bucket.units) {
+                if (!b.alive || b.embarkedInId) continue;
                 if (b.separationIndex <= a.separationIndex) continue;
-            const dx = b.x - a.x;
-            const dy = b.y - a.y;
-            const d = Math.hypot(dx, dy) || 0.01;
-            const min = Math.max(5, (a.collisionRadius || (a.role === "vehicle" ? 14 : 3)) + (b.collisionRadius || (b.role === "vehicle" ? 14 : 3)));
-            if (d >= min) continue;
-            const force = (min - d) * 0.14;
-            a.x -= dx / d * force;
-            a.y -= dy / d * force;
-            b.x += dx / d * force;
-            b.y += dy / d * force;
+                const dx = b.x - a.x;
+                const dy = b.y - a.y;
+                const d = Math.hypot(dx, dy) || 0.01;
+                const min = Math.max(5, (a.collisionRadius || (a.role === "vehicle" ? 14 : 3)) + (b.collisionRadius || (b.role === "vehicle" ? 14 : 3)));
+                if (d >= min) continue;
+                const force = (min - d) * 0.14;
+                a.x -= dx / d * force;
+                a.y -= dy / d * force;
+                b.x += dx / d * force;
+                b.y += dy / d * force;
               }
             }
           }
@@ -9600,6 +9669,10 @@ import {
       function updateBattle(dt) {
         state.time += dt;
         rebuildEntityIdIndex();
+        state.performancePreset = scalePresetFor(state.units.length, state.performanceRequested);
+        navigationPlanner.maxVisited = state.performancePreset.pathVisited;
+        navigationWorkBudget.begin(state.performancePreset.pathBudget);
+        state.navigationBudgetUsed = 0;
         profiler.profile("economy.convoys", () => updateConvoys(dt));
         updateDropPods();
         if (state.time >= state.nextTerritoryTick) {
@@ -9657,33 +9730,51 @@ import {
           evaluateStrategicOutcomes();
           state.victoryEvaluationAccumulator = 0;
         }
-        state.performancePreset = scalePresetFor(state.units.length, state.performanceRequested);
         state.performanceFrame += 1;
         state.performanceWorkerAccumulator += dt;
+        const workerClock = performance.now();
         if (distantSimulationWorker && !state.distantWorkerBusy && state.performanceWorkerAccumulator >= 1
+          && workerClock - state.lastWorkerDispatchAt >= 750
           && ["major", "total"].includes(state.performancePreset.id)) {
           state.performanceWorkerAccumulator = 0;
           state.distantWorkerBusy = true;
-          distantSimulationWorker.postMessage({
-            requestId: state.performanceFrame,
-            dt: 1,
-            units: state.units.filter(unit => unit.alive && distance(unit, state.camera) >= 900).map(unit => ({
+          state.lastWorkerDispatchAt = workerClock;
+          const workerUnits = [];
+          for (const unit of state.units) {
+            if (!unit.alive) continue;
+            const dx = unit.x - state.camera.x;
+            const dy = unit.y - state.camera.y;
+            if (dx * dx + dy * dy < 810000) continue;
+            workerUnits.push({
+              id: unit.id,
               faction: unit.faction,
+              team: String(playerFor(unit.faction).team),
+              x: unit.x,
+              y: unit.y,
               alive: unit.alive,
               damage: unit.damage,
               accuracy: unit.accuracy,
               morale: unit.morale
-            }))
+            });
+          }
+          distantSimulationWorker.postMessage({
+            requestId: state.performanceFrame,
+            battleGeneration: state.workerBattleGeneration,
+            dt: 1,
+            units: workerUnits
           });
         }
         profiler.profile("simulation.units", () => {
           state.units.forEach((unit, index) => {
             unit.deferredSimulationDt = (unit.deferredSimulationDt || 0) + dt;
+            const distanceFromCamera = distance(unit, state.camera);
+            unit.distantSimulation = distanceFromCamera >= 900 && ["major", "total"].includes(state.performancePreset.id);
             const updateNow = shouldUpdateEntity({
               index,
               frame: state.performanceFrame,
-              distanceFromCamera: distance(unit, state.camera),
-              critical: unit.role === "builder" || unit.role === "commander" || unit.id === state.selectedId || Boolean(unit.targetId),
+              distanceFromCamera,
+              critical: unit.role === "builder" || unit.role === "commander" || unit.id === state.selectedId,
+              engaged: Boolean(unit.targetId),
               preset: state.performancePreset
             });
             if (!updateNow) return;
@@ -9694,10 +9785,10 @@ import {
         });
         state.separationAccumulator += dt;
         if (state.separationAccumulator >= 0.08) {
-          separateUnits();
+          profiler.profile("physics.separation", separateUnits);
           state.separationAccumulator = 0;
         }
-        updateProjectiles(dt);
+        profiler.profile("combat.projectiles", () => updateProjectiles(dt));
         cleanupCompletedDeathAnimations();
         updateExploration(dt);
         if (state.time >= state.nextSnapshot) {
@@ -11906,6 +11997,9 @@ import {
         set("navigationRevision", state.navigationRevision);
         set("navigationPlans", state.navigationPlans);
         set("navigationCache", navigationPlanner.cache.size);
+        set("navigationBudget", `${state.navigationBudgetUsed}/${state.performancePreset.pathBudget}`);
+        set("navigationVisitLimit", navigationPlanner.maxVisited);
+        set("navigationDeferred", state.navigationPlansDeferred);
         set("resourceNodes", state.resourceZones.length);
         set("resourceZones", state.resourceZones.length);
         set("economicNodes", state.economicNodes.length);
@@ -11931,7 +12025,7 @@ import {
         set("endgameOrders", state.players.map(player => `${player.id}:${player.endgameDirective?.action || "standard-operations"}`).join("|"));
         set("phase21Replay", `snapshots:${state.snapshots.length};incidents:${state.incidents.length};ai-inspector:true`);
         set("phase22Scale", `${state.performancePreset.id}:${state.performancePreset.distantStride}`);
-        set("phase22Worker", distantSimulationWorker ? `ready:${state.distantCombatSummary?.processed || 0}` : "unavailable");
+        set("phase22Worker", distantSimulationWorker ? `ready:${state.distantCombatSummary?.processed || 0}:hints:${state.distantCombatSummary?.unitHints?.length || 0}:ms:${(state.distantCombatSummary?.analysisMs || 0).toFixed(2)}` : "unavailable");
         set("phase23Branches", state.players.map(player => `${player.id}:${state.factionAIProfiles[player.id]?.branch}:${state.factionGameplay[player.id]?.doctrine || "forming"}`).join("|"));
         set("squadRoles", state.squads.map(squad => `${squad.id}:${squad.primaryRole || "reserve"}`).join("|"));
         set("squadRoleOverlay", state.squadRoleOverlay);

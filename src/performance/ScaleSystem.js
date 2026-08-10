@@ -1,8 +1,8 @@
 export const SCALE_PRESETS = Object.freeze({
-  skirmish: Object.freeze({ label: "Skirmish", targetUnits: 120, distantStride: 2, snapshotSeconds: 1.5, pathBudget: 16, logBatch: 24 }),
-  battle: Object.freeze({ label: "Battle", targetUnits: 400, distantStride: 3, snapshotSeconds: 3, pathBudget: 12, logBatch: 40 }),
-  major: Object.freeze({ label: "Major Battle", targetUnits: 1000, distantStride: 6, snapshotSeconds: 6, pathBudget: 8, logBatch: 64 }),
-  total: Object.freeze({ label: "Total Battlefield", targetUnits: 4000, distantStride: 10, snapshotSeconds: 12, pathBudget: 4, logBatch: 96 })
+  skirmish: Object.freeze({ label: "Skirmish", targetUnits: 120, distantStride: 2, snapshotSeconds: 1.5, pathBudget: 16, pathVisited: 5200, logBatch: 24 }),
+  battle: Object.freeze({ label: "Battle", targetUnits: 400, distantStride: 3, snapshotSeconds: 3, pathBudget: 12, pathVisited: 4200, logBatch: 40 }),
+  major: Object.freeze({ label: "Major Battle", targetUnits: 1000, distantStride: 6, snapshotSeconds: 6, pathBudget: 8, pathVisited: 2800, logBatch: 64 }),
+  total: Object.freeze({ label: "Total Battlefield", targetUnits: 4000, distantStride: 10, snapshotSeconds: 12, pathBudget: 4, pathVisited: 1800, logBatch: 96 })
 });
 
 export function scalePresetFor(unitCount = 0, requested = "auto") {
@@ -11,9 +11,10 @@ export function scalePresetFor(unitCount = 0, requested = "auto") {
   return { id, ...SCALE_PRESETS[id] };
 }
 
-export function shouldUpdateEntity({ index = 0, frame = 0, distanceFromCamera = 0, critical = false, preset } = {}) {
+export function shouldUpdateEntity({ index = 0, frame = 0, distanceFromCamera = 0, critical = false, engaged = false, preset } = {}) {
   if (critical || distanceFromCamera < 900) return true;
-  const stride = Math.max(1, preset?.distantStride || 1);
+  const baseStride = Math.max(1, preset?.distantStride || 1);
+  const stride = engaged ? Math.max(1, Math.ceil(baseStride / 2)) : baseStride;
   return (index + frame) % stride === 0;
 }
 
@@ -29,6 +30,35 @@ export function statisticalDistantCombat(first, second, dt, random = Math.random
   if (first.hp <= 0) first.alive = false;
   if (second.hp <= 0) second.alive = false;
   return { firstLoss, secondLoss };
+}
+
+export class WorkBudget {
+  constructor(limit = 0) {
+    this.limit = 0;
+    this.remaining = 0;
+    this.used = 0;
+    this.deferred = 0;
+    this.begin(limit);
+  }
+
+  begin(limit = this.limit) {
+    this.limit = Math.max(0, Math.floor(Number(limit) || 0));
+    this.remaining = this.limit;
+    this.used = 0;
+    this.deferred = 0;
+    return this;
+  }
+
+  take(weight = 1) {
+    const cost = Math.max(1, Math.floor(Number(weight) || 1));
+    if (this.remaining < cost) {
+      this.deferred += 1;
+      return false;
+    }
+    this.remaining -= cost;
+    this.used += cost;
+    return true;
+  }
 }
 
 export class ObjectPool {

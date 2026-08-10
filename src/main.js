@@ -5,7 +5,7 @@ import { SpatialPartition, TerritorySystem, OBJECTIVE_TYPES } from "./territory/
 import { ConvoyManager, RoadGraph, RouteAI, RouteHistory, RouteManager } from "./logistics/RouteSystem.js";
 import { assessFactionCapability, chooseEndgameDirective } from "./victory/VictorySystem.js";
 import { ReplayAnalysisSystem, buildAIInspector } from "./replay/ReplayAnalysisSystem.js";
-import { SCALE_PRESETS, scalePresetFor } from "./performance/ScaleSystem.js";
+import { SCALE_PRESETS, WorkBudget, scalePresetFor } from "./performance/ScaleSystem.js";
 import { FACTION_GAMEPLAY_BRANCHES, createFactionGameplayState } from "./factions/DistinctiveGameplaySystem.js";
 import { Profiler } from "./diagnostics/Profiler.js";
 import { RuntimeTelemetry } from "./diagnostics/RuntimeTelemetry.js";
@@ -18,6 +18,7 @@ import { combineStrategicBias, chaosTargetMultiplier, evaluateChaosStrategy } fr
 import { CHAOS_SUBFACTION_PROFILES, chaosProfileFor } from "./ai/chaos/ChaosProfiles.js";
 import { createChaosOperationalMemory } from "./ai/chaos/ChaosOperationalState.js";
 import { StrategicCellIndex } from "./performance/StrategicCellIndex.js";
+import { analyzeDistantUnits } from "./performance/DistantSimulation.js";
 import { EXTRACTABLE_RESOURCE_IDS, RESOURCE_DEFINITIONS, RESOURCE_IDS } from "./economy/ResourceCatalog.js";
 
 globalThis.AWTSystems = Object.freeze({
@@ -35,6 +36,7 @@ globalThis.AWTSystems = Object.freeze({
   ReplayAnalysisSystem,
   buildAIInspector,
   SCALE_PRESETS,
+  WorkBudget,
   scalePresetFor,
   FACTION_GAMEPLAY_BRANCHES,
   createFactionGameplayState,
@@ -60,6 +62,7 @@ globalThis.AWTSystems = Object.freeze({
   chaosProfileFor,
   createChaosOperationalMemory,
   StrategicCellIndex,
+  analyzeDistantUnits,
   RESOURCE_DEFINITIONS,
   RESOURCE_IDS,
   EXTRACTABLE_RESOURCE_IDS

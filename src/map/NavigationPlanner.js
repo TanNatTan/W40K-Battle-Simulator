@@ -78,6 +78,13 @@ export class NavigationPlanner {
     };
   }
 
+  cachedPath({ start, goal, profile = "infantry", revision = 0 }) {
+    const startCell = this.worldToCell(start);
+    const goalCell = this.worldToCell(goal);
+    const cached = this.cache.get(`${cellKey(startCell)}|${cellKey(goalCell)}|${profile}|${revision}`);
+    return cached ? cached.map(point => ({ ...point })) : null;
+  }
+
   findPath({ start, goal, profile = "infantry", revision = 0, isPassable, costAt = () => 1 }) {
     const startCell = this.worldToCell(start);
     let goalCell = this.worldToCell(goal);
