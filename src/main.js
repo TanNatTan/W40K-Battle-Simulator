@@ -23,6 +23,11 @@ import { ACTIVITY_RATE_MULTIPLIER, RateGate, activityRateMultiplier, effectiveOb
 import { StrategicCellIndex } from "./performance/StrategicCellIndex.js";
 import { analyzeDistantSnapshot, analyzeDistantUnits, packDistantUnits } from "./performance/DistantSimulation.js";
 import { EXTRACTABLE_RESOURCE_IDS, RESOURCE_DEFINITIONS, RESOURCE_IDS } from "./economy/ResourceCatalog.js";
+import { allocateArmyRoles, calculateArmyRoleBudget } from "./ai/ArmyRoleAllocator.js";
+import { captureTargetsFor, scoreCaptureTarget, selectCaptureTarget } from "./ai/CaptureObjectiveSystem.js";
+import { actionCost, calculateCost, canAffordCost, costForManifest, mergeCosts, spendCost, trainingDelayFor, unitCostFor } from "./economy/CostSystem.js";
+import { LOADOUT_RULES, scoreWeapon, selectSpaceMarineWargear } from "./combat/WargearSelectionSystem.js";
+import { RESOURCE_CARRIER_STATES, assignResourceCarrier, desiredResourceCarriers, ensureResourceCarrierState, setResourceCarrierState } from "./logistics/ResourceCarrierSystem.js";
 
 globalThis.AWTSystems = Object.freeze({
   EconomyZoneManager,
@@ -83,7 +88,28 @@ globalThis.AWTSystems = Object.freeze({
   packDistantUnits,
   RESOURCE_DEFINITIONS,
   RESOURCE_IDS,
-  EXTRACTABLE_RESOURCE_IDS
+  EXTRACTABLE_RESOURCE_IDS,
+  allocateArmyRoles,
+  calculateArmyRoleBudget,
+  captureTargetsFor,
+  scoreCaptureTarget,
+  selectCaptureTarget,
+  actionCost,
+  calculateCost,
+  canAffordCost,
+  costForManifest,
+  mergeCosts,
+  spendCost,
+  trainingDelayFor,
+  unitCostFor,
+  LOADOUT_RULES,
+  scoreWeapon,
+  selectSpaceMarineWargear,
+  RESOURCE_CARRIER_STATES,
+  assignResourceCarrier,
+  desiredResourceCarriers,
+  ensureResourceCarrierState,
+  setResourceCarrierState
 });
 globalThis.AWTData ||= {};
 try {
@@ -129,6 +155,24 @@ try {
 } catch (error) {
   globalThis.AWTData.warfareDoctrines = { schemaVersion: 1, objectiveInterpretation: {}, tickProfiles: {}, subfactions: {} };
   console.warn("Warfare doctrine data could not be loaded; race-profile fallbacks will be used.", error);
+}
+
+try {
+  const response = await fetch(new URL("../data/ai/wargear-doctrines.json", import.meta.url));
+  if (!response.ok) throw new Error(`Wargear doctrine data returned ${response.status}`);
+  globalThis.AWTData.wargearDoctrines = await response.json();
+} catch (error) {
+  globalThis.AWTData.wargearDoctrines = { version: 1, weapons: {}, chapters: {} };
+  console.warn("Wargear doctrine data could not be loaded; standard weapons will be used.", error);
+}
+
+try {
+  const response = await fetch(new URL("../data/economy/costs.json", import.meta.url));
+  if (!response.ok) throw new Error(`Cost data returned ${response.status}`);
+  globalThis.AWTData.costs = await response.json();
+} catch (error) {
+  globalThis.AWTData.costs = { version: 1, defaults: {}, units: {}, actions: {} };
+  console.warn("Cost data could not be loaded; faction fallback costs will be used.", error);
 }
 
 try {

@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "defaults": {
+    "generic": { "infantry": { "requisition": 7, "materials": 3, "food": 2, "ammunition": 4 }, "commander": { "requisition": 18, "materials": 7, "influence": 8 }, "vehicle": { "requisition": 30, "materials": 24, "fuel": 14, "parts": 12 }, "builder": { "requisition": 14, "materials": 7, "food": 3 }, "supply": { "requisition": 20, "materials": 12, "fuel": 3, "food": 4 } },
+    "space-marines": { "infantry": { "requisition": 24, "materials": 10, "ammunition": 8, "influence": 3 }, "commander": { "requisition": 36, "materials": 14, "ammunition": 8, "influence": 12 }, "vehicle": { "requisition": 55, "materials": 42, "fuel": 20, "parts": 22 }, "builder": { "requisition": 24, "materials": 12, "influence": 4 }, "supply": { "requisition": 32, "materials": 20, "fuel": 6, "parts": 6 } },
+    "chaos": { "infantry": { "requisition": 14, "materials": 6, "ammunition": 6, "food": 2 }, "commander": { "requisition": 25, "materials": 10, "energy": 5 }, "vehicle": { "requisition": 42, "materials": 30, "fuel": 18, "parts": 14 }, "builder": { "requisition": 16, "materials": 8, "food": 3 }, "supply": { "requisition": 24, "materials": 14, "fuel": 4, "food": 4 } },
+    "orks": { "infantry": { "scrap": 5, "food": 2, "ammunition": 3 }, "commander": { "scrap": 12, "food": 3, "ammunition": 5 }, "vehicle": { "scrap": 34, "fuel": 16 }, "builder": { "scrap": 12, "food": 3 }, "supply": { "scrap": 24, "fuel": 4, "food": 4 } },
+    "tyranids": { "infantry": { "biomass": 8, "food": 2 }, "commander": { "biomass": 20, "food": 4 }, "vehicle": { "biomass": 42, "food": 7 }, "builder": { "biomass": 18, "food": 3 }, "supply": { "biomass": 28, "food": 5 } },
+    "necrons": { "infantry": { "energy": 9, "materials": 3 }, "commander": { "energy": 22, "materials": 10 }, "vehicle": { "energy": 38, "materials": 22 }, "builder": { "energy": 16, "materials": 5, "food": 2 }, "supply": { "energy": 24, "materials": 10, "food": 3 } }
+  },
+  "units": {
+    "sergeant": { "requisition": 30, "materials": 12, "ammunition": 8, "influence": 8 },
+    "tactical-marine": { "requisition": 24, "materials": 10, "ammunition": 8, "influence": 3 },
+    "intercessor": { "requisition": 28, "materials": 12, "ammunition": 9, "influence": 4 },
+    "aspiring-champion": { "requisition": 22, "materials": 9, "ammunition": 7, "energy": 3 },
+    "chaos-space-marine": { "requisition": 15, "materials": 7, "ammunition": 7, "food": 2 },
+    "havoc": { "requisition": 19, "materials": 10, "ammunition": 12, "food": 2 },
+    "chosen": { "requisition": 24, "materials": 11, "ammunition": 8, "energy": 3 },
+    "cultist": { "requisition": 5, "materials": 1, "food": 2, "ammunition": 3 }
+  },
+  "actions": {
+    "drop-pod": { "requisition": 28, "materials": 16, "fuel": 8, "ammunition": 12 },
+    "repair": { "parts": 4, "materials": 2 },
+    "field-treatment": { "medical": 2, "food": 1 },
+    "research": { "requisition": 24, "energy": 14, "influence": 6 },
+    "upgrade": { "requisition": 18, "materials": 10, "energy": 8 },
+    "reinforcement": { "requisition": 10, "food": 2, "ammunition": 4 },
+    "resupply": { "ammunition": 12, "medical": 3, "food": 4, "fuel": 6 },
+    "replacement-equipment": { "requisition": 8, "materials": 5, "ammunition": 5 },
+    "turret": { "requisition": 22, "materials": 18, "ammunition": 10 },
+    "teleportation": { "energy": 24, "influence": 8 },
+    "ritual": { "energy": 16, "food": 6, "influence": 5 },
+    "summoning": { "energy": 28, "food": 10, "influence": 8 },
+    "logistics-vehicle": { "requisition": 28, "materials": 18, "fuel": 8, "parts": 6 }
+  }
+}

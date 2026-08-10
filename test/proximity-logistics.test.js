@@ -77,7 +77,8 @@ test("browser runtime connects headquarters production, physical hauling, and st
   assert.match(app, /spawnHeadquartersSupportUnit\(player, headquarters, role\)/);
   assert.match(app, /unit\.role === "supply"/);
   assert.match(app, /resourceNeedScore\(player, zone\.resourceType\)/);
-  assert.match(app, /Capture \$\{captureZone\.name\} for needed \$\{captureZone\.resourceType\}/);
+  assert.match(app, /Capture \$\{captureTarget\.name\} for needed \$\{captureTarget\.resourceType\}/);
+  assert.match(app, /Capture economic landmark \$\{captureTarget\.name\}/);
   assert.match(app, /resourceCaptureNudge/);
   assert.match(app, /Capturing resource frontier/);
   assert.match(app, /if \(decision\.friendlyPower < 1\) continue/);

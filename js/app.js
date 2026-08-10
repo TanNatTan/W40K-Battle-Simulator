@@ -78,7 +78,8 @@ import { Profiler } from "../src/diagnostics/Profiler.js";
 import { RuntimeTelemetry } from "../src/diagnostics/RuntimeTelemetry.js";
 import { SnapshotRingBuffer } from "../src/replay/SnapshotRingBuffer.js";
 import { dayNightDarkness, globalDayNightVisibility } from "../src/rendering/DayNightSystem.js";
-import { canAfford, constructionCostFor, economyProfileFor, formationCostFor } from "../src/economy/FactionEconomyProfiles.js";
+import { economyProfileFor } from "../src/economy/FactionEconomyProfiles.js";
+import { actionCost, calculateCost, canAffordCost, costForManifest, spendCost, trainingDelayFor, unitCostFor } from "../src/economy/CostSystem.js";
 import { allocateForceCaps, commandPresenceFor, createForceState, updateForceState } from "../src/ai/ForceCommitmentSystem.js";
 import { combineStrategicBias, chaosTargetMultiplier, evaluateChaosStrategy } from "../src/ai/chaos/ChaosStrategySystem.js";
 import { createChaosOperationalMemory } from "../src/ai/chaos/ChaosOperationalState.js";
@@ -95,6 +96,10 @@ import {
   shouldReassignSquadRole,
   squadReadiness
 } from "../src/ai/SquadRoleSystem.js";
+import { allocateArmyRoles } from "../src/ai/ArmyRoleAllocator.js";
+import { captureHoldDuration, captureTargetsFor, selectCaptureTarget } from "../src/ai/CaptureObjectiveSystem.js";
+import { selectSpaceMarineWargear } from "../src/combat/WargearSelectionSystem.js";
+import { assignResourceCarrier, desiredResourceCarriers, ensureResourceCarrierState, setResourceCarrierState } from "../src/logistics/ResourceCarrierSystem.js";
 import {
   armorFacingFor,
   beginMeleeAttack,
@@ -2105,13 +2110,14 @@ import {
       function createEconomy(player) {
         const personality = economicPersonality(player);
         const profile = economyProfileFor(player);
+        const fullStartingCapacity = Object.fromEntries(Object.entries(profile.baseCapacity).map(([resource, amount]) => [resource, amount * 2]));
         return {
           profileId: profile.id,
           activeResources: [...profile.activeResources],
           zoneResources: [...profile.zoneResources],
           resourcePriorities: { ...profile.resourcePriorities },
           personality,
-          inventory: { ...profile.startingStockpile },
+          inventory: fullStartingCapacity,
           baseCapacity: { ...profile.baseCapacity },
           queue: [],
           approvedBuilds: [],
@@ -2146,7 +2152,7 @@ import {
           const bonusPerResource = node.capacity * (storageMultiplier - 1) / Math.max(1, resources.length);
           for (const resource of resources) capacity[resource] = (capacity[resource] || 0) + bonusPerResource;
         }
-        return capacity;
+        return Object.fromEntries(Object.entries(capacity).map(([resource, amount]) => [resource, amount * 2]));
       }
 
       function landmarkModifierFor(faction, key) {
@@ -2168,7 +2174,11 @@ import {
 
       function syncLegacyResources(faction) {
         const inventory = economyFor(faction).inventory;
-        state.resources[faction] = clamp(inventory.requisition || inventory.scrap || inventory.biomass || inventory.energy || 0, 0, 999);
+        const capacity = economyCapacity(faction);
+        const primaryResource = Object.hasOwn(inventory, "requisition") ? "requisition"
+          : Object.hasOwn(inventory, "scrap") ? "scrap"
+            : Object.hasOwn(inventory, "biomass") ? "biomass" : "energy";
+        state.resources[faction] = clamp(inventory[primaryResource] || 0, 0, capacity[primaryResource] || Infinity);
       }
 
       function ensureStructureRuntime(structure) {
@@ -3134,6 +3144,7 @@ import {
             unit.attachment = "Biomass nodules";
           }
         }
+        if (role === "supply") ensureResourceCarrierState(unit);
         if (unit.role === "vehicle" && /Land Raider|Baneblade|Rogal Dorn|Battlewagon|Carnifex|Tyrannofex/i.test(unit.name)) unit.collisionRadius = 22;
         if (unit.role === "vehicle") unit.vehicleState = createVehicleState(unit);
         ensureIndividualRuntime(unit);
@@ -3810,7 +3821,7 @@ import {
             const spec = buildingCatalog[type];
             const dependencyReady = !spec.requires || complete(spec.requires) > 0;
             const missing = Math.max(0, (desired[type] || 0) - complete(type));
-            const buildCost = constructionCostFor(player, spec.cost);
+            const buildCost = calculateCost({ type: "construction", player, baseCost: spec.cost });
             const resources = clamp(Math.min(...Object.entries(buildCost).map(([resource, amount]) => (economy.inventory[resource] || 0) / Math.max(1, amount))), 0, 1.4);
             const need = shortageNeed[type] || 0.1;
             const behaviorBias = (behavior.economy - 50) * spec.economic * 0.1
@@ -4165,9 +4176,9 @@ import {
           unit.buildCd = 2;
           return;
         }
-        const buildCost = constructionCostFor(builderPlayer, spec.cost);
+        const buildCost = calculateCost({ type: "construction", player: builderPlayer, baseCost: spec.cost });
         const dependencyReady = !spec.requires || state.structures.some(item => item.faction === unit.faction && item.type === spec.requires && item.progress >= 1);
-        if (!dependencyReady || !canAfford(economy.inventory, buildCost)) {
+        if (!dependencyReady || !canAffordCost(economy.inventory, buildCost)) {
           unit.status = "Gathering";
           unit.lastAction = dependencyReady ? `Awaiting ${Object.entries(buildCost).filter(([resource, amount]) => (economy.inventory[resource] || 0) < amount).map(([resource, amount]) => `${Math.ceil(amount - (economy.inventory[resource] || 0))} ${economyResourceLabels[resource] || resource}`).join(" and ")} for ${spec.label}.` : `Waiting for ${buildingCatalog[spec.requires]?.label || spec.requires}.`;
           return;
@@ -5334,10 +5345,16 @@ import {
         const friendlyRoads = state.roads.filter(road => roadUsableByPlayer(road, player));
         const dangerousRoads = friendlyRoads.filter(road => ["Contested", "Enemy controlled", "Blocked", "Mined", "Flooded", "Damaged"].includes(road.status) || road.ambushRisk > 0.45);
         const enemyRoads = state.roads.filter(road => !roadUsableByPlayer(road, player));
-        const usableZoneResources = new Set(economyFor(player.id).zoneResources);
-        const captureZones = state.resourceZones.filter(zone => zone.remaining > 0
-          && usableZoneResources.has(zone.resourceType)
-          && (!zone.owner || !areAllies(zone.owner, player.id)));
+        const playerEconomy = economyFor(player.id);
+        const captureTargets = captureTargetsFor({
+          player,
+          resourceZones: state.resourceZones,
+          economicNodes: state.economicNodes,
+          areAllies,
+          resourceCenter: resourceZoneCenter,
+          economy: playerEconomy
+        });
+        const captureZones = captureTargets.filter(target => target.kind === "resource-zone").map(target => target.source);
         const injured = state.units.filter(unit => unit.alive && areAllies(unit.faction, player.id) && (unit.incapacitated || unit.hp < unit.maxHp * 0.58));
         const enemyStructures = state.structures.filter(item => item.alive !== false && !areAllies(item.faction, player.id));
         const hostileConvoys = state.convoys.filter(convoy => !convoy.finished && !areAllies(convoy.faction, player.id));
@@ -5359,20 +5376,21 @@ import {
           enemyFortifications: clamp(enemyStructures.length / 8, 0, 1),
           annihilation: annihilation ? 1 : 0,
           resourceNeed: clamp((economyFor(player.id).shortages?.length || 0) / 4, 0, 1),
-          captureOpportunity: clamp(captureZones.length / 3, 0, 1),
-          objectiveImportance: clamp((captureZones.filter(zone => zone.strategicObjective).length + contestedTerritories.length) / 3, 0, 1),
+          captureOpportunity: clamp(captureTargets.length / 3, 0, 1),
+          objectiveImportance: clamp((captureTargets.filter(target => target.strategicValue >= 70).length + contestedTerritories.length) / 3, 0, 1),
           fogNeed: state.time < 150 ? 1 - state.time / 180 : enemyStructures.length ? 0.2 : 0.7,
           routeThreat: clamp(dangerousRoads.length / Math.max(1, friendlyRoads.length), 0, 1),
           convoyThreat: clamp(state.convoys.filter(convoy => !convoy.finished && convoy.faction === player.id && /attack|ambush|escort/i.test(convoy.status)).length / 2, 0, 1),
           enemyConvoyOpportunity: clamp(hostileConvoys.length / 2, 0, 1),
           protectedAssetNeed: clamp(escortAssets.length / 3, 0, 1),
           casualtyPressure: clamp(injured.length / ownForce, 0, 1),
-          uncertainty: clamp((captureZones.length + dangerousRoads.length + threatenedAssets.length) / 8, 0, 1),
+          uncertainty: clamp((captureTargets.length + dangerousRoads.length + threatenedAssets.length) / 8, 0, 1),
           aggression: behavior.aggression,
           caution: behavior.caution,
-          squadCount: squads.length
+          squadCount: squads.length,
+          now: state.time
         };
-        return { context, ownUnits, enemies, baseThreats, threatenedAssets, friendlyRoads, dangerousRoads, enemyRoads, captureZones, injured, enemyStructures, hostileConvoys, escortAssets, contestedTerritories };
+        return { context, ownUnits, enemies, baseThreats, threatenedAssets, friendlyRoads, dangerousRoads, enemyRoads, captureZones, captureTargets, injured, enemyStructures, hostileConvoys, escortAssets, contestedTerritories };
       }
 
       function resolveSquadRoleMission(player, squad, members, battle) {
@@ -5383,23 +5401,44 @@ import {
         const threatened = battle.threatenedAssets[0]?.asset || battle.baseThreats[0] || null;
         const friendlyRoad = battle.dangerousRoads[0] || battle.friendlyRoads[0] || null;
         const enemyRoad = battle.enemyRoads[0] || null;
-        let captureZone = state.resourceZones.find(zone => zone.id === squad.assignedResourceZoneId);
+        const assignedTargetId = squad.assignedCaptureTargetId || squad.assignedResourceZoneId;
+        const assignedResource = state.resourceZones.find(zone => zone.id === assignedTargetId);
+        const assignedLandmark = state.economicNodes.find(node => node.id === assignedTargetId);
+        let captureTarget = battle.captureTargets.find(target => target.id === assignedTargetId)
+          || (assignedResource ? { kind: "resource-zone", id: assignedResource.id, name: assignedResource.name, ...resourceZoneCenter(assignedResource), owner: assignedResource.owner, resourceType: assignedResource.resourceType, exports: { [assignedResource.resourceType]: assignedResource.gatherRate || 1 }, source: assignedResource } : null)
+          || (assignedLandmark ? { kind: "landmark", id: assignedLandmark.id, name: assignedLandmark.name, x: assignedLandmark.x, y: assignedLandmark.y, owner: assignedLandmark.owner, exports: assignedLandmark.exports || {}, source: assignedLandmark } : null);
         let captureHolding = false;
-        if (captureZone && captureZone.owner && areAllies(captureZone.owner, player.id)) {
+        if (captureTarget?.source?.owner && areAllies(captureTarget.source.owner, player.id)) {
           squad.captureSecuredAt ??= state.time;
-          captureHolding = state.time - squad.captureSecuredAt < 12;
+          captureHolding = state.time - squad.captureSecuredAt < captureHoldDuration(captureTarget.id);
           if (!captureHolding) {
-            captureZone = null;
+            squad.captureMissionComplete = true;
+            squad.captureCooldownUntil = state.time + 45;
+            captureTarget = null;
+            squad.assignedCaptureTargetId = null;
+            squad.assignedCaptureTargetKind = null;
             squad.assignedResourceZoneId = null;
             squad.captureSecuredAt = null;
           }
         } else squad.captureSecuredAt = null;
-        captureZone ||= battle.captureZones.reduce((best, zone) => {
-          const score = resourceNeedScore(player, zone.resourceType) + (zone.strategicObjective ? 30 : 0)
-            + Math.log2(Math.max(2, zone.remaining)) * 4 - distance(center, resourceZoneCenter(zone)) * 0.12;
-          return !best || score > best.score ? { zone, score } : best;
-        }, null)?.zone;
-        if (captureZone) squad.assignedResourceZoneId = captureZone.id;
+        const assignedTargetIds = new Set(state.squads
+          .filter(other => other.id !== squad.id && other.faction === player.id && other.primaryRole === "capture" && other.assignedCaptureTargetId)
+          .map(other => other.assignedCaptureTargetId));
+        if (!squad.captureMissionComplete) captureTarget ||= selectCaptureTarget({
+          player,
+          squadCenter: center,
+          targets: battle.captureTargets,
+          shortages: economyFor(player.id).shortages || [],
+          resourceNeed: resourceNeedScore,
+          enemyThreat: target => battle.enemies.filter(enemy => distance(enemy, target) < 130).length,
+          assignedTargetIds
+        });
+        if (captureTarget) {
+          squad.assignedCaptureTargetId = captureTarget.id;
+          squad.assignedCaptureTargetKind = captureTarget.kind;
+          squad.assignedResourceZoneId = captureTarget.kind === "resource-zone" ? captureTarget.id : null;
+          squad.captureMissionComplete = false;
+        }
         const enemyStructure = [...battle.enemyStructures].sort((a, b) => distance(center, a) - distance(center, b))[0];
         const territory = battle.contestedTerritories[0] || primaryTerritoryFor(player.id);
         const escortAsset = battle.escortAssets.find(asset => !asset.assignedEscortSquadId || asset.assignedEscortSquadId === squad.id) || null;
@@ -5412,7 +5451,7 @@ import {
           "territory-defense": { orderType: "Defend Territory", objective: territory ? territoryCenter(territory) : player.base, zone: territory?.name || "Claimed territory", text: territory?.status?.startsWith("contested") ? `Stabilize ${territory.name}` : "Patrol claimed territory and strategic resources" },
           reinforcement: { orderType: "Reinforce", objective: threatened || player.base, targetId: battle.baseThreats[0]?.id || null, zone: threatened?.name || threatened?.displayName || "Threatened sector", text: threatened ? `Assist ${threatened.name || threatened.displayName || "threatened allied force"}` : "Remain mobile for emergency reinforcement" },
           offensive: { orderType: "Advance", objective: enemyStructure || targetBase, targetId: nearestEnemy?.id || enemyStructure?.id || null, zone: enemyPlayer ? `${enemyPlayer.faction} front` : "Enemy front", text: enemyStructure ? `Break defenses around ${enemyStructure.displayName || factionBuildingLabel(enemyStructure.faction, enemyStructure.type)}` : "Advance with the main attack force" },
-          capture: { orderType: "Capture", objective: captureZone ? resourceZoneCenter(captureZone) : targetBase, zone: captureZone?.name || "Forward objective", text: captureZone ? captureHolding ? `Hold ${captureZone.name} until resource collectors arrive` : `Capture ${captureZone.name} for needed ${captureZone.resourceType}` : "Secure the nearest strategic location" },
+          capture: { orderType: "Capture", objective: captureTarget || targetBase, zone: captureTarget?.name || "Forward objective", text: captureTarget ? captureHolding ? `Hold ${captureTarget.name} until logistics and garrison handoff` : captureTarget.kind === "landmark" ? `Capture economic landmark ${captureTarget.name}` : `Capture ${captureTarget.name} for needed ${captureTarget.resourceType}` : "Secure the nearest strategic location" },
           reconnaissance: { orderType: "Recon", objective: { x: clamp(player.base.x + (targetBase.x - player.base.x) * 0.65 + reconOffset, 30, worldWidth() - 30), y: clamp(player.base.y + (targetBase.y - player.base.y) * 0.65 - reconOffset, 30, worldHeight() - 30) }, zone: "Unobserved approach", text: "Reveal routes, ambushes, and enemy strength" },
           "route-security": { orderType: friendlyRoad && ["Blocked", "Mined", "Flooded", "Damaged"].includes(friendlyRoad.status) ? "Keep Route Open" : friendlyRoad?.status === "Contested" ? "Hold Route" : "Patrol Route", road: friendlyRoad, objective: friendlyRoad ? roadMidpoint(friendlyRoad) : player.base, zone: friendlyRoad?.name || "Supply network", text: friendlyRoad ? `Secure ${friendlyRoad.name || friendlyRoad.id}` : "Protect the supply network" },
           ambush: { orderType: "Ambush Route", road: enemyRoad, objective: enemyRoad ? roadMidpoint(enemyRoad) : targetBase, zone: enemyRoad?.name || "Enemy approach", text: enemyRoad ? `Ambush valuable traffic on ${enemyRoad.name || enemyRoad.id}` : "Screen for isolated hostile traffic" },
@@ -5434,7 +5473,8 @@ import {
         squad.assignedZone = mission.zone;
         const arrived = Boolean(squad.assignedObjective && distance(squadCenterFor(members, player.base), squad.assignedObjective) < 32);
         squad.objectiveComplete = squad.primaryRole === "reconnaissance" && arrived
-          || squad.primaryRole === "reinforcement" && battle.threatenedAssets.length === 0 && battle.baseThreats.length === 0;
+          || squad.primaryRole === "reinforcement" && battle.threatenedAssets.length === 0 && battle.baseThreats.length === 0
+          || squad.primaryRole === "capture" && squad.captureMissionComplete;
       }
 
       function updateCommanderAI(players = state.players) {
@@ -5467,9 +5507,12 @@ import {
             if (!needsAssignment) assignedStrength[squad.primaryRole] = (assignedStrength[squad.primaryRole] || 0) + Math.max(0.35, squad.readiness);
           }
           let demands = roleDemandScores(battle.context, assignedStrength);
+          const armyAllocation = allocateArmyRoles({ squads, membersBySquad, context: battle.context, demands, commanderPreference: preference });
           for (const squad of [...squads].sort((a, b) => b.readiness - a.readiness)) {
             const members = membersBySquad.get(squad.id) || [];
-            if (squad.needsRoleAssignment) {
+            const allocatedRole = armyAllocation.assignments.get(squad.id);
+            const allocationRequiresChange = allocatedRole && allocatedRole !== squad.primaryRole;
+            if (squad.needsRoleAssignment || allocationRequiresChange) {
               const previousRole = squad.primaryRole;
               const plan = selectSquadRole({ squad, members, demands, assignedStrength, commanderPreference: preference });
               const emergencyBaseDefense = battle.context.baseThreat > 0.65 && !["base-defense", "reinforcement"].includes(previousRole);
@@ -5479,7 +5522,7 @@ import {
                   ? "base-defense"
                   : battle.context.annihilation
                     ? ["offensive", "siege", "reconnaissance"].sort((a, b) => plan.scores[b] - plan.scores[a])[0]
-                    : null;
+                    : allocatedRole;
               if (forcedRole) {
                 plan.primaryRole = forcedRole;
                 plan.secondaryRole = SQUAD_ROLE_DEFINITIONS[forcedRole].secondary;
@@ -5496,8 +5539,11 @@ import {
               squad.returnAfterMission = definition.returnAfterMission;
               squad.engagementRadius = definition.engagementRadius;
               if (plan.primaryRole !== "capture") {
+                squad.assignedCaptureTargetId = null;
+                squad.assignedCaptureTargetKind = null;
                 squad.assignedResourceZoneId = null;
                 squad.captureSecuredAt = null;
+                squad.captureMissionComplete = false;
               }
               squad.roleAssignmentReason = `${definition.label} had the greatest unmet demand for this squad's mobility, weapons, durability, experience, and readiness.`;
               squad.objectiveComplete = false;
@@ -5512,6 +5558,7 @@ import {
           }
           player.squadRoleDemand = roleDemandScores(battle.context, assignedStrength);
           player.squadRoleComposition = Object.fromEntries(Object.keys(SQUAD_ROLE_DEFINITIONS).map(role => [role, squads.filter(squad => squad.primaryRole === role).length]));
+          player.armyRoleBudget = armyAllocation.budget;
         }
         state.aiDiagnostics.routeOrders = state.squads.filter(squad => membersBySquad.has(squad.id) && routeOrderTypes.includes(squad.orderType)).length;
         state.aiDiagnostics.ambushRoads = state.squads.filter(squad => membersBySquad.has(squad.id) && squad.orderType === "Ambush Route").length;
@@ -5858,6 +5905,7 @@ import {
           intendedHit
         });
         unit.ammo -= 1;
+        if (unit.weaponState) unit.weaponState.reserveAmmo = Math.max(0, unit.ammo - unit.weaponState.roundsInMagazine);
         unit.aimTime = 0;
         const rationing = economyFor(unit.faction).shortages.includes("ammunition");
         unit.fireCd = (weapon.rateOfFire + rand(0.04, Math.max(0.08, weapon.rateOfFire * 0.2))) * (rationing ? 1.75 : 1) * proximityCombatModifiers(unit).fireDelay;
@@ -5969,6 +6017,12 @@ import {
 
       function finishUnitDeath(unit, cause = "fatal wounds") {
         if (!unit?.alive) return;
+        if (unit.role === "supply" && unit.resourceCargo?.amount > 0) {
+          const logistics = ensureResourceCarrierState(unit);
+          logistics.cargoLost += unit.resourceCargo.amount;
+          logistics.state = "disrupted";
+          unit.resourceCargo.amount = 0;
+        }
         unit.hp = 0;
         unit.alive = false;
         unit.incapacitated = false;
@@ -6047,6 +6101,12 @@ import {
           return;
         }
         if (target.hp <= 0) {
+          if (target.role === "supply" && target.resourceCargo?.amount > 0) {
+            const logistics = ensureResourceCarrierState(target);
+            logistics.cargoLost += target.resourceCargo.amount;
+            logistics.state = "disrupted";
+            target.resourceCargo.amount = 0;
+          }
           target.hp = 0;
           target.alive = false;
           target.incapacitated = false;
@@ -7027,15 +7087,21 @@ import {
         syncResourceZone(zone);
         unit.resourceCargo ||= { type: zone.resourceType, amount: 0, capacity: resourceCargoCapacity(unit) };
         if (unit.resourceCargo.type !== zone.resourceType) unit.resourceCargo = { type: zone.resourceType, amount: 0, capacity: resourceCargoCapacity(unit) };
+        const logistics = unit.role === "supply" ? ensureResourceCarrierState(unit, { sourceKind: "resource-zone", sourceId: zone.id, resourceType: zone.resourceType, cargo: unit.resourceCargo.amount, capacity: unit.resourceCargo.capacity, repeat: true }) : null;
         const lostControl = zone.owner !== unit.faction;
         if (lostControl && unit.resourceCargo.amount <= 0) {
+          if (logistics) setResourceCarrierState(unit, "disrupted", { sourceId: null });
           unit.resourceZoneTargetId = null;
           return false;
         }
         const destination = closestWarehousePoint(unit.faction, unit);
         if (lostControl || unit.resourceCargo.amount >= unit.resourceCargo.capacity || zone.remaining <= 0) {
-          if (distance(unit, destination) > 16) moveToward(unit, destination, dt, 0.9);
+          if (distance(unit, destination) > 16) {
+            moveToward(unit, destination, dt, 0.9);
+            if (logistics) setResourceCarrierState(unit, "travelling-to-storage", { destinationId: destination.id || null, cargo: unit.resourceCargo.amount });
+          }
           else {
+            if (logistics) setResourceCarrierState(unit, "unloading", { destinationId: destination.id || null, cargo: unit.resourceCargo.amount });
             const delivered = unit.resourceCargo.amount;
             const economy = economyFor(unit.faction);
             const capacity = economyCapacity(unit.faction);
@@ -7046,16 +7112,25 @@ import {
             }
             unit.resourceCargo.amount = 0;
             if (lostControl || zone.remaining <= 0) unit.resourceZoneTargetId = null;
+            if (logistics) {
+              logistics.deliveries += 1;
+              setResourceCarrierState(unit, lostControl || zone.remaining <= 0 ? "idle" : "returning-to-pickup", { cargo: 0, sourceId: lostControl || zone.remaining <= 0 ? null : zone.id });
+            }
             unit.lastAction = `Delivered ${delivered.toFixed(1)} ${zone.resourceType} to ${destination.displayName || factionBuildingLabel(unit.faction, destination.type) || "field storage"}.`;
           }
           unit.status = "Delivering resources";
           if (distance(unit, destination) > 16) unit.lastAction = `Carrying ${unit.resourceCargo.amount.toFixed(1)} ${zone.resourceType} from ${zone.name} to faction storage.`;
           return true;
         }
-        if (!pointInResourceZone(unit, zone)) moveToward(unit, zone, dt, 0.92);
+        if (!pointInResourceZone(unit, zone)) {
+          moveToward(unit, zone, dt, 0.92);
+          if (logistics) setResourceCarrierState(unit, logistics.state === "returning-to-pickup" ? "returning-to-pickup" : "travelling-to-source", { cargo: unit.resourceCargo.amount });
+        }
         else {
+          if (logistics) setResourceCarrierState(unit, "loading", { cargo: unit.resourceCargo.amount });
           const amount = drainResourceZone(zone, zone.gatherRate * dt / 5);
           unit.resourceCargo.amount = Math.min(unit.resourceCargo.capacity, unit.resourceCargo.amount + amount);
+          if (logistics) logistics.cargo = unit.resourceCargo.amount;
         }
         unit.status = pointInResourceZone(unit, zone) ? "Gathering resources" : "Moving to resource zone";
         unit.lastAction = `${unit.status} · ${zone.name} (${Math.round(zone.remaining / Math.max(1, zone.capacity) * 100)}% remaining).`;
@@ -7064,6 +7139,7 @@ import {
 
       function updateSupplyCarrier(unit, dt) {
         const base = closestWarehousePoint(unit.faction, unit);
+        const logistics = ensureResourceCarrierState(unit);
         if (unit.retreating) {
           moveToward(unit, base, dt, unit.alertState === "Afraid" ? 1.3 : 1.08);
           unit.status = unit.alertState === "Afraid" ? "Cargo carrier fleeing" : "Cargo carrier withdrawing";
@@ -7079,6 +7155,7 @@ import {
           unit.status = alertFlavorLabel(unit, "Returning to logistics hub");
           unit.lastAction = "No collection route assigned; returning to the nearest warehouse.";
         } else {
+          setResourceCarrierState(unit, "idle", { destinationId: base.id || null, cargo: unit.resourceCargo?.amount || 0 });
           unit.status = alertFlavorLabel(unit, "Awaiting collection order");
           unit.lastAction = "Standing by for a captured resource zone that matches faction demand.";
         }
@@ -8263,9 +8340,18 @@ import {
           if (cycle > 0 && cycle % 6 === 5 && ["major", "decisive", "all-in"].includes(player.forceState?.commitmentStage)) {
             manifest = [{ name: commandPresenceFor(player, player.forceState.commitmentStage, player.scenarioTags || []), role: "commander" }];
           } else {
-            const size = cycle % 3 === 2 ? 10 : 5;
+            const size = 5;
             manifest = [{ name: "Sergeant", role: "commander" }, ...Array.from({ length: size - 1 }, () => ({ name: cycle % 2 ? "Intercessor" : "Tactical Marine", role: "trooper" }))];
           }
+        } else if (player.race === "Chaos") {
+          if (player.pendingChaosManifestCycle !== cycle) {
+            player.pendingChaosManifestCycle = cycle;
+            player.pendingChaosManifestSize = 3 + Math.floor(battleRandom() * 4);
+          }
+          const size = player.pendingChaosManifestSize;
+          const troopCycle = ["Chaos Space Marine", "Chaos Space Marine", "Havoc", "Chosen", "Cultist"];
+          const troopType = troopCycle[cycle % troopCycle.length];
+          manifest = [{ name: "Aspiring Champion", role: "commander" }, ...Array.from({ length: size - 1 }, () => ({ name: troopType, role: "trooper" }))];
         } else if (player.race === "Orks") {
           if (cycle % 6 === 5) manifest = [{ name: "Mekboy", role: "engineer" }];
           else if (cycle % 4 === 3) manifest = [{ name: "Runtherd", role: "commander" }, ...Array.from({ length: 15 }, () => ({ name: "Gretchin", role: "trooper" }))];
@@ -8283,6 +8369,18 @@ import {
         } else if (player.race === "T'au") {
           manifest = cycle % 4 === 3 ? [{ name: "Crisis Battlesuit", role: "trooper" }] : [{ name: "Shas'ui", role: "commander" }, ...Array.from({ length: 9 }, () => ({ name: "Fire Warrior", role: "trooper" }))];
         } else manifest = [{ name: factionUnitName(player, trainingRoles[cycle % trainingRoles.length], cycle), role: trainingRoles[cycle % trainingRoles.length] }];
+        if (player.faction === "Space Marines") {
+          const enemyUnits = state.units.filter(unit => unit.alive && !areAllies(unit.faction, player.id));
+          const armored = enemyUnits.filter(unit => unit.role === "vehicle" || (unit.armorProtection || 0) >= 14).length;
+          const economy = economyFor(player.id);
+          manifest = selectSpaceMarineWargear({
+            player,
+            manifest,
+            squadRole: player.squadRoleComposition?.siege > 0 ? "siege" : "offensive",
+            enemyIntel: { armor: armored / Math.max(1, enemyUnits.length), horde: clamp(enemyUnits.length / Math.max(10, state.units.length * 0.35), 0, 1), commanders: enemyUnits.some(unit => unit.role === "commander") ? 0.7 : 0.1 },
+            economy: { inventory: economy.inventory, capacity: economyCapacity(player.id) }
+          });
+        }
         return manifest.length <= availableSlots ? manifest : [];
       }
 
@@ -8299,6 +8397,16 @@ import {
           });
           unit.name = `${member.name} ${unit.index + 1}`;
           unit.specialty = member.name;
+          if (member.weaponId) {
+            unit.weaponId = member.weaponId;
+            unit.weapon = member.weapon || member.weaponId;
+            unit.carriedMagazines = member.carriedMagazines || 6;
+            unit.weaponState = null;
+            const profile = weaponProfileFor(unit);
+            unit.maxAmmo = profile.magazineSize * unit.carriedMagazines;
+            unit.ammo = unit.maxAmmo;
+            ensureWeaponState(unit);
+          }
           if (unit.role === "vehicle") unit.vehicleState = createVehicleState(unit);
           const angle = index / Math.max(1, manifest.length) * Math.PI * 2;
           const ring = 20 + Math.floor(index / 10) * 10;
@@ -8307,12 +8415,14 @@ import {
           return unit;
         });
         const leader = units.find(unit => unit.role === "commander") || units[0];
-        const template = player.faction === "Space Marines" ? "Astartes combat squad" : player.race === "Orks" ? "Ork mob" : player.race === "Tyranids" ? "Tyranid brood" : player.race === "Necrons" ? "Necron phalanx" : player.race === "T'au" ? "Fire Warrior team" : "formation";
+        const template = player.faction === "Space Marines" ? "Astartes combat squad" : player.race === "Chaos" ? "Chaos warband" : player.race === "Orks" ? "Ork mob" : player.race === "Tyranids" ? "Tyranid brood" : player.race === "Necrons" ? "Necron phalanx" : player.race === "T'au" ? "Fire Warrior team" : "formation";
         const squad = createSquad(player.id, leader, { name: `${template} ${state.nextSquadId}`, templateId: `group-${player.race.toLowerCase()}`, nominalSize: units.length, formation: player.race === "Orks" ? "circle" : player.race === "Tyranids" ? "wedge" : "line", reinforcementState: "Full strength" });
         for (const unit of units) unit.squadId = squad.id;
         state.units.push(...units);
         seedSquadRelationships(units, leader);
         player.productionCycle = (player.productionCycle || 0) + 1;
+        player.pendingChaosManifestCycle = null;
+        player.pendingChaosManifestSize = null;
         incident(`${player.faction} deployed ${template} atomically with ${units.length} members.`, leader.id, "info");
         rebuildUnitSelect();
         return units;
@@ -8440,7 +8550,7 @@ import {
       function startDropPod(player, request) {
         const economy = economyFor(player.id);
         const bay = state.structures.find(item => item.faction === player.id && item.type === "dropbay" && item.progress >= 1 && item.alive !== false);
-        const costs = { requisition: 28, materials: 16, fuel: 8, ammunition: 12 };
+        const costs = actionCost("drop-pod");
         economy.availablePods ??= 2;
         if (!bay || economy.availablePods < 1) {
           request.status = "Delayed · launch bay or pod unavailable";
@@ -8504,8 +8614,8 @@ import {
               continue;
             }
             if (!economy.approvedBuilds.includes(request.buildType)) economy.approvedBuilds.push(request.buildType);
-            const buildCost = constructionCostFor(player, buildingCatalog[request.buildType]?.cost || reserve);
-            request.status = canAfford(economy.inventory, buildCost) ? "Approved · builder assigned" : "Delayed · reserve protected";
+            const buildCost = calculateCost({ type: "construction", player, baseCost: buildingCatalog[request.buildType]?.cost || reserve });
+            request.status = canAffordCost(economy.inventory, buildCost) ? "Approved · builder assigned" : "Delayed · reserve protected";
           } else if (request.type === "resupply") {
             const unitCandidate = unitById(request.targetId);
             const unit = unitCandidate?.alive ? unitCandidate : null;
@@ -8539,7 +8649,7 @@ import {
             const barracks = state.structures.find(item => item.faction === player.id && item.type === "barracks" && item.progress >= 1 && item.alive !== false);
             const trainingCargo = isImperialGuard(player)
               ? guardTrainingCost(request.guardTemplateKey || "standard", request.memberCount)
-              : formationCostFor(player, productionManifestFor(player, Infinity));
+              : costForManifest(player, productionManifestFor(player, Infinity));
             if (!barracks) { request.status = "Delayed · barracks unavailable"; continue; }
             const ready = Object.entries(trainingCargo).every(([key, value]) => (barracks.inventory[key] || 0) >= value);
             if (ready) { request.status = "Approved · squad preparing"; continue; }
@@ -8766,6 +8876,7 @@ import {
                 }, null)?.unit;
               if (!collector) break;
               collector.resourceZoneTargetId = zone.id;
+              if (collector.role === "supply") assignResourceCarrier(collector, { sourceId: zone.id, destinationId: closestWarehousePoint(player.id, collector).id || null, resourceType: zone.resourceType });
               collector.lastAction = `Assigned to haul needed ${zone.resourceType} from captured ${zone.name}.`;
               assignedCount += 1;
             }
@@ -8805,10 +8916,9 @@ import {
       }
 
       function headquartersSupportCost(player, role) {
-        if (player.race === "Tyranids") return role === "builder" ? { biomass: 18, food: 3 } : { biomass: 28, food: 5 };
-        if (player.race === "Orks") return role === "builder" ? { scrap: 12, food: 3 } : { scrap: 24, fuel: 4, food: 4 };
-        if (player.race === "Necrons") return role === "builder" ? { energy: 16, materials: 5, food: 2 } : { energy: 24, materials: 10, food: 3 };
-        return role === "builder" ? { requisition: 14, materials: 7, food: 3 } : { requisition: 20, materials: 12, fuel: 3, food: 4 };
+        const fullCost = unitCostFor(player, { name: role === "builder" ? "Builder" : "Supply Carrier", role });
+        // Headquarters recovery/support production is subsidized, but never free.
+        return Object.fromEntries(Object.entries(fullCost).map(([resource, amount]) => [resource, Math.max(1, Math.ceil(amount * 0.5))]));
       }
 
       function spawnHeadquartersSupportUnit(player, headquarters, role) {
@@ -8839,7 +8949,11 @@ import {
         const builders = state.units.filter(unit => unit.alive && !unit.incapacitated && unit.faction === player.id && unit.role === "builder").length;
         const carriers = state.units.filter(unit => unit.alive && !unit.incapacitated && unit.faction === player.id && unit.role === "supply").length;
         const desiredBuilders = player.builderTarget || (player.race === "Orks" || player.race === "Necrons" ? 6 : 2);
-        const desiredCarriers = player.supplyCarrierTarget || (player.race === "Orks" || player.race === "Necrons" ? 3 : 2);
+        const carrierSources = [
+          ...state.resourceZones.filter(zone => zone.owner === player.id && zone.remaining > 0 && !zone.requiresBuilding).map(zone => ({ ...resourceZoneCenter(zone), remaining: zone.remaining, gatherRate: zone.gatherRate })),
+          ...state.economicNodes.filter(node => node.active && node.owner === player.id && Object.keys(node.exports || {}).length)
+        ];
+        const desiredCarriers = desiredResourceCarriers(carrierSources, player.base, player.supplyCarrierTarget || (player.race === "Orks" || player.race === "Necrons" ? 3 : 2));
         const role = builders < desiredBuilders ? "builder" : carriers < desiredCarriers ? "supply" : null;
         if (!role) {
           state.nextSupportTrain[player.id] = state.time + 12;
@@ -8847,7 +8961,7 @@ import {
         }
         const economy = economyFor(player.id);
         const cost = headquartersSupportCost(player, role);
-        if (!canAfford(economy.inventory, cost)) {
+        if (!canAffordCost(economy.inventory, cost)) {
           state.nextSupportTrain[player.id] = state.time + 7;
           return;
         }
@@ -8906,7 +9020,7 @@ import {
           }
           const groupManifest = guardPlayer ? [] : productionManifestFor(player, unitCap - living);
           if (!guardTraining) guardBatchSize = guardPlayer ? 0 : groupManifest.length;
-          const trainCost = guardTraining ? guardTrainingCost(guardTraining.templateKey, guardBatchSize) : formationCostFor(player, groupManifest);
+          const trainCost = guardTraining ? guardTrainingCost(guardTraining.templateKey, guardBatchSize) : costForManifest(player, groupManifest);
           const canTrain = barracks && Object.entries(trainCost).every(([key, value]) => (barracks.inventory[key] || 0) >= value);
           const batchFits = living + guardBatchSize <= unitCap;
           if (barracks && living < unitCap && canTrain && batchFits && (!guardPlayer || guardTraining) && state.time >= state.nextTrain[player.id]) {
@@ -8917,9 +9031,9 @@ import {
               if (!trainingSucceeded && trainingRequest) trainingRequest.status = "Delayed · replacement manifest could not deploy atomically";
             } else trainingSucceeded = spawnProductionGroup(player, barracks, groupManifest).length === groupManifest.length && groupManifest.length > 0;
             if (trainingSucceeded) {
-              Object.entries(trainCost).forEach(([key, value]) => { barracks.inventory[key] -= value; });
+              spendCost(barracks.inventory, trainCost);
               const hasSupply = insideSupplyRadius(barracks, player.id);
-              state.nextTrain[player.id] = state.time + (guardTraining ? 18 + guardBatchSize * 1.2 : 10 + guardBatchSize * 0.9) + (hasSupply ? 0 : 6);
+              state.nextTrain[player.id] = state.time + (guardTraining ? 18 + guardBatchSize * 1.2 : trainingDelayFor(player, groupManifest)) + (hasSupply ? 0 : 6);
               if (trainingRequest) trainingRequest.status = "Complete";
             }
           } else if (trainingRequest && guardTraining && !batchFits) {

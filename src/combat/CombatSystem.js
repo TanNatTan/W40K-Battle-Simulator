@@ -75,6 +75,11 @@ export function ensureWeaponState(unit, catalog) {
   const state = unit.weaponState;
   state.profileId = profile.id;
   state.roundsInMagazine ??= Math.min(profile.magazineSize, Math.max(0, Math.floor(unit.ammo || 0)));
+  state.magazineCapacity = profile.magazineSize;
+  state.magazine = state.roundsInMagazine;
+  state.carriedMagazines ??= unit.carriedMagazines || profile.carriedMagazines || 6;
+  state.reserveCapacity ??= Math.max(0, profile.magazineSize * state.carriedMagazines - profile.magazineSize);
+  state.reserveAmmo = Math.max(0, Math.floor(unit.ammo || 0) - state.roundsInMagazine);
   state.reloadRemaining ??= 0;
   state.heat ??= 0;
   state.overheated ??= false;
@@ -92,6 +97,8 @@ export function updateCombatState(unit, dt, catalog) {
     state.reloadRemaining = Math.max(0, state.reloadRemaining - dt);
     if (state.reloadRemaining === 0) {
       state.roundsInMagazine = Math.min(profile.magazineSize, Math.max(0, Math.floor(unit.ammo || 0)));
+      state.magazine = state.roundsInMagazine;
+      state.reserveAmmo = Math.max(0, Math.floor(unit.ammo || 0) - state.roundsInMagazine);
       events.push({ type: "reloaded", rounds: state.roundsInMagazine });
     }
   }
@@ -125,6 +132,7 @@ export function requestRangedShot(unit, catalog) {
     return { allowed: false, reason: "reload-started", profile };
   }
   state.roundsInMagazine -= 1;
+  state.magazine = state.roundsInMagazine;
   state.heat = clamp(state.heat + profile.heatPerShot, 0, profile.maxHeat);
   state.shotsFired += 1;
   if (state.heat >= profile.maxHeat) state.overheated = true;

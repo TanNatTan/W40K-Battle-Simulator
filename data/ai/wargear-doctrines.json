@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "weapons": {
+    "bolt-rifle": { "id": "bolt-rifle", "label": "Bolt Rifle", "category": "standard", "ammoType": "bolt", "carriedMagazines": 6, "tags": ["balanced"], "roles": { "offensive": 0.8, "capture": 0.8, "territory-defense": 0.8 }, "costPressure": 0.2 },
+    "plasma-gun": { "id": "plasma-gun", "label": "Plasma Gun", "category": "specialist", "ammoType": "plasma", "carriedMagazines": 5, "tags": ["anti-armor"], "roles": { "offensive": 0.9, "siege": 0.9 }, "costPressure": 0.7 },
+    "flamer": { "id": "flamer", "label": "Flamer", "category": "specialist", "ammoType": "promethium", "carriedMagazines": 5, "tags": ["anti-horde"], "roles": { "capture": 1.0, "base-defense": 0.9 }, "costPressure": 0.45 },
+    "meltagun": { "id": "meltagun", "label": "Meltagun", "category": "specialist", "ammoType": "melta", "carriedMagazines": 4, "tags": ["anti-armor"], "roles": { "offensive": 1.0, "siege": 1.1 }, "costPressure": 0.75 },
+    "heavy-bolter": { "id": "heavy-bolter", "label": "Heavy Bolter", "category": "heavy", "ammoType": "bolt", "carriedMagazines": 4, "tags": ["anti-horde"], "roles": { "territory-defense": 1.1, "siege": 0.8 }, "costPressure": 0.6 },
+    "multi-melta": { "id": "multi-melta", "label": "Multi-Melta", "category": "heavy", "ammoType": "melta", "carriedMagazines": 3, "tags": ["anti-armor"], "roles": { "siege": 1.3, "offensive": 0.8 }, "costPressure": 0.95 },
+    "stalker-bolt-rifle": { "id": "stalker-bolt-rifle", "label": "Stalker Bolt Rifle", "category": "specialist", "ammoType": "bolt", "carriedMagazines": 6, "tags": ["precision"], "roles": { "reconnaissance": 1.3, "ambush": 1.1 }, "costPressure": 0.5 }
+  },
+  "chapters": {
+    "ultramarines": { "preferences": { "bolt-rifle": 1.0, "plasma-gun": 0.8, "flamer": 0.6, "meltagun": 0.7, "heavy-bolter": 0.7 } },
+    "imperial_fists": { "preferences": { "bolt-rifle": 1.1, "heavy-bolter": 1.4, "multi-melta": 0.9 } },
+    "salamanders": { "preferences": { "flamer": 1.5, "meltagun": 1.5, "multi-melta": 1.4, "bolt-rifle": 0.6 } },
+    "blood_angels": { "preferences": { "flamer": 1.1, "meltagun": 1.2, "plasma-gun": 0.8 } },
+    "white_scars": { "preferences": { "bolt-rifle": 0.9, "plasma-gun": 1.0, "meltagun": 1.0, "heavy-bolter": 0.2, "multi-melta": 0.2 } },
+    "raven_guard": { "preferences": { "stalker-bolt-rifle": 1.6, "plasma-gun": 0.8, "meltagun": 0.7 } },
+    "iron_hands": { "preferences": { "plasma-gun": 1.4, "heavy-bolter": 1.1, "multi-melta": 1.3 } },
+    "space_wolves": { "preferences": { "bolt-rifle": 0.9, "plasma-gun": 1.0, "meltagun": 1.0, "flamer": 0.9 } },
+    "black_templars": { "preferences": { "flamer": 1.2, "meltagun": 1.2, "bolt-rifle": 0.8 } }
+  }
+}
