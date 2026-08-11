@@ -36,6 +36,12 @@ import { createStartingHeadquarters, spawnZoneCentroid } from "./economy/BattleB
 import { normalizeConstructionProject, selectConstructionProject } from "./economy/ConstructionPlanningSystem.js";
 import { LEGACY_RESOURCE_ZONE_DIAGNOSTIC, migrateLegacyResourceZones } from "./economy/EconomyMigration.js";
 import { ECONOMY_SECURITY_TUNING, assessEconomySecurity, assessMacroReadiness, canDispatchEconomicExpedition, criticalProducerClusters, updateEconomySecurityMemory } from "./ai/EconomySecurityPolicy.js";
+import { ENEMY_CONDITION_STATES, assessEnemyCondition, estimatedFriendlyDamageAssigned, finishOpportunityFor, overkillPenaltyFor } from "./ai/TargetAssessmentSystem.js";
+import { FACTION_OBJECTIVE_METHODS, resolveFactionObjectiveDoctrine } from "./ai/FactionObjectiveDoctrine.js";
+import { STRATEGIC_PORTFOLIO_BASES, createStrategicPortfolio, portfolioRoleFloors } from "./ai/StrategicPortfolioSystem.js";
+import { chooseRegroupPoint, pointInPolygon, regroupCandidates } from "./ai/RegroupPointSystem.js";
+import { BUILDING_CLEARANCE, blocksServiceCorridor, buildingClearanceFor, placementRectsOverlap } from "./construction/BaseLayoutSystem.js";
+import { SUSTAINMENT_PROFILES, SUSTAINMENT_SERVICES, buildSustainmentRequests, factionSustainmentCost, fieldServiceLimit, providerCanService, selectSustainmentRequest, sustainmentCostFor, sustainmentProfileFor, sustainmentRequestFor } from "./support/SustainmentSystem.js";
 
 globalThis.AWTSystems = Object.freeze({
   EconomyZoneManager,
@@ -136,7 +142,34 @@ globalThis.AWTSystems = Object.freeze({
   assessMacroReadiness,
   canDispatchEconomicExpedition,
   criticalProducerClusters,
-  updateEconomySecurityMemory
+  updateEconomySecurityMemory,
+  ENEMY_CONDITION_STATES,
+  assessEnemyCondition,
+  estimatedFriendlyDamageAssigned,
+  finishOpportunityFor,
+  overkillPenaltyFor,
+  FACTION_OBJECTIVE_METHODS,
+  resolveFactionObjectiveDoctrine,
+  STRATEGIC_PORTFOLIO_BASES,
+  createStrategicPortfolio,
+  portfolioRoleFloors,
+  chooseRegroupPoint,
+  pointInPolygon,
+  regroupCandidates,
+  BUILDING_CLEARANCE,
+  blocksServiceCorridor,
+  buildingClearanceFor,
+  placementRectsOverlap,
+  SUSTAINMENT_PROFILES,
+  SUSTAINMENT_SERVICES,
+  buildSustainmentRequests,
+  factionSustainmentCost,
+  fieldServiceLimit,
+  providerCanService,
+  selectSustainmentRequest,
+  sustainmentCostFor,
+  sustainmentProfileFor,
+  sustainmentRequestFor
 });
 globalThis.AWTData ||= {};
 try {

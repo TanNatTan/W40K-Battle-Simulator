@@ -105,6 +105,8 @@ export function roleDemandScores(context = {}, assignedStrength = {}) {
     "medical-support": 4 + c("casualtyPressure") * 100,
     siege: 5 + c("enemyFortifications") * 72 + c("annihilation") * 35 + c("enemyBaseKnown") * 15
   };
+  const portfolioRoles = context.strategicPortfolio?.roleCommitments || {};
+  for (const role of SQUAD_ROLES) raw[role] += Math.max(0, Number(portfolioRoles[role]) || 0) * 120;
   return Object.fromEntries(SQUAD_ROLES.map(role => [role, Math.max(0, raw[role] - (assignedStrength[role] || 0) * 18)]));
 }
 

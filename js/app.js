@@ -84,6 +84,15 @@ import { productionDefinitionForStructure, productionDefinitionsFor } from "../s
 import { updateProductionBuilding } from "../src/economy/ProductionSystem.js";
 import { createStartingHeadquarters } from "../src/economy/BattleBootstrapSystem.js";
 import { selectConstructionProject } from "../src/economy/ConstructionPlanningSystem.js";
+import { blocksServiceCorridor, buildingClearanceFor, placementRectsOverlap } from "../src/construction/BaseLayoutSystem.js";
+import {
+  buildSustainmentRequests,
+  factionSustainmentCost,
+  fieldServiceLimit,
+  selectSustainmentRequest,
+  sustainmentCostFor,
+  sustainmentProfileFor
+} from "../src/support/SustainmentSystem.js";
 import { migrateLegacyResourceZones } from "../src/economy/EconomyMigration.js";
 import { SupplyNetwork } from "../src/logistics/SupplyNetwork.js";
 import { assessEconomySecurity, assessMacroReadiness, canDispatchEconomicExpedition, criticalProducerClusters, updateEconomySecurityMemory } from "../src/ai/EconomySecurityPolicy.js";
@@ -97,6 +106,10 @@ import { StrategicCellIndex } from "../src/performance/StrategicCellIndex.js";
 import { evaluateProximityAwareness, proximityCombatModifiers } from "../src/ai/ProximityAwareness.js";
 import { mergeSquadContactBoard, refreshContactMemory } from "../src/ai/PerceptionMemorySystem.js";
 import { assessEnemyCondition, scoreTargetCandidate, selectTarget } from "../src/ai/TargetSelectionSystem.js";
+import { estimatedFriendlyDamageAssigned, finishOpportunityFor } from "../src/ai/TargetAssessmentSystem.js";
+import { resolveFactionObjectiveDoctrine } from "../src/ai/FactionObjectiveDoctrine.js";
+import { createStrategicPortfolio } from "../src/ai/StrategicPortfolioSystem.js";
+import { chooseRegroupPoint } from "../src/ai/RegroupPointSystem.js";
 import {
   SQUAD_ROLE_DEFINITIONS,
   roleDemandScores,
@@ -1117,6 +1130,9 @@ import {
         supplyNetwork: new SupplyNetwork(),
         economyZoneManager: null,
         casualtyPoints: [],
+        sustainmentRequests: [],
+        sustainmentByTarget: new Map(),
+        sustainmentInitialized: false,
         incidents: [],
         snapshots: new SnapshotRingBuffer(180),
         selectedId: null,
@@ -1226,6 +1242,7 @@ import {
         simulationAccumulator: 0,
         spatialAccumulator: 0,
         socialAccumulator: 0,
+        sustainmentAccumulator: 0,
         squadAIAccumulator: 0,
         commanderAIAccumulator: 0,
         armyAIAccumulator: 0,
@@ -2208,9 +2225,9 @@ import {
         return structure;
       }
 
-      function structureCollisionAt(point, radius = 4, ignoreId = null, proposedHitbox = null) {
+      function structureCollisionAt(point, radius = 4, ignoreId = null, proposedHitbox = null, placementClearance = 0) {
         const proposed = proposedHitbox || { w: radius * 2, h: radius * 2 };
-        const queryRadius = Math.max(proposed.w || 0, proposed.h || 0) / 2 + 28;
+        const queryRadius = Math.max(proposed.w || 0, proposed.h || 0) / 2 + 28 + Math.max(0, placementClearance);
         const candidates = state.spatialGrid?.size
           ? spatialObjectsInBounds({
               left: point.x - queryRadius,
@@ -2222,8 +2239,8 @@ import {
         return candidates.find(structure => {
           if (structure.id === ignoreId || structure.alive === false || structure.progress < 0.05) return false;
           ensureStructureRuntime(structure);
-          return Math.abs(point.x - structure.x) < (structure.hitbox.w + proposed.w) / 2 + 2
-            && Math.abs(point.y - structure.y) < (structure.hitbox.h + proposed.h) / 2 + 2;
+          const existingClearance = placementClearance > 0 ? buildingClearanceFor(structure.type, buildingCatalog[structure.type]) : 0;
+          return placementRectsOverlap(point, proposed, placementClearance, structure, existingClearance);
         }) || null;
       }
 
@@ -3249,6 +3266,8 @@ import {
         squad.roleAssignedAt ??= state.time;
         squad.roleCommitUntil ??= state.time;
         squad.assignedObjective ||= null;
+        squad.regroupPoint ||= null;
+        squad.regroupSerial ??= 0;
         squad.roleAssignmentReason ||= "Initial reserve organization";
         return squad;
       }
@@ -3495,6 +3514,10 @@ import {
         if (presetKey !== "custom") loadAuthoredEconomicPreset(presetKey);
         else state.economyZoneManager.adopt(state.resourceZones);
         state.casualtyPoints = [];
+        state.sustainmentRequests = [];
+        state.sustainmentByTarget = new Map();
+        state.sustainmentInitialized = false;
+        state.sustainmentAccumulator = 0;
         state.features = (customFeatures ?? preset.features).map(feature => {
           const scaled = presetKey === "custom" ? feature : {
             ...feature,
@@ -3863,6 +3886,18 @@ import {
           researchcenter: (signals.economy || 0) * 30,
           fieldhospital: (signals.preservation || 0) * 30
         };
+        const growth = player.strategicPortfolio?.productionPriorities || {};
+        const portfolioProductionBonus = {
+          barracks: (growth.infantry || 0) * 28,
+          workshop: ((growth.vehicles || 0) + (growth.heavy || 0)) * 18,
+          researchcenter: (growth.heavy || 0) * 22,
+          dropbay: ((growth.vehicles || 0) + (growth.heavy || 0)) * 14,
+          bunker: (growth.defenses || 0) * 26,
+          turret: (growth.defenses || 0) * 28,
+          observationtower: (growth.defenses || 0) * 15,
+          fieldhospital: (growth.support || 0) * 24,
+          warehouse: (growth.support || 0) * 16
+        };
         const behavior = aiBehaviorFor(player);
         const scored = Object.keys(buildingCatalog)
           .filter(type => type !== "outpost")
@@ -3884,7 +3919,8 @@ import {
             const bootstrapBonus = type === "generator" && activeResources.has("energy") && !complete("generator") ? 90
               : type === "warehouse" && !complete("warehouse") ? 76
                 : type === firstExtractor && !complete(firstExtractor) ? 58 : 0;
-            const score = missing * 38 + need * 55 + resources * 24 + bootstrapBonus + (objectiveBonus[type] || 0) + behaviorBias + commitmentBias + clamp(chaosConstructionBias, -18, 18) - spec.risk * (threat * 5 + 1);
+            const score = missing * 38 + need * 55 + resources * 24 + bootstrapBonus + (objectiveBonus[type] || 0)
+              + (portfolioProductionBonus[type] || 0) + behaviorBias + commitmentBias + clamp(chaosConstructionBias, -18, 18) - spec.risk * (threat * 5 + 1);
             const production = productionDefinitionsFor(player).find(definition => definition.buildingType === type);
             return {
               buildingType: type,
@@ -3905,7 +3941,9 @@ import {
 
       function constructionAllowedAt(faction, type, site) {
         const spec = buildingCatalog[type];
-        if (!spec || structureCollisionAt(site, 0, null, spec.hitbox)) return false;
+        const clearance = buildingClearanceFor(type, spec);
+        if (!spec || structureCollisionAt(site, 0, null, spec.hitbox, clearance)) return false;
+        if (type !== "outpost" && blocksServiceCorridor({ point: site, hitbox: spec.hitbox, base: baseFor(faction) })) return false;
         const constructionRadius = Math.max(spec.hitbox?.w || 28, spec.hitbox?.h || 24) * 0.48;
         if (environmentCollisionAt(site, { role: "vehicle", collisionRadius: constructionRadius, maxHp: 80, strength: 0.5 }, constructionRadius)) return false;
         const terrain = terrainAt(site);
@@ -4062,9 +4100,14 @@ import {
         }
 
         const repairPriority = (battleObjectivePlanFor(unit.faction).signals.preservation || 0) >= 0.7 || aiBehaviorFor(unit.faction).caution >= 70;
-        const urgentRepair = nearbyCombatObjects(unit, 260).structures
-          .filter(item => item.alive !== false && areAllies(item.faction, unit.faction) && item.progress >= 1 && item.condition < (repairPriority ? 0.82 : 0.5))
-          .sort((a, b) => a.condition - b.condition || distance(unit, a) - distance(unit, b))[0];
+        const selectedBuildingRepair = selectSustainmentRequest(unit, state.sustainmentRequests, {
+          targetById: sustainmentTargetById,
+          areAllies,
+          maximumRange: 260
+        });
+        const urgentRepair = selectedBuildingRepair?.request.targetType === "building"
+          && (selectedBuildingRepair.request.severity >= 0.18 || repairPriority && selectedBuildingRepair.request.severity >= 0.08)
+          ? selectedBuildingRepair.target : null;
         if (unit.buildProject && urgentRepair && (repairPriority || urgentRepair.condition < 0.3)) {
           unit.buildProject = null;
           unit.lastAction = `Paused construction to save ${buildingCatalog[urgentRepair.type]?.label || "an allied structure"}.`;
@@ -4168,16 +4211,23 @@ import {
           return;
         }
 
-        const damaged = urgentRepair || nearbyCombatObjects(unit, 260).structures
-          .filter(item => item.alive !== false && areAllies(item.faction, unit.faction) && item.progress >= 1 && item.condition < (repairPriority ? 0.82 : 0.5))
-          .sort((a, b) => a.condition - b.condition || distance(unit, a) - distance(unit, b))[0];
+        const damaged = urgentRepair || (selectedBuildingRepair?.request.targetType === "building" ? selectedBuildingRepair.target : null);
         if (damaged) {
           if (distance(unit, damaged) > 13) moveToward(unit, damaged, dt);
           else {
             ensureStructureRuntime(damaged);
             const factor = insideSupplyRadius(damaged, unit.faction) ? 1 : 0.45;
-            damaged.hp = clamp(damaged.hp + dt * 14 * factor, 0, damaged.maxHp);
-            damaged.condition = damaged.hp / damaged.maxHp;
+            const profile = sustainmentProfileFor(playerFor(unit.faction));
+            const request = state.sustainmentByTarget.get(damaged.id) || selectedBuildingRepair?.request;
+            const restored = Math.min(damaged.maxHp - damaged.hp, dt * 14 * factor * profile.buildingRate);
+            if (request && restored > 0 && spendSustainmentResources(unit.faction, request, restored, profile)) {
+              damaged.hp = clamp(damaged.hp + restored, 0, damaged.maxHp);
+              damaged.condition = damaged.hp / damaged.maxHp;
+            } else if (restored > 0) {
+              unit.status = "Awaiting repair materials";
+              unit.lastAction = `Repair request for ${buildingCatalog[damaged.type]?.label || "structure"} is waiting for parts and materials.`;
+              return;
+            }
           }
           unit.status = "Repairing";
           unit.lastAction = `Repairing ${buildingCatalog[damaged.type]?.label || "structure"}.`;
@@ -4684,6 +4734,12 @@ import {
         const ownReadiness = clamp((unit.hp / unit.maxHp * 0.46) + (unit.morale * 0.3) + (unit.ammo / Math.max(1, unit.maxAmmo) * 0.24), 0, 1);
         const alliedPower = allies.reduce((sum, other) => sum + combatPowerScore(other), 0);
         const enemyPower = enemies.reduce((sum, other) => sum + combatPowerScore(other), 0);
+        const finish = finishOpportunityFor(unit, target, {
+          friendlyPower: alliedPower,
+          enemyPower,
+          distance: distance(unit, target),
+          pursuitRadius: unit.combatCommitment?.pursuitRadius
+        });
         const forceAdvantage = clamp((alliedPower - enemyPower) / Math.max(1, alliedPower + enemyPower), -1, 1);
         const vulnerability = clamp((1 - targetHp) * 0.62 + (1 - targetMorale) * 0.2 + (target.retreating ? 0.18 : 0)
           + (condition.knockedDown ? 0.12 : 0) + (condition.incapacitated ? 0.26 : 0), 0, 1);
@@ -4702,16 +4758,16 @@ import {
         const confidence = clamp(
           50 + 16 * (ownReadiness - 0.5) + 18 * forceAdvantage + 15 * vulnerability
           + 8 * (unit.morale - 0.5) + 8 * (unit.aggression - 0.5) + 10 * weaponAdvantage
-          + 6 * vengeance + (condition.finishRecommended ? 14 : 0) - 14 * incomingThreat - 9 * distancePenalty - 12 * lowAmmo
+          + 6 * vengeance + (finish.valuable && finish.safe ? 14 : 0) - 14 * incomingThreat - 9 * distancePenalty - 12 * lowAmmo
           - 8 * unit.fatigue - 12 * isolation + factionConfidence + alertBias.confidence,
           0, 100
         );
         const caution = clamp((unit.patience + unit.discipline + (1 - unit.courage)) / 3, 0, 1);
         const threshold = clamp(56 + 10 * (unit.discipline - 0.5) + 10 * (caution - 0.5) - 10 * (unit.aggression - 0.5) - 6 * vengeance
-          - (condition.finishRecommended ? 8 : 0)
+          - (finish.valuable && finish.safe ? 10 : 0)
           - (race === "Orks" ? 8 : race === "Tyranids" && unit.underSynapse ? 5 : 0) + alertBias.threshold, 32, 78);
         let intent = confidence >= threshold ? "Eliminate" : confidence >= threshold - 12 ? "Force retreat" : confidence >= 28 && unit.ammo > 2 ? "Suppress" : "Ignore";
-        const safeFinishWindow = condition.finishRecommended
+        const safeFinishWindow = finish.valuable && finish.safe
           && (!condition.incapacitated || activeEnemies.length === 0 || forceAdvantage >= 0.1);
         if (target.retreating && confidence < threshold) intent = "Force retreat";
         if (safeFinishWindow && (unit.ammo > 0 || (unit.damage || 0) > 0)) intent = "Eliminate";
@@ -4907,6 +4963,39 @@ import {
         return true;
       }
 
+      function chooseSquadRegroupPoint(squad, members = []) {
+        const player = playerFor(squad.faction);
+        const medicalNeed = members.filter(member => member.incapacitated || member.hp < member.maxHp * 0.55).length / Math.max(1, members.length);
+        const vehicleNeed = members.filter(member => member.role === "vehicle" && (member.hp < member.maxHp * 0.75
+          || Object.values(member.vehicleSystems || {}).some(value => value < 0.65))).length / Math.max(1, members.length);
+        const medicalFacilities = state.structures.filter(structure => structure.alive !== false && structure.progress >= 1
+          && areAllies(structure.faction, squad.faction) && structure.type === "fieldhospital");
+        const repairFacilities = state.structures.filter(structure => structure.alive !== false && structure.progress >= 1
+          && areAllies(structure.faction, squad.faction) && ["workshop", "outpost"].includes(structure.type));
+        const bounds = { left: 24, right: worldWidth() - 24, top: 24, bottom: worldHeight() - 24 };
+        const nearestDistance = (point, assets) => assets.length ? Math.min(...assets.map(asset => distance(point, asset))) : 240;
+        return chooseRegroupPoint(player, squad, {
+          bounds,
+          fallback: { ...player.base, regroup: true },
+          valid: point => pointInSpawnZone(point, player)
+            && !structureCollisionAt(point, 7)
+            && !environmentCollisionAt(point, { role: "trooper", collisionRadius: 5, maxHp: 80, strength: 0.5 }, 5)
+            && !["deepwater", "lava", "cliff", "mountain"].includes(terrainAt(point).type),
+          score: point => {
+            const terrain = terrainAt(point);
+            const friendlyPresence = nearbyCombatObjects(point, 72).units.filter(unit => unit.alive && areAllies(unit.faction, squad.faction)).length;
+            const enemyThreat = nearbyCombatObjects(point, 150).units.filter(unit => unit.alive && !unit.incapacitated && !areAllies(unit.faction, squad.faction)).length;
+            const congestion = state.squads.filter(other => other.id !== squad.id && other.regroupPoint && distance(point, other.regroupPoint) < 55).length
+              + nearbyCombatObjects(point, 30).units.filter(unit => unit.alive).length * 0.25;
+            const medicalAccess = 1 - clamp(nearestDistance(point, medicalFacilities) / 240, 0, 1);
+            const repairAccess = 1 - clamp(nearestDistance(point, repairFacilities) / 240, 0, 1);
+            return terrain.cover * 20 + (insideSupplyRadius(point, squad.faction) ? 25 : 0)
+              + Math.min(1, friendlyPresence / 5) * 15 + medicalAccess * medicalNeed * 25
+              + repairAccess * vehicleNeed * 25 - enemyThreat * 45 - congestion * 25;
+          }
+        });
+      }
+
       function orderSquadToRegroup(squad, members, reason) {
         squad.orderType = "Regroup";
         squad.roadId = null;
@@ -4915,7 +5004,9 @@ import {
         squad.routePhase = "withdrawing";
         squad.protectedAssetId = null;
         squad.targetId = null;
-        squad.objective = { ...baseFor(squad.faction), regroup: true };
+        squad.regroupSerial = (squad.regroupSerial || 0) + 1;
+        squad.regroupPoint = chooseSquadRegroupPoint(squad, members);
+        squad.objective = { ...squad.regroupPoint };
         squad.orderIssuedAt = state.time;
         squad.orderCommitUntil = state.time + 16;
         for (const member of members) {
@@ -5115,7 +5206,10 @@ import {
           };
           const routeState = assignedRoad ? updateRouteOrderState(squad, members, leader, assignedRoad, center) : null;
           const regrouping = squad.orderType === "Regroup" && squad.orderCommitUntil > state.time;
-          if (regrouping) squad.objective = { ...baseFor(squad.faction), regroup: true };
+          if (regrouping) {
+            squad.regroupPoint ||= chooseSquadRegroupPoint(squad, members);
+            squad.objective = { ...squad.regroupPoint };
+          }
           else if (protectedAsset) squad.objective = { x: protectedAsset.x, y: protectedAsset.y, assetId: protectedAsset.id };
           else if (assignedRoad) {
             const points = assignedRoad.points || [];
@@ -5335,6 +5429,7 @@ import {
         if (previousAsset && previousAsset.assignedEscortSquadId === squad.id) previousAsset.assignedEscortSquadId = null;
         if (previousAsset && previousAsset.escortSquadId === squad.id) previousAsset.escortSquadId = null;
         squad.orderType = type;
+        if (type !== "Regroup") squad.regroupPoint = null;
         squad.roadId = road?.id || null;
         squad.routeSegmentId = null;
         squad.routeAnchor = null;
@@ -5384,7 +5479,7 @@ import {
       function commanderRolePreference(player) {
         const behavior = aiBehaviorFor(player);
         const objective = battleObjectivePlanFor(player).signals || {};
-        return {
+        const preference = {
           "base-defense": (behavior.caution - 50) * 0.22,
           "territory-defense": (behavior.caution - 50) * 0.14 + (objective.control || 0) * 8,
           reinforcement: (objective.mobility || 0) * 10,
@@ -5398,6 +5493,10 @@ import {
           "medical-support": (objective.preservation || 0) * 15,
           siege: (behavior.aggression - 50) * 0.18 + (objective.destruction || 0) * 12
         };
+        for (const [role, bias] of Object.entries(player.objectiveDoctrine?.roleBias || {})) {
+          preference[role] = (preference[role] || 0) + bias * 14;
+        }
+        return preference;
       }
 
       function squadRoleBattleContext(player, squads, membersBySquad) {
@@ -5460,6 +5559,7 @@ import {
           aggression: behavior.aggression,
           caution: behavior.caution,
           macroReadiness: player.macroReadiness,
+          strategicPortfolio: player.strategicPortfolio,
           squadCount: squads.length,
           now: state.time
         };
@@ -5830,6 +5930,10 @@ import {
           && (other.targetId === unit.id || other.targetId === unit.squadId
             || distance(unit, other) <= Math.max(32, (other.range || 0) * 0.48)));
         const immediateThreatPressure = clamp(activeThreats.length / 3, 0, 1);
+        const friendlyPower = nearby.units.filter(other => other.alive && areAllies(other.faction, unit.faction))
+          .reduce((sum, other) => sum + combatPowerScore(other), 0);
+        const enemyPower = nearby.units.filter(other => other.alive && !other.incapacitated && !areAllies(other.faction, unit.faction))
+          .reduce((sum, other) => sum + combatPowerScore(other), 0);
         const chaosStrategy = playerFor(unit.faction)?.chaosStrategy;
         let bestTarget = null;
         let bestScore = -Infinity;
@@ -5850,6 +5954,7 @@ import {
           const vengeance = vengeanceDrive(unit, other) * 32 + clamp(-relationshipScore(unit, other) * 0.12, 0, 10);
           const commitmentBias = unit.combatCommitment?.targetId === other.id && unit.combatCommitment.intent !== "Ignore" ? 14 : 0;
           const focusCount = focusCounts.get(other.id) || 0;
+          const assignedDamage = estimatedFriendlyDamageAssigned(other.id, nearby.units.filter(actor => areAllies(actor.faction, unit.faction)));
           const race = playerFor(unit.faction).race;
           const factionBias = race === "Orks"
             ? weakness * 0.85 + (state.factionEcology[unit.faction]?.waaaghMomentum || 0) * 24 + nearby.units.filter(actor => actor.alive && actor.faction === unit.faction).length * 2
@@ -5863,6 +5968,10 @@ import {
             currentTargetId: unit.cachedTargetId,
             focusCount,
             immediateThreatPressure,
+            friendlyPower,
+            enemyPower,
+            pursuitRadius: unit.combatCommitment?.pursuitRadius,
+            assignedDamage,
             squadId: unit.squadId,
             lineOfFire: visionOcclusionBetween(unit, other) > 0.12,
             isolated: nearby.units.filter(actor => actor.alive && actor.faction === other.faction && distance(actor, other) < 90).length <= 1
@@ -6439,26 +6548,93 @@ import {
         return point;
       }
 
+      function sustainmentTargetById(id) {
+        return unitById(id) || structureById(id);
+      }
+
+      function refreshSustainmentRequests() {
+        const targetedIds = new Set(state.units.filter(unit => unit.alive && unit.targetId).map(unit => unit.targetId));
+        const dependentCounts = new Map();
+        for (const structure of state.structures) {
+          const prerequisite = buildingCatalog[structure.type]?.requires;
+          if (prerequisite) dependentCounts.set(prerequisite, (dependentCounts.get(prerequisite) || 0) + 1);
+        }
+        state.sustainmentRequests = buildSustainmentRequests({
+          units: state.units,
+          structures: state.structures,
+          now: state.time,
+          targetedIds,
+          dependencyCount: structure => dependentCounts.get(structure.type) || 0
+        });
+        state.sustainmentByTarget = new Map(state.sustainmentRequests.map(request => [request.targetId, request]));
+        state.sustainmentInitialized = true;
+        state.aiDiagnostics.sustainmentRequests = state.sustainmentRequests.length;
+      }
+
+      function fullServiceFacilityFor(target, service) {
+        const types = service === "medical" ? ["fieldhospital"] : ["workshop", "outpost"];
+        let nearest = null;
+        let nearestDistance = Infinity;
+        for (const structure of state.structures) {
+          if (structure.alive === false || structure.progress < 1 || !areAllies(structure.faction, target.faction) || !types.includes(structure.type)) continue;
+          const serviceDistance = distance(target, structure);
+          const serviceRadius = Math.max(34, (buildingCatalog[structure.type]?.supplyRadius || 50) * 0.55);
+          if (serviceDistance <= serviceRadius && serviceDistance < nearestDistance) {
+            nearest = structure;
+            nearestDistance = serviceDistance;
+          }
+        }
+        return nearest;
+      }
+
+      function spendSustainmentResources(faction, request, restoredHealth, profile) {
+        const player = playerFor(faction);
+        const rawCost = sustainmentCostFor(request, restoredHealth, profile);
+        const cost = factionSustainmentCost(player, rawCost);
+        const inventory = economyFor(faction).inventory;
+        if (!canAffordCost(inventory, cost)) return false;
+        spendCost(inventory, cost);
+        syncLegacyResources(faction);
+        return true;
+      }
+
+      function updateSafeFacilityRecovery(unit, dt) {
+        if (!unit.alive || unit.incapacitated || unit.hp >= unit.maxHp) return false;
+        const service = unit.role === "vehicle" ? "heavy-repair" : "medical";
+        const request = state.sustainmentByTarget.get(unit.id);
+        if (!request) return false;
+        if (!fullServiceFacilityFor(unit, service)) return false;
+        const unsafe = nearbyCombatObjects(unit, 100).units.some(other => other.alive && !other.incapacitated && !areAllies(other.faction, unit.faction));
+        if (unsafe) return false;
+        const profile = sustainmentProfileFor(playerFor(unit.faction));
+        const rate = unit.role === "vehicle" ? 4.5 * profile.repairRate : 3.2 * profile.medicalRate;
+        const restored = Math.min(unit.maxHp - unit.hp, dt * rate);
+        if (!spendSustainmentResources(unit.faction, request, restored, profile)) return false;
+        unit.hp = clamp(unit.hp + restored, 1, unit.maxHp);
+        unit.bleeding = clamp((unit.bleeding || 0) - dt * 0.18, 0, 0.55);
+        for (const system of Object.keys(unit.vehicleSystems || {})) unit.vehicleSystems[system] = clamp(unit.vehicleSystems[system] + dt * 0.02 * profile.repairRate, 0, 1);
+        unit.woundState = woundStateFor(unit);
+        unit.status = unit.role === "vehicle" ? "Receiving depot overhaul" : "Recovering at medical facility";
+        return true;
+      }
+
       function updateMedic(unit, dt) {
         const player = playerFor(unit.faction);
         const profile = medicalProfileFor(player);
         const threshold = forceTreatmentThreshold(state.units, unit.faction);
-        if (!threshold.active) return false;
-        ensureCasualtyCollectionPoint(unit.faction);
-        const candidates = state.units
-          .filter(ally => ally.alive && ally.id !== unit.id && areAllies(ally.faction, unit.faction) && (ally.incapacitated || ally.hp < ally.maxHp * 0.78 || (ally.bleeding || 0) > 0.02))
-          .map(patient => {
-            const hostiles = nearbyCombatObjects(patient, 75).units.filter(other => other.alive && !other.incapacitated && !areAllies(other.faction, unit.faction));
-            const danger = clamp(hostiles.length / 4, 0, 1);
-            const medicalPriority = triageScore(patient, unit, danger, profile);
-            const trust = (relationshipScore(unit, patient) + relationshipScore(patient, unit)) / 2;
-            return { patient, danger, score: relationshipPriority(medicalPriority, trust, "healing") };
-          })
-          .filter(item => distance(unit, item.patient) <= profile.approachRange * 1.8)
-          .sort((a, b) => b.score - a.score);
-        const selected = candidates[0];
-        if (!selected) return false;
-        const { patient, danger } = selected;
+        if (threshold.active) ensureCasualtyCollectionPoint(unit.faction);
+        const selectedService = selectSustainmentRequest(unit, state.sustainmentRequests, {
+          targetById: sustainmentTargetById,
+          areAllies,
+          maximumRange: profile.approachRange * 1.8
+        });
+        if (!selectedService || selectedService.request.service !== "medical" || selectedService.target.id === unit.id) return false;
+        const patient = selectedService.target;
+        const hostiles = nearbyCombatObjects(patient, 75).units.filter(other => other.alive && !other.incapacitated && !areAllies(other.faction, unit.faction));
+        const danger = clamp(hostiles.length / 4, 0, 1);
+        const medicalPriority = triageScore(patient, unit, danger, profile);
+        const trust = (relationshipScore(unit, patient) + relationshipScore(patient, unit)) / 2;
+        const selected = { request: selectedService.request, score: relationshipPriority(medicalPriority + selectedService.request.priority, trust, "healing") };
         unit.medicalReserve ??= 2;
         const treatmentRange = profile.treatmentRange || 14;
         if (danger > 0.25 && distance(unit, patient) > Math.max(24, treatmentRange)) {
@@ -6478,9 +6654,13 @@ import {
         if (distance(unit, patient) > treatmentRange) moveToward(unit, patient, dt, 1.05);
         else {
           const criticalBeforeCare = patient.incapacitated || patient.hp / Math.max(1, patient.maxHp) < 0.48;
-          const supplyFactor = unit.medicalReserve > 0 ? 1 : 0.32;
-          const careFactor = supplyFactor * profile.treatmentRate;
-          patient.hp = clamp(patient.hp + dt * 2.4 * careFactor, 1, patient.maxHp * profile.limitedDuty);
+          const supportProfile = sustainmentProfileFor(player);
+          const fullService = Boolean(fullServiceFacilityFor(patient, "medical"));
+          const limit = fullService ? 1 : Math.min(profile.limitedDuty, fieldServiceLimit(selected.request, supportProfile, false));
+          const intendedRestored = Math.max(0, Math.min(patient.maxHp * limit - patient.hp, dt * 2.4 * profile.treatmentRate * supportProfile.medicalRate));
+          const funded = intendedRestored > 0 && spendSustainmentResources(unit.faction, selected.request, intendedRestored, supportProfile);
+          const supplyFactor = funded ? 1 : 0.25;
+          patient.hp = clamp(patient.hp + intendedRestored * supplyFactor, 1, patient.maxHp * limit);
           patient.morale = clamp(patient.morale + dt * 0.012 * profile.treatmentRate, 0, 1);
           patient.bleeding = clamp((patient.bleeding || 0) - dt * 0.14 * supplyFactor * profile.bleedingControl, 0, 0.55);
           if (profile.risk && battleRandom() < profile.risk * dt * 0.08) {
@@ -6493,10 +6673,10 @@ import {
             patient.status = profile.id === "necron" ? "Reanimation protocols active" : profile.id === "chaos" ? "Ritual stabilization" : "Stabilized";
           }
           patient.woundState = woundStateFor(patient);
-          unit.medicalReserve = Math.max(0, unit.medicalReserve - dt * 0.06 * profile.treatmentRate);
+          unit.medicalReserve = Math.max(0, unit.medicalReserve - dt * 0.02 * profile.treatmentRate);
           if (criticalBeforeCare) recordRelationshipEvent(patient, unit, "savedFromDanger", `${profile.label.toLowerCase()} stabilized critical battlefield wounds`, { cooldown: 90, reciprocal: 0.3 });
         }
-        unit.status = distance(unit, patient) > treatmentRange ? "Responding" : unit.medicalReserve > 0 ? profile.label : "Basic field aid";
+        unit.status = distance(unit, patient) > treatmentRange ? "Responding" : profile.label;
         unit.lastAction = `${unit.status} treating ${unitLabel(patient)} · triage ${Math.round(selected.score)}.`;
         return true;
       }
@@ -6515,46 +6695,40 @@ import {
           unit.lastAction = `Repairing ${roadDamage.road.name || roadDamage.road.id} after damage or obstruction.`;
           return true;
         }
-        const damagedVehicle = state.units
-          .filter(item => item.alive && item.role === "vehicle" && item.id !== unit.id && areAllies(item.faction, unit.faction) && item.hp < item.maxHp * 0.9)
-          .map(item => ({
-            item,
-            score: relationshipPriority(
-              (1 - item.hp / Math.max(1, item.maxHp)) * 100 - distance(unit, item) * 0.18,
-              (relationshipScore(unit, item) + relationshipScore(item, unit)) / 2,
-              "repair"
-            )
-          }))
-          .filter(candidate => distance(unit, candidate.item) <= 120)
-          .sort((a, b) => b.score - a.score)[0]?.item;
-        if (damagedVehicle) {
-          if (distance(unit, damagedVehicle) > 15) moveToward(unit, damagedVehicle, dt);
-          else {
-            damagedVehicle.hp = clamp(damagedVehicle.hp + dt * 8 * Math.max(0.5, unit.engineering || 0.5), 0, damagedVehicle.maxHp);
-            for (const system of Object.keys(damagedVehicle.vehicleSystems || {})) {
-              damagedVehicle.vehicleSystems[system] = clamp(damagedVehicle.vehicleSystems[system] + dt * 0.015, 0, 1);
-            }
-            recordRelationshipEvent(damagedVehicle, unit, "repairedAlly", "repaired their damaged vehicle", { cooldown: 40, reciprocal: 0.3 });
-          }
-          unit.status = "Repairing vehicle";
-          unit.lastAction = `Repairing ${unitLabel(damagedVehicle)} in the field.`;
-          return true;
-        }
-        const damaged = state.structures
-          .filter(item => areAllies(item.faction, unit.faction) && item.progress >= 1 && item.condition < 0.9)
-          .sort((a, b) => distance(unit, a) - distance(unit, b))[0];
-        if (!damaged || distance(unit, damaged) > 120) return false;
-        if (distance(unit, damaged) > 13) moveToward(unit, damaged, dt);
+        const selected = selectSustainmentRequest(unit, state.sustainmentRequests, {
+          targetById: sustainmentTargetById,
+          areAllies,
+          maximumRange: 180
+        });
+        if (!selected || selected.request.service === "medical") return false;
+        const target = selected.target;
+        const repairRange = target.role === "vehicle" ? 15 : 13;
+        if (distance(unit, target) > repairRange) moveToward(unit, target, dt);
         else {
-          ensureStructureRuntime(damaged);
-          const factor = insideSupplyRadius(damaged, unit.faction) ? 1 : 0.45;
-          damaged.hp = clamp(damaged.hp + dt * 10 * factor, 0, damaged.maxHp);
-          damaged.condition = damaged.hp / damaged.maxHp;
-          const ally = nearbyCombatObjects(damaged, 60).units.find(other => other.alive && other.id !== unit.id && areAllies(other.faction, unit.faction));
-          if (ally) recordRelationshipEvent(ally, unit, "repairedAlly", "repaired an allied asset", { cooldown: 35, reciprocal: 0.3 });
+          if (target.type) ensureStructureRuntime(target);
+          const player = playerFor(unit.faction);
+          const profile = sustainmentProfileFor(player);
+          const fullService = Boolean(fullServiceFacilityFor(target, selected.request.service));
+          const limit = fieldServiceLimit(selected.request, profile, fullService);
+          const supplyFactor = insideSupplyRadius(target, unit.faction) ? 1 : 0.45;
+          const rate = (target.role === "vehicle" ? 8 * profile.repairRate : 10 * profile.buildingRate)
+            * Math.max(0.5, unit.engineering || 0.5) * supplyFactor;
+          const restored = Math.max(0, Math.min(target.maxHp * limit - target.hp, dt * rate));
+          if (restored > 0 && spendSustainmentResources(unit.faction, selected.request, restored, profile)) {
+            target.hp = clamp(target.hp + restored, 0, target.maxHp * limit);
+            target.condition = target.hp / Math.max(1, target.maxHp);
+            for (const system of Object.keys(target.vehicleSystems || {})) {
+              target.vehicleSystems[system] = clamp(target.vehicleSystems[system] + dt * 0.015 * profile.repairRate, 0, fullService ? 1 : 0.72);
+            }
+            if (target.role === "vehicle") recordRelationshipEvent(target, unit, "repairedAlly", "repaired their damaged vehicle", { cooldown: 40, reciprocal: 0.3 });
+            else {
+              const ally = nearbyCombatObjects(target, 60).units.find(other => other.alive && other.id !== unit.id && areAllies(other.faction, unit.faction));
+              if (ally) recordRelationshipEvent(ally, unit, "repairedAlly", "repaired an allied asset", { cooldown: 35, reciprocal: 0.3 });
+            }
+          }
         }
-        unit.status = "Repairing";
-        unit.lastAction = `Repairing allied ${buildingCatalog[damaged.type]?.label || "structure"}.`;
+        unit.status = target.role === "vehicle" ? selected.request.service === "heavy-repair" ? "Recovering disabled vehicle" : "Repairing vehicle" : "Repairing priority structure";
+        unit.lastAction = `Servicing ${unitLabel(target)} from priority request ${Math.round(selected.request.priority)}.`;
         return true;
       }
 
@@ -6887,6 +7061,21 @@ import {
         });
         player.macroReadiness = macroReadiness;
         context.macroReadiness = macroReadiness;
+        player.objectiveDoctrine = resolveFactionObjectiveDoctrine({
+          branch: profile.branch,
+          objectiveId: plan.id,
+          subfaction: player.subfaction,
+          signals: plan.signals
+        });
+        player.strategicPortfolio = createStrategicPortfolio({
+          profile,
+          doctrine: player.objectiveDoctrine,
+          context,
+          allIn: Boolean(player.forceState?.allIn),
+          lastStand: /last stand/i.test(state.strategicOutcomes[player.id]?.status || ""),
+          evacuation: /evacuat|withdraw/i.test(state.strategicOutcomes[player.id]?.status || "")
+        });
+        context.strategicPortfolio = player.strategicPortfolio;
         const decision = selectStrategicChoice(profile, context, memory.learnedWeights);
         if (["attack", "expand"].includes(decision.choice) && !canDispatchEconomicExpedition({
           assessment: stableEconomySecurity,
@@ -7413,6 +7602,7 @@ import {
           }
           unit.embarkedInId = null;
         }
+        updateSafeFacilityRecovery(unit, dt);
         if (unit.role === "vehicle") {
           unit.vehicleState ||= createVehicleState(unit);
           unit.vehiclePerformance = updateVehicleState(unit.vehicleState, dt, {
@@ -10438,6 +10628,12 @@ import {
         if (state.spatialAccumulator >= spatialInterval || !state.spatialGrid.size) {
           rebuildSpatialGrid();
           state.spatialAccumulator = 0;
+        }
+        state.sustainmentAccumulator += dt;
+        const sustainmentInterval = denseTotalBattle ? 4 : denseMajorBattle ? 2 : 1;
+        if (state.sustainmentAccumulator >= sustainmentInterval || !state.sustainmentInitialized) {
+          profiler.profile("support.sustainment", refreshSustainmentRequests);
+          state.sustainmentAccumulator = 0;
         }
         state.roadAIAccumulator += dt;
         if (state.roadAIAccumulator >= 3) {

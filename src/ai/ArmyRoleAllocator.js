@@ -1,4 +1,5 @@
 import { SQUAD_ROLES, roleSuitability } from "./SquadRoleSystem.js";
+import { portfolioRoleFloors } from "./StrategicPortfolioSystem.js";
 
 export const ARMY_ROLE_PRIORITY = Object.freeze([
   "base-defense",
@@ -31,17 +32,18 @@ export function calculateArmyRoleBudget(context = {}, squadCount = Number(contex
   const infrastructureExists = readiness.criticalProductionReady > 0 || context.criticalProducerNeed > 0;
   const economyUnready = readiness.headquartersReady === false || readiness.criticalProductionReady < 0.5 || readiness.expansionAllowed === false;
   const aggressive = Number(context.aggression) >= 70 && readiness.aggressiveOverride;
+  const portfolioFloors = portfolioRoleFloors(context.strategicPortfolio, count);
   const baseGuardFloor = count && (emergency || economyUnready || infrastructureExists) ? Math.min(count, emergency ? 2 : 1) : 0;
   const economyGuardFloor = count > baseGuardFloor && (clamp01(context.economyThreat) > 0.25 || economyUnready && infrastructureExists) ? 1 : 0;
   const offensiveRatio = emergency ? 0.2 : economyUnready && !aggressive ? 0.28 : aggressive ? 0.58 : 0.5;
   return Object.freeze({
     danger,
     emergency,
-    offensive: Object.freeze({ priority: 4, min: Math.min(count, Math.ceil(count * offensiveRatio)), max: count }),
-    capture: Object.freeze({ priority: 5, min: !emergency && readiness.expansionAllowed !== false && count >= 5 ? 1 : 0, max: Math.min(count, Math.max(count ? 1 : 0, Math.ceil(count * 0.2))) }),
+    offensive: Object.freeze({ priority: 4, min: Math.min(count, Math.max(portfolioFloors.offensive || 0, Math.ceil(count * offensiveRatio))), max: count }),
+    capture: Object.freeze({ priority: 5, min: Math.max(portfolioFloors.capture || 0, !emergency && readiness.expansionAllowed !== false && count >= 5 ? 1 : 0), max: Math.min(count, Math.max(count ? 1 : 0, Math.ceil(count * 0.24))) }),
     "territory-defense": Object.freeze({ priority: 3, min: 0, max: Math.min(count, emergency ? 3 : 2) }),
-    "base-defense": Object.freeze({ priority: 1, min: baseGuardFloor, max: Math.min(count, emergency ? 3 : 2) }),
-    "economy-defense": Object.freeze({ priority: 2, min: Math.min(economyGuardFloor, Math.max(0, count - baseGuardFloor)), max: Math.min(count, 2) }),
+    "base-defense": Object.freeze({ priority: 1, min: Math.max(baseGuardFloor, portfolioFloors["base-defense"] || 0), max: Math.min(count, emergency ? 3 : Math.max(2, portfolioFloors["base-defense"] || 0)) }),
+    "economy-defense": Object.freeze({ priority: 2, min: Math.max(Math.min(economyGuardFloor, Math.max(0, count - baseGuardFloor)), portfolioFloors["economy-defense"] || 0), max: Math.min(count, Math.max(2, portfolioFloors["economy-defense"] || 0)) }),
     reinforcement: Object.freeze({ priority: 4, min: 0, max: Math.min(count, 3) }),
     reconnaissance: Object.freeze({ priority: 5, min: 0, max: Math.min(count, 2) }),
     "route-security": Object.freeze({ priority: 3, min: clamp01(context.routeThreat) > 0.55 && count > baseGuardFloor + economyGuardFloor ? 1 : 0, max: Math.min(count, 2) }),
@@ -49,7 +51,7 @@ export function calculateArmyRoleBudget(context = {}, squadCount = Number(contex
     "medical-support": Object.freeze({ priority: 7, min: 0, max: Math.min(count, 2) }),
     siege: Object.freeze({ priority: 7, min: 0, max: Math.min(count, 2) }),
     ambush: Object.freeze({ priority: 7, min: 0, max: Math.min(count, 2) }),
-    reserve: Object.freeze({ priority: 8, min: 0, max: Math.min(count, 3) })
+    reserve: Object.freeze({ priority: 8, min: portfolioFloors.reserve || 0, max: Math.min(count, Math.max(3, portfolioFloors.reserve || 0)) })
   });
 }
 
@@ -89,8 +91,9 @@ export function allocateArmyRoles({ squads = [], membersBySquad = new Map(), con
   takeBest("base-defense", Math.min(available.length, budget["base-defense"].min));
   takeBest("economy-defense", Math.min(available.length, budget["economy-defense"].min));
   takeBest("route-security", Math.min(available.length, budget["route-security"].min));
-  takeBest("offensive", Math.min(available.length, budget.offensive.min));
+  takeBest("reserve", Math.min(available.length, budget.reserve.min));
   takeBest("capture", Math.min(available.length, budget.capture.min));
+  takeBest("offensive", Math.min(available.length, budget.offensive.min));
 
   while (available.length) {
     const squad = available.shift();
