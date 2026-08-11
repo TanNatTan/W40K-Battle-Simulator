@@ -31,7 +31,9 @@ test("Phase 8 weapon state supports magazines, reloads, heat, melee phases, and 
   const { state } = ensureWeaponState(unit, weapons);
   assert.equal(state.roundsInMagazine, 8);
   for (let shot = 0; shot < 8; shot += 1) assert.equal(requestRangedShot(unit, weapons).allowed, true);
-  assert.equal(requestRangedShot(unit, weapons).reason, "reload-started");
+  assert.equal(unit.ammo, 8);
+  assert.ok(unit.weaponState.reloadRemaining > 0, "the final magazine round starts reloading immediately");
+  assert.equal(requestRangedShot(unit, weapons).reason, "reloading");
   updateCombatState(unit, weapons.rifle.reloadTime, weapons);
   assert.equal(unit.weaponState.roundsInMagazine, 8);
   assert.equal(beginMeleeAttack(unit, "enemy", true, weapons), true);

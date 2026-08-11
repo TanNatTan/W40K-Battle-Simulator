@@ -2,10 +2,12 @@ export const EXTRACTABLE_RESOURCES = Object.freeze(["materials", "fuel", "energy
 export const STRATEGIC_RESOURCES = Object.freeze(["requisition", "influence"]);
 export const OPERATIONAL_STOCKS = Object.freeze(["ammunition", "medical", "parts"]);
 
-const profile = (id, activeResources, zoneResources, startingStockpile, resourcePriorities = {}) => Object.freeze({
+const profile = (id, activeResources, producibleResources, startingStockpile, resourcePriorities = {}) => Object.freeze({
   id,
   activeResources: Object.freeze(activeResources),
-  zoneResources: Object.freeze(zoneResources),
+  producibleResources: Object.freeze(producibleResources),
+  // One-version compatibility alias for old callers and serialized data.
+  zoneResources: Object.freeze(producibleResources),
   startingStockpile: Object.freeze(startingStockpile),
   resourcePriorities: Object.freeze(Object.fromEntries(activeResources.map(resource => [resource, Math.max(0.1, Number(resourcePriorities[resource]) || 1)]))),
   baseCapacity: Object.freeze(Object.fromEntries(Object.entries(startingStockpile).map(([key, value]) => [key, Math.ceil(value * 1.45)])))

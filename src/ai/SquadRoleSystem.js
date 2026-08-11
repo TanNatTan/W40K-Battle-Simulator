@@ -1,5 +1,6 @@
 export const SQUAD_ROLES = Object.freeze([
   "base-defense",
+  "economy-defense",
   "territory-defense",
   "reinforcement",
   "offensive",
@@ -15,6 +16,7 @@ export const SQUAD_ROLES = Object.freeze([
 
 export const SQUAD_ROLE_DEFINITIONS = Object.freeze({
   "base-defense": Object.freeze({ label: "Base Defense", color: "#3B82F6", secondary: "reinforcement", detachPermission: false, returnAfterMission: true, engagementRadius: 150, formations: ["defensive-ring", "line", "circle"] }),
+  "economy-defense": Object.freeze({ label: "Guard Economy", color: "#0EA5A4", secondary: "base-defense", detachPermission: false, returnAfterMission: true, engagementRadius: 110, formations: ["defensive-ring", "staggered", "line"] }),
   "territory-defense": Object.freeze({ label: "Territory Defense", color: "#2563EB", secondary: "route-security", detachPermission: true, returnAfterMission: true, engagementRadius: 165, formations: ["line", "staggered", "defensive-ring"] }),
   reinforcement: Object.freeze({ label: "Reinforcement", color: "#22C55E", secondary: "reserve", detachPermission: true, returnAfterMission: true, engagementRadius: 190, formations: ["column", "wedge", "triangle"] }),
   offensive: Object.freeze({ label: "Offensive", color: "#EF4444", secondary: "capture", detachPermission: true, returnAfterMission: false, engagementRadius: Infinity, formations: ["wedge", "line", "flanking"] }),
@@ -67,6 +69,7 @@ export function roleSuitability(role, members = [], commanderPreference = {}) {
   const common = health * 18 + s.experience * 10 + s.morale * 8;
   const specialized = {
     "base-defense": s.durability * 28 + s.heavy * 24 + s.firepower * 12 + (1 - s.mobility) * 5,
+    "economy-defense": s.durability * 25 + s.range * 18 + s.firepower * 14 + s.engineer * 10,
     "territory-defense": s.durability * 22 + s.range * 18 + s.firepower * 14 + s.engineer * 8,
     reinforcement: s.mobility * 34 + s.durability * 14 + s.vehicle * 18,
     offensive: s.firepower * 25 + s.durability * 18 + s.mobility * 12 + s.heavy * 10,
@@ -89,6 +92,7 @@ export function roleDemandScores(context = {}, assignedStrength = {}) {
   const squadCount = Math.max(0, Number(context.squadCount) || 0);
   const raw = {
     "base-defense": 18 + c("baseThreat") * 100 + caution * 20,
+    "economy-defense": 12 + c("economyThreat") * 108 + c("criticalProducerNeed") * 72 + c("routeThreat") * 18,
     "territory-defense": 12 + c("territoryThreat") * 88 + c("objectiveImportance") * 24,
     reinforcement: 12 + c("reinforcementThreat") * 92 + c("forceDisadvantage") * 25,
     offensive: 20 + aggression * 42 + c("enemyBaseKnown") * 28 + c("annihilation") * 42,

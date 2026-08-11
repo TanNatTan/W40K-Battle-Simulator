@@ -52,6 +52,48 @@ const WEAPON_ALIASES = Object.freeze({
 const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
 const angleDifference = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
 
+export const RANGED_AMMO_CAPACITY_MULTIPLIER = 4;
+
+export function baseAmmoCapacityFor(unit, catalog) {
+  const profile = weaponProfileFor(unit, catalog);
+  if (!profile.magazineSize) return 0;
+  if (Number.isFinite(unit?.baselineAmmoCapacity)) return Math.max(profile.magazineSize, Math.floor(unit.baselineAmmoCapacity));
+  if (Number.isFinite(unit?.carriedMagazines) || Number.isFinite(profile.carriedMagazines)) {
+    return profile.magazineSize * Math.max(1, Math.floor(unit.carriedMagazines || profile.carriedMagazines));
+  }
+  return unit?.role === "vehicle" ? 18 : 16;
+}
+
+export function ammoCapacityFor(unit, catalog) {
+  return baseAmmoCapacityFor(unit, catalog) * RANGED_AMMO_CAPACITY_MULTIPLIER;
+}
+
+export function synchronizeAmmoState(unit, { refill = false, catalog } = {}) {
+  const profile = weaponProfileFor(unit, catalog);
+  const maximum = ammoCapacityFor(unit, catalog);
+  unit.maxAmmo = maximum;
+  unit.ammo = refill ? maximum : clamp(Math.floor(Number(unit.ammo) || 0), 0, maximum);
+  unit.weaponState ||= {};
+  unit.weaponState.profileId = profile.id;
+  unit.weaponState.magazineCapacity = profile.magazineSize;
+  unit.weaponState.roundsInMagazine = refill
+    ? Math.min(profile.magazineSize, unit.ammo)
+    : Math.min(profile.magazineSize, unit.ammo, Math.max(0, Math.floor(unit.weaponState.roundsInMagazine ?? unit.ammo)));
+  unit.weaponState.magazine = unit.weaponState.roundsInMagazine;
+  unit.weaponState.reserveCapacity = Math.max(0, maximum - profile.magazineSize);
+  unit.weaponState.reserveAmmo = Math.max(0, unit.ammo - unit.weaponState.roundsInMagazine);
+  return unit.weaponState;
+}
+
+export function retreatReasonFor(unit, { tyranid = false } = {}) {
+  if (tyranid) return null;
+  if ((unit.hp || 0) < (unit.maxHp || 1) * 0.3) return "health";
+  if ((unit.morale ?? 1) < 0.23) return "morale";
+  if ((unit.fear ?? 0) >= 0.9) return "fear";
+  if ((unit.ammo || 0) <= 0 && weaponProfileFor(unit).magazineSize > 0) return "ammo";
+  return unit.retreatReason === "objective" || unit.retreatReason === "command" ? unit.retreatReason : null;
+}
+
 export function weaponIdFor(unitOrName) {
   if (typeof unitOrName === "string") return WEAPON_ALIASES[unitOrName.trim().toLowerCase()] || unitOrName.trim().toLowerCase().replaceAll(" ", "-");
   if (unitOrName?.weaponId) return unitOrName.weaponId;
@@ -78,7 +120,7 @@ export function ensureWeaponState(unit, catalog) {
   state.magazineCapacity = profile.magazineSize;
   state.magazine = state.roundsInMagazine;
   state.carriedMagazines ??= unit.carriedMagazines || profile.carriedMagazines || 6;
-  state.reserveCapacity ??= Math.max(0, profile.magazineSize * state.carriedMagazines - profile.magazineSize);
+  state.reserveCapacity ??= Math.max(0, (unit.maxAmmo || profile.magazineSize * state.carriedMagazines) - profile.magazineSize);
   state.reserveAmmo = Math.max(0, Math.floor(unit.ammo || 0) - state.roundsInMagazine);
   state.reloadRemaining ??= 0;
   state.heat ??= 0;
@@ -133,8 +175,11 @@ export function requestRangedShot(unit, catalog) {
   }
   state.roundsInMagazine -= 1;
   state.magazine = state.roundsInMagazine;
+  unit.ammo = Math.max(0, Math.floor(unit.ammo || 0) - 1);
+  state.reserveAmmo = Math.max(0, unit.ammo - state.roundsInMagazine);
   state.heat = clamp(state.heat + profile.heatPerShot, 0, profile.maxHeat);
   state.shotsFired += 1;
+  if (state.roundsInMagazine === 0 && unit.ammo > 0) state.reloadRemaining = profile.reloadTime;
   if (state.heat >= profile.maxHeat) state.overheated = true;
   return { allowed: true, profile, state };
 }

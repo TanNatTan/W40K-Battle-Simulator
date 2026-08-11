@@ -28,6 +28,11 @@ import { captureTargetsFor, scoreCaptureTarget, selectCaptureTarget } from "./ai
 import { actionCost, calculateCost, canAffordCost, costForManifest, mergeCosts, spendCost, trainingDelayFor, unitCostFor } from "./economy/CostSystem.js";
 import { LOADOUT_RULES, scoreWeapon, selectSpaceMarineWargear } from "./combat/WargearSelectionSystem.js";
 import { RESOURCE_CARRIER_STATES, assignResourceCarrier, desiredResourceCarriers, ensureResourceCarrierState, setResourceCarrierState } from "./logistics/ResourceCarrierSystem.js";
+import { SupplyNetwork } from "./logistics/SupplyNetwork.js";
+import { PRODUCTION_BUILDING_DEFINITIONS, productionDefinitionForStructure, productionDefinitionsFor, validateProductionCatalog } from "./economy/ProductionBuildingCatalog.js";
+import { updateProductionBuilding } from "./economy/ProductionSystem.js";
+import { LEGACY_RESOURCE_ZONE_DIAGNOSTIC, migrateLegacyResourceZones } from "./economy/EconomyMigration.js";
+import { ECONOMY_SECURITY_TUNING, assessEconomySecurity, canDispatchEconomicExpedition, criticalProducerClusters, updateEconomySecurityMemory } from "./ai/EconomySecurityPolicy.js";
 
 globalThis.AWTSystems = Object.freeze({
   EconomyZoneManager,
@@ -109,7 +114,20 @@ globalThis.AWTSystems = Object.freeze({
   assignResourceCarrier,
   desiredResourceCarriers,
   ensureResourceCarrierState,
-  setResourceCarrierState
+  setResourceCarrierState,
+  SupplyNetwork,
+  PRODUCTION_BUILDING_DEFINITIONS,
+  productionDefinitionForStructure,
+  productionDefinitionsFor,
+  validateProductionCatalog,
+  updateProductionBuilding,
+  LEGACY_RESOURCE_ZONE_DIAGNOSTIC,
+  migrateLegacyResourceZones,
+  ECONOMY_SECURITY_TUNING,
+  assessEconomySecurity,
+  canDispatchEconomicExpedition,
+  criticalProducerClusters,
+  updateEconomySecurityMemory
 });
 globalThis.AWTData ||= {};
 try {

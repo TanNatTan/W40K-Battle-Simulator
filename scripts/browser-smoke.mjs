@@ -174,13 +174,6 @@ try {
   await new Promise(resolve => setTimeout(resolve, 250));
 
   await evaluate(`(() => {
-    const tool = document.querySelector('#awt-editor-tool');
-    tool.value = 'resource';
-    tool.dispatchEvent(new Event('change', { bubbles: true }));
-    document.querySelector('#awt-new-resource-zone').click();
-    const type = document.querySelector('#awt-resource-type');
-    type.value = 'biomass';
-    type.dispatchEvent(new Event('change', { bubbles: true }));
     document.querySelector('[data-editor-tool-target="economic-node"]').click();
     document.querySelector('#awt-new-economic-node').click();
     const firstName = document.querySelector('#awt-economic-node-name');
@@ -243,10 +236,9 @@ try {
       error: root.dataset.runtimeError || null
     };
   })()`);
-  if (!editor.editing || !editor.editorVisible || !editor.inspectorVisible || editor.tabs !== 9 || editor.resourceZones !== 1
-    || editor.resourceType !== "biomass" || editor.economicNodes !== 2 || editor.tradeRoutes !== 1 || editor.generatedTradeRoutes !== 0
+  if (!editor.editing || !editor.editorVisible || !editor.inspectorVisible || editor.tabs !== 9 || editor.resourceZones !== 0
+    || editor.resourceType !== null || editor.economicNodes !== 2 || editor.tradeRoutes !== 1 || editor.generatedTradeRoutes !== 0
     || editor.landmarkFlowRows < 4 || editor.landmarkFlowControls < 12 || editor.legacyLandmarkTextInputs !== 0
-    || !editor.resourceCollectorModes.some(mode => mode.includes("supply"))
     || editor.refineryFuelRate < 30 || editor.landmarkValidation !== "true" || editor.error) {
     throw new Error(`Editor smoke check failed: ${JSON.stringify(editor)}`);
   }
@@ -374,27 +366,18 @@ try {
     harvestPrepared = await evaluate(`(() => {
       const state = document.querySelector('#autonomous-war-theater').awtDebugState;
       const carrier = state.units.find(unit => unit.alive && unit.role === 'supply');
-      const zone = state.resourceZones[0];
-      if (!carrier || !zone) return false;
-      zone.resourceType = 'food';
-      zone.owner = carrier.faction;
-      zone.startingOwner = carrier.faction;
-      zone.ownershipInitialized = true;
-      zone.requiresBuilding = false;
-      zone.allowedCollectors = ['builder', 'supply'];
-      zone.capacity = 100;
-      zone.remaining = 100;
-      zone.reserve = 100;
-      zone.gatherRate = 40;
-      zone.points = [
-        { x: carrier.x - 18, y: carrier.y - 18 },
-        { x: carrier.x + 18, y: carrier.y - 18 },
-        { x: carrier.x + 18, y: carrier.y + 18 },
-        { x: carrier.x - 18, y: carrier.y + 18 }
-      ];
-      zone.geometryRevision = (zone.geometryRevision || 0) + 1;
-      zone.geometry = null;
-      carrier.resourceZoneTargetId = zone.id;
+      const producer = state.structures.find(item => item.alive !== false && item.progress >= 1 && item.faction === carrier?.faction);
+      if (!carrier || !producer) return false;
+      producer.inventory ||= {};
+      producer.inventory.requisition = 100;
+      carrier.x = producer.x;
+      carrier.y = producer.y;
+      carrier.resourceCargo = { type: 'requisition', amount: 0, capacity: 32 };
+      carrier.logisticsState = {
+        role: 'resource-hauler', sourceKind: 'production-building', sourceId: producer.id,
+        destinationId: producer.id, resourceType: 'requisition', cargo: 0, capacity: 32,
+        state: 'assigned-pickup', repeat: true, deliveries: 0, cargoLost: 0
+      };
       return true;
     })()`);
     if (!harvestPrepared) await new Promise(resolve => setTimeout(resolve, 500));
@@ -402,27 +385,31 @@ try {
   if (!harvestPrepared) {
     const harvestState = await evaluate(`(() => {
       const state = document.querySelector('#autonomous-war-theater').awtDebugState;
-      return { time: state.time, units: state.units.map(unit => ({ id: unit.id, faction: unit.faction, role: unit.role, alive: unit.alive })), resourceZones: state.resourceZones.length, structures: state.structures.map(item => ({ faction: item.faction, type: item.type, progress: item.progress, alive: item.alive })) };
+      return { time: state.time, units: state.units.map(unit => ({ id: unit.id, faction: unit.faction, role: unit.role, alive: unit.alive })), structures: state.structures.map(item => ({ faction: item.faction, type: item.type, progress: item.progress, alive: item.alive })) };
     })()`);
-    throw new Error(`Could not prepare live supply-carrier harvest probe: ${JSON.stringify(harvestState)}`);
+    throw new Error(`Could not prepare live production-carrier probe: ${JSON.stringify(harvestState)}`);
   }
   await new Promise(resolve => setTimeout(resolve, 450));
   const carrierHarvestProbe = await evaluate(`(() => {
     const state = document.querySelector('#autonomous-war-theater').awtDebugState;
     const carrier = state.units.find(unit => unit.alive && unit.role === 'supply');
-    const zone = state.resourceZones[0];
+    const producer = state.structures.find(item => item.id === carrier?.logisticsState?.sourceId)
+      || state.structures.find(item => item.faction === carrier?.faction && item.progress >= 1);
     return {
       carrierId: carrier?.id || null,
       status: carrier?.status || null,
       cargo: carrier?.resourceCargo?.amount || 0,
-      remaining: zone?.remaining ?? null,
-      target: carrier?.resourceZoneTargetId || null,
+      remaining: producer?.inventory?.requisition ?? null,
+      target: carrier?.logisticsState?.sourceId || null,
+      sourceKind: carrier?.logisticsState?.sourceKind || null,
+      resourceZones: state.resourceZones.length,
       failures: Number(document.querySelector('#autonomous-war-theater').dataset.frameFailures || 0)
     };
   })()`);
   if (!carrierHarvestProbe.carrierId || carrierHarvestProbe.failures !== 0
-    || carrierHarvestProbe.remaining >= 100 || (carrierHarvestProbe.cargo <= 0 && !/Delivering|Gathering/.test(carrierHarvestProbe.status || ""))) {
-    throw new Error(`Supply carrier did not physically gather from the captured zone: ${JSON.stringify(carrierHarvestProbe)}`);
+    || carrierHarvestProbe.resourceZones !== 0 || carrierHarvestProbe.sourceKind !== 'production-building'
+    || carrierHarvestProbe.remaining >= 100 || (carrierHarvestProbe.cargo <= 0 && !/Delivering|Hauling/.test(carrierHarvestProbe.status || ""))) {
+    throw new Error(`Supply carrier did not physically haul from production: ${JSON.stringify(carrierHarvestProbe)}`);
   }
   const squadRoleProbe = await evaluate(`(() => {
     const root = document.querySelector('#autonomous-war-theater');
@@ -434,7 +421,7 @@ try {
       inspectorPresent: Boolean(document.querySelector('#awt-squad-role-summary'))
     };
   })()`);
-  if (squadRoleProbe.roleCount !== 12 || !squadRoleProbe.primaryRole || !squadRoleProbe.secondaryRole
+  if (squadRoleProbe.roleCount !== 13 || !squadRoleProbe.primaryRole || !squadRoleProbe.secondaryRole
     || !squadRoleProbe.currentObjective || !squadRoleProbe.assignedZone || !squadRoleProbe.commanderId
     || !Number.isFinite(squadRoleProbe.readiness) || !squadRoleProbe.overlay
     || !squadRoleProbe.togglePresent || !squadRoleProbe.inspectorPresent) {

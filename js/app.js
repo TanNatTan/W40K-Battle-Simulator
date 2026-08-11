@@ -79,6 +79,11 @@ import { RuntimeTelemetry } from "../src/diagnostics/RuntimeTelemetry.js";
 import { SnapshotRingBuffer } from "../src/replay/SnapshotRingBuffer.js";
 import { dayNightDarkness, globalDayNightVisibility } from "../src/rendering/DayNightSystem.js";
 import { economyProfileFor } from "../src/economy/FactionEconomyProfiles.js";
+import { productionDefinitionForStructure } from "../src/economy/ProductionBuildingCatalog.js";
+import { updateProductionBuilding } from "../src/economy/ProductionSystem.js";
+import { migrateLegacyResourceZones } from "../src/economy/EconomyMigration.js";
+import { SupplyNetwork } from "../src/logistics/SupplyNetwork.js";
+import { assessEconomySecurity, canDispatchEconomicExpedition, criticalProducerClusters, updateEconomySecurityMemory } from "../src/ai/EconomySecurityPolicy.js";
 import { actionCost, calculateCost, canAffordCost, costForManifest, spendCost, trainingDelayFor, unitCostFor } from "../src/economy/CostSystem.js";
 import { allocateForceCaps, commandPresenceFor, createForceState, updateForceState } from "../src/ai/ForceCommitmentSystem.js";
 import { combineStrategicBias, chaosTargetMultiplier, evaluateChaosStrategy } from "../src/ai/chaos/ChaosStrategySystem.js";
@@ -106,8 +111,10 @@ import {
   ensureWeaponState,
   moraleAuraFor,
   requestRangedShot,
+  retreatReasonFor,
   resolveArmorHit,
   resolveMeleeStrike,
+  synchronizeAmmoState,
   updateCombatState,
   weaponProfileFor
 } from "../src/combat/CombatSystem.js";
@@ -1100,6 +1107,8 @@ import {
         projectilePool: [],
         features: [],
         resourceZones: [],
+        economyMigrationDiagnostics: [],
+        supplyNetwork: new SupplyNetwork(),
         economyZoneManager: null,
         casualtyPoints: [],
         incidents: [],
@@ -2114,6 +2123,7 @@ import {
         return {
           profileId: profile.id,
           activeResources: [...profile.activeResources],
+          producibleResources: [...profile.producibleResources],
           zoneResources: [...profile.zoneResources],
           resourcePriorities: { ...profile.resourcePriorities },
           personality,
@@ -3147,6 +3157,8 @@ import {
         if (role === "supply") ensureResourceCarrierState(unit);
         if (unit.role === "vehicle" && /Land Raider|Baneblade|Rogal Dorn|Battlewagon|Carnifex|Tyrannofex/i.test(unit.name)) unit.collisionRadius = 22;
         if (unit.role === "vehicle") unit.vehicleState = createVehicleState(unit);
+        unit.baselineAmmoCapacity = ["builder", "supply"].includes(role) ? 0 : role === "vehicle" ? 18 : 16;
+        synchronizeAmmoState(unit, { refill: true });
         ensureIndividualRuntime(unit);
         if (player.race === "Tyranids") unit.personality = unit.synapse ? "Synaptic relay" : "Instinctive bioform";
         return unit;
@@ -3401,7 +3413,7 @@ import {
           state.players.map(player => ({ id: player.id, color: player.color, base: { ...player.base } })),
           {
             objectives,
-            resourceZones: state.resourceZones,
+            resourceZones: [],
             roads: state.roads,
             unitConfig: {
               unitsPerPlayer: 10,
@@ -3610,6 +3622,17 @@ import {
             state.units.push(makeUnit(player.id, "builder", "Ground deployment · starting zone"));
           }
         }
+        const migratedEconomy = migrateLegacyResourceZones({
+          resourceZones: state.resourceZones,
+          structures: state.structures,
+          carriers: state.units,
+          players: state.players
+        });
+        state.resourceZones = migratedEconomy.resourceZones;
+        state.economyMigrationDiagnostics = migratedEconomy.diagnostics;
+        state.selectedResourceZoneId = null;
+        state.economyZoneManager.adopt(state.resourceZones);
+        state.supplyNetwork = new SupplyNetwork();
         invalidateLightingCaches();
         updateExploration(0, true);
         state.logisticsPlayerId = state.players[0]?.id || "a";
@@ -3768,7 +3791,7 @@ import {
         const activeResources = new Set(economy.activeResources);
         if (activeResources.has("energy") && !complete("generator")) return "generator";
         if (!complete("warehouse")) return "warehouse";
-        const firstExtractor = economy.zoneResources.map(resource => resourceExtractorType[resource]).find(Boolean);
+        const firstExtractor = economy.producibleResources.map(resource => resourceExtractorType[resource]).find(Boolean);
         if (firstExtractor && !complete(firstExtractor)) return firstExtractor;
 
         const capacity = economyCapacity(faction);
@@ -4653,16 +4676,6 @@ import {
           .filter(zone => zone.reserve > 0 && (!resourceType || zone.resourceType === resourceType));
       }
 
-      function resourceNodeForStructure(structure) {
-        const zoneResources = economyFor(structure.faction).zoneResources;
-        const category = structure.type === "mine" && zoneResources.includes("scrap") ? "scrap"
-          : structure.type === "farm" && zoneResources.includes("biomass") ? "biomass"
-            : extractorResourceType[structure.type];
-        if (!category) return null;
-        return strategicResourceNodes(category)
-          .sort((a, b) => distance(structure, a) - distance(structure, b))[0] || null;
-      }
-
       function formationGroupFor(member, index) {
         if (index === 0 || member.role === "commander") return "command";
         if (member.hp / Math.max(1, member.maxHp) < 0.58) return "protected";
@@ -5346,9 +5359,11 @@ import {
         const dangerousRoads = friendlyRoads.filter(road => ["Contested", "Enemy controlled", "Blocked", "Mined", "Flooded", "Damaged"].includes(road.status) || road.ambushRisk > 0.45);
         const enemyRoads = state.roads.filter(road => !roadUsableByPlayer(road, player));
         const playerEconomy = economyFor(player.id);
+        const producerClusters = criticalProducerClusters(state.structures, player.id, structure => productionDefinitionForStructure(player, structure));
+        const threatenedProducerClusters = producerClusters.filter(cluster => enemies.some(enemy => distance(enemy, cluster) < cluster.radius + 70));
         const captureTargets = captureTargetsFor({
           player,
-          resourceZones: state.resourceZones,
+          resourceZones: [],
           economicNodes: state.economicNodes,
           areAllies,
           resourceCenter: resourceZoneCenter,
@@ -5369,6 +5384,8 @@ import {
         const annihilation = Boolean(player.endgameDirective?.action && player.endgameDirective.action !== "standard-operations");
         const context = {
           baseThreat: clamp(baseThreats.length / Math.max(2, ownUnits.filter(unit => distance(unit, player.base) < 300).length), 0, 1),
+          economyThreat: clamp(threatenedProducerClusters.length / Math.max(1, producerClusters.length), 0, 1),
+          criticalProducerNeed: clamp(producerClusters.filter(cluster => cluster.criticality >= 0.9).length / Math.max(1, producerClusters.length), 0, 1),
           territoryThreat: clamp((contestedTerritories.length + threatenedAssets.filter(item => !item.asset.role).length) / 3, 0, 1),
           reinforcementThreat: clamp(threatenedAssets.reduce((sum, item) => sum + item.threats, 0) / 6, 0, 1),
           forceDisadvantage: clamp((activeEnemyForce - ownForce) / activeEnemyForce, 0, 1),
@@ -5390,7 +5407,7 @@ import {
           squadCount: squads.length,
           now: state.time
         };
-        return { context, ownUnits, enemies, baseThreats, threatenedAssets, friendlyRoads, dangerousRoads, enemyRoads, captureZones, captureTargets, injured, enemyStructures, hostileConvoys, escortAssets, contestedTerritories };
+        return { context, ownUnits, enemies, baseThreats, threatenedAssets, producerClusters, threatenedProducerClusters, friendlyRoads, dangerousRoads, enemyRoads, captureZones, captureTargets, injured, enemyStructures, hostileConvoys, escortAssets, contestedTerritories };
       }
 
       function resolveSquadRoleMission(player, squad, members, battle) {
@@ -5448,6 +5465,7 @@ import {
         const reconOffset = (reconIndex % 3 - 1) * 120;
         const missions = {
           "base-defense": { orderType: "Defend Base", objective: battle.baseThreats[0] || player.base, targetId: battle.baseThreats[0]?.id || null, zone: "Headquarters perimeter", text: battle.baseThreats.length ? "Repel attackers at headquarters" : "Guard production, builders, and base approaches" },
+          "economy-defense": { orderType: "Guard Economy", objective: battle.threatenedProducerClusters[0] || battle.producerClusters[0] || player.base, zone: "Production network", text: battle.threatenedProducerClusters.length ? "Protect a critical producer under attack" : "Guard the production cluster and its logistics approaches" },
           "territory-defense": { orderType: "Defend Territory", objective: territory ? territoryCenter(territory) : player.base, zone: territory?.name || "Claimed territory", text: territory?.status?.startsWith("contested") ? `Stabilize ${territory.name}` : "Patrol claimed territory and strategic resources" },
           reinforcement: { orderType: "Reinforce", objective: threatened || player.base, targetId: battle.baseThreats[0]?.id || null, zone: threatened?.name || threatened?.displayName || "Threatened sector", text: threatened ? `Assist ${threatened.name || threatened.displayName || "threatened allied force"}` : "Remain mobile for emergency reinforcement" },
           offensive: { orderType: "Advance", objective: enemyStructure || targetBase, targetId: nearestEnemy?.id || enemyStructure?.id || null, zone: enemyPlayer ? `${enemyPlayer.faction} front` : "Enemy front", text: enemyStructure ? `Break defenses around ${enemyStructure.displayName || factionBuildingLabel(enemyStructure.faction, enemyStructure.type)}` : "Advance with the main attack force" },
@@ -5904,8 +5922,6 @@ import {
           maxTravel: Math.min(unit.range * 1.18, aimDistance + 20),
           intendedHit
         });
-        unit.ammo -= 1;
-        if (unit.weaponState) unit.weaponState.reserveAmmo = Math.max(0, unit.ammo - unit.weaponState.roundsInMagazine);
         unit.aimTime = 0;
         const rationing = economyFor(unit.faction).shortages.includes("ammunition");
         unit.fireCd = (weapon.rateOfFire + rand(0.04, Math.max(0.08, weapon.rateOfFire * 0.2))) * (rationing ? 1.75 : 1) * proximityCombatModifiers(unit).fireDelay;
@@ -6669,8 +6685,7 @@ import {
           enemyPressure: clamp(hostileNearBase / 7, 0, 1),
           resourceShortage: clamp((economy.shortages?.length || 0) / 4, 0, 1),
           territoryOpportunity: clamp((
-            state.resourceZones.filter(zone => !zone.owner || !areAllies(zone.owner, player.id)).length
-            + state.economicNodes.filter(node => node.active && (!node.owner || !areAllies(node.owner, player.id))).length
+            state.economicNodes.filter(node => node.active && (!node.owner || !areAllies(node.owner, player.id))).length
           ) / 6, 0.05, 1),
           routeRisk: friendlyRoads.length ? riskyRoads / friendlyRoads.length : 0.35,
           casualtyRatio: casualtyCount / Math.max(1, casualtyCount + ownUnits.length),
@@ -6697,7 +6712,7 @@ import {
           overextension: ownUnits.length ? distantOwnUnits / ownUnits.length : 0,
           shapingOpportunity: clamp((visibleEnemyStructures.length + isolatedObservedEnemies) / 8, 0.1, 1),
           objectiveSecured: (player.battleObjectiveState?.progress || 0) >= 0.7,
-          newStrategicOpportunity: clamp((state.resourceZones.filter(zone => !zone.owner || !areAllies(zone.owner, player.id)).length + visibleEnemyStructures.length) / 8, 0, 1)
+          newStrategicOpportunity: clamp((state.economicNodes.filter(node => node.active && (!node.owner || !areAllies(node.owner, player.id))).length + visibleEnemyStructures.length) / 8, 0, 1)
         };
         player.dynamicAIBehavior = deriveDynamicAIBehavior(profile, plan, context);
         player.operationalMemory ||= createOperationalMemory({ enteredAt: state.time });
@@ -6725,7 +6740,41 @@ import {
             player.operationalPlan.objectiveLeash
           );
         } else player.chaosStrategy = null;
+        const producerClusters = criticalProducerClusters(state.structures, player.id, structure => productionDefinitionForStructure(player, structure));
+        const recentCriticalLoss = state.structures.some(structure => structure.faction === player.id && structure.alive === false
+          && state.time - (structure.destroyedAt || -Infinity) <= 30
+          && (productionDefinitionForStructure(player, structure)?.criticality || 0) >= 0.75);
+        const defenders = ownUnits.filter(unit => distance(unit, player.base) < 260 && !unit.retreating);
+        const guardedProducers = producerClusters.filter(cluster => state.squads.some(squad => squad.faction === player.id
+          && ["economy-defense", "base-defense"].includes(squad.primaryRole)
+          && distance(squadCenterFor(squadMembers(squad.id), player.base), cluster) <= cluster.radius + 70));
+        const economySecurity = assessEconomySecurity({
+          connectedProducers: producerClusters.filter(cluster => state.supplyNetwork.connectionFor(cluster.structureId).connected).length,
+          criticalProducers: producerClusters.length,
+          guardCoverage: producerClusters.length ? guardedProducers.length / producerClusters.length : 1,
+          shortages: economy.shortages || [],
+          localDefense: defenders.length,
+          defenseRatio: hostileNearBase ? defenders.length / hostileNearBase : 99,
+          baseThreat: context.enemyPressure,
+          routeRisk: context.routeRisk,
+          hqEmergency: context.enemyPressure > 0.7,
+          recentCriticalLoss
+        });
+        player.economySecurityMemory ||= {};
+        updateEconomySecurityMemory(player.economySecurityMemory, economySecurity, 1);
+        const stableEconomySecurity = { ...economySecurity, safe: player.economySecurityMemory.stableSafe === true };
+        player.economySecurity = stableEconomySecurity;
         const decision = selectStrategicChoice(profile, context, memory.learnedWeights);
+        const reserveRatio = ownUnits.length ? defenders.length / ownUnits.length : 0;
+        if (["attack", "expand"].includes(decision.choice) && !canDispatchEconomicExpedition({
+          assessment: stableEconomySecurity,
+          aggression: player.dynamicAIBehavior.aggression,
+          reserveRatio,
+          defenderCount: defenders.length
+        })) {
+          decision.choice = economySecurity.hqEmergency ? "defend" : "logistics";
+          decision.score = decision.scores[decision.choice];
+        }
         player.factionAIContext = { ...context };
         player.factionAIProfileId = profile.id;
         player.warfareDoctrine = profile.doctrine;
@@ -7077,6 +7126,54 @@ import {
         return unit.role === "supply" ? 32 : unit.role === "vehicle" ? 24 : 12;
       }
 
+      function updateProductionCarrier(unit, dt) {
+        const logistics = ensureResourceCarrierState(unit);
+        if (!logistics.sourceId || !["production-building", "economic-node"].includes(logistics.sourceKind)) return false;
+        const source = logistics.sourceKind === "production-building"
+          ? structureById(logistics.sourceId)
+          : state.economicNodes.find(node => node.id === logistics.sourceId);
+        const sourceOwned = source && source.active !== false && source.alive !== false
+          && (source.faction === unit.faction || source.owner === unit.faction);
+        unit.resourceCargo ||= { type: logistics.resourceType, amount: 0, capacity: resourceCargoCapacity(unit) };
+        if (!sourceOwned && unit.resourceCargo.amount <= 0) {
+          setResourceCarrierState(unit, "disrupted", { sourceId: null, sourceKind: null });
+          return false;
+        }
+        const destination = closestWarehousePoint(unit.faction, unit);
+        if (!sourceOwned || unit.resourceCargo.amount >= unit.resourceCargo.capacity) {
+          if (distance(unit, destination) > 16) {
+            moveToward(unit, destination, dt, 0.9);
+            setResourceCarrierState(unit, "travelling-to-storage", { destinationId: destination.id || null, cargo: unit.resourceCargo.amount });
+          } else {
+            const economy = economyFor(unit.faction);
+            const capacity = economyCapacity(unit.faction);
+            const resource = unit.resourceCargo.type;
+            economy.inventory[resource] = clamp((economy.inventory[resource] || 0) + unit.resourceCargo.amount, 0, capacity[resource] || 999);
+            destination.storedCargo ||= {};
+            destination.storedCargo[resource] = (destination.storedCargo[resource] || 0) + unit.resourceCargo.amount;
+            unit.resourceCargo.amount = 0;
+            logistics.deliveries += 1;
+            setResourceCarrierState(unit, sourceOwned ? "returning-to-pickup" : "idle", { cargo: 0, sourceId: sourceOwned ? source.id : null });
+          }
+          unit.status = "Delivering production cargo";
+          return true;
+        }
+        if (distance(unit, source) > 15) {
+          moveToward(unit, source, dt, 0.92);
+          setResourceCarrierState(unit, "travelling-to-source", { cargo: unit.resourceCargo.amount });
+        } else {
+          const resource = logistics.resourceType || Object.keys(source.inventory || source.exports || {})[0];
+          const available = logistics.sourceKind === "production-building" ? source.inventory?.[resource] || 0 : source.exports?.[resource] || 0;
+          const loaded = Math.min(available, unit.resourceCargo.capacity - unit.resourceCargo.amount, Math.max(1, dt * 8));
+          if (logistics.sourceKind === "production-building") source.inventory[resource] = Math.max(0, available - loaded);
+          unit.resourceCargo.type = resource;
+          unit.resourceCargo.amount += loaded;
+          setResourceCarrierState(unit, "loading", { resourceType: resource, cargo: unit.resourceCargo.amount });
+        }
+        unit.status = "Hauling produced resources";
+        return true;
+      }
+
       function updateResourceCollector(unit, dt) {
         if (!unit.resourceZoneTargetId) return false;
         const zone = state.resourceZones.find(item => item.id === unit.resourceZoneTargetId);
@@ -7277,6 +7374,7 @@ import {
           updateSupplyCarrier(unit, dt);
           return;
         }
+        if (updateProductionCarrier(unit, dt)) return;
         if (updateResourceCollector(unit, dt)) return;
         if (unit.role === "builder") {
           updateBuilder(unit, dt);
@@ -7287,18 +7385,27 @@ import {
           return;
         }
 
-        if (race !== "Tyranids" && (unit.hp < unit.maxHp * 0.3 || unit.morale < 0.23 || unit.ammo <= 0)) unit.retreating = true;
+        const retreatReason = retreatReasonFor(unit, { tyranid: race === "Tyranids" });
+        if (retreatReason) {
+          unit.retreatReason = retreatReason;
+          unit.retreating = true;
+        }
         if (unit.retreating) {
           const base = baseFor(unit.faction);
           moveToward(unit, base, dt, unit.alertState === "Afraid" ? 1.28 : 1.12);
-          unit.status = unit.hp < unit.maxHp * 0.3 ? unit.alertState === "Afraid" ? "Fleeing in panic" : "Retreating" : unit.ammo <= 0 ? "Reloading" : "Regrouping";
+          unit.status = unit.retreatReason === "health" ? unit.alertState === "Afraid" ? "Fleeing in panic" : "Retreating"
+            : unit.retreatReason === "ammo" ? "Returning to resupply"
+              : unit.retreatReason === "morale" || unit.retreatReason === "fear" ? "Regrouping" : "Following withdrawal order";
           unit.lastAction = `${unit.status} toward the emergent base.`;
           if (distance(unit, base) < 44) {
             if (unit.ammo <= 0) requestUnitResupply(unit);
             unit.morale = clamp(unit.morale + dt * 0.03, 0, 1);
             unit.fatigue = clamp(unit.fatigue - dt * 0.02, 0, 1);
             unit.hp = clamp(unit.hp + dt * 0.35, 0, unit.maxHp * 0.56);
-            if (unit.morale > 0.5 && unit.ammo > 0 && unit.hp > unit.maxHp * 0.38) unit.retreating = false;
+            if (unit.morale > 0.5 && unit.ammo > 0 && unit.hp > unit.maxHp * 0.38) {
+              unit.retreating = false;
+              unit.retreatReason = null;
+            }
           }
           return;
         }
@@ -8403,9 +8510,8 @@ import {
             unit.carriedMagazines = member.carriedMagazines || 6;
             unit.weaponState = null;
             const profile = weaponProfileFor(unit);
-            unit.maxAmmo = profile.magazineSize * unit.carriedMagazines;
-            unit.ammo = unit.maxAmmo;
-            ensureWeaponState(unit);
+            unit.baselineAmmoCapacity = profile.magazineSize * unit.carriedMagazines;
+            synchronizeAmmoState(unit, { refill: true });
           }
           if (unit.role === "vehicle") unit.vehicleState = createVehicleState(unit);
           const angle = index / Math.max(1, manifest.length) * Math.PI * 2;
@@ -8675,7 +8781,11 @@ import {
         ensureStructureRuntime(structure);
         const economy = economyFor(player.id);
         const activeResourceSet = new Set(economy.activeResources);
-        const consumes = Object.fromEntries(Object.entries({ parts: 0.25, ...(spec.consumes || {}) }).filter(([resource]) => activeResourceSet.has(resource)));
+        const productionDefinition = productionDefinitionForStructure(player, structure);
+        if (productionDefinition) structure.productionDefinitionId = productionDefinition.id;
+        delete structure.resourceNodeId;
+        delete structure.depositStatus;
+        const consumes = Object.fromEntries(Object.entries(productionDefinition?.inputs || spec.consumes || {}).filter(([resource]) => activeResourceSet.has(resource)));
         const inbound = state.convoys.some(item => !item.finished && item.destinationId === structure.id);
         if (!inbound) {
           const needed = {};
@@ -8690,41 +8800,19 @@ import {
             if (convoy) Object.entries(needed).forEach(([key, value]) => { economy.inventory[key] -= value; });
           }
         }
-        const resourceNode = resourceNodeForStructure(structure);
-        const produces = { ...(spec.produces || {}) };
-        if (resourceNode && extractorResourceType[structure.type] && resourceNode.resourceType !== extractorResourceType[structure.type]) {
-          const yieldRate = Math.max(1, ...Object.values(produces).map(Number));
-          for (const resource of Object.keys(produces)) if (!activeResourceSet.has(resource)) delete produces[resource];
-          produces[resourceNode.resourceType] = yieldRate;
-        }
-        const nodeDistance = resourceNode ? distance(structure, resourceNode) : Infinity;
-        const reserveRatio = resourceNode ? resourceNode.reserve / Math.max(1, resourceNode.maxReserve) : 0;
-        const depletionFactor = !extractorResourceType[structure.type] ? 1
-          : nodeDistance > 120 ? 0.18
-            : reserveRatio > 0.75 ? 1 : reserveRatio > 0.45 ? 0.76 : reserveRatio > 0.2 ? 0.48 : reserveRatio > 0 ? 0.24 : 0;
-        structure.resourceNodeId = resourceNode?.id || null;
-        structure.depositStatus = !extractorResourceType[structure.type] ? "Not an extractor"
-          : !resourceNode || nodeDistance > 120 ? "Off-deposit · 18% local yield"
-            : reserveRatio <= 0 ? "Deposit exhausted" : `${Math.round(reserveRatio * 100)}% deposit remaining`;
-        const canRun = depletionFactor > 0 && Object.entries(consumes).every(([key, rate]) => (structure.inventory[key] || 0) >= rate);
-        if (canRun) {
-          Object.entries(consumes).forEach(([key, rate]) => { structure.inventory[key] = Math.max(0, (structure.inventory[key] || 0) - rate); });
-          Object.entries(produces).filter(([key]) => activeResourceSet.has(key)).forEach(([key, rate]) => { structure.inventory[key] = (structure.inventory[key] || 0) + rate * clamp(structure.condition, 0.2, 1) * depletionFactor; });
-          if (resourceNode && nodeDistance <= 120 && extractorResourceType[structure.type]) {
-            const drain = Object.values(produces).reduce((sum, value) => sum + value, 0) * 0.55;
-            if (resourceNode.resourceZone) drainResourceZone(resourceNode, drain);
-            else resourceNode.reserve = Math.max(0, resourceNode.reserve - drain);
-            resourceNode.condition = clamp(resourceNode.reserve / Math.max(1, resourceNode.maxReserve), 0.12, 1);
-            if (resourceNode.reserve <= 0 && !resourceNode.exhaustionReported) {
-              resourceNode.exhaustionReported = true;
-              incident(`${player.faction} exhausted a ${resourceNode.resourceType} deposit and must expand its supply network.`, structure.id, "warning");
-            }
-          }
-          if (structure.type === "researchcenter") {
-            economy.research ||= { level: 0, progress: 0, status: "Researching" };
-            if (player.forceState?.allIn) {
-              economy.research.status = "Suspended · all resources committed to the battle";
-            } else {
+        const demand = Object.fromEntries(economy.activeResources.map(resource => [resource, clamp(resourceNeedScore(player, resource) / 180, 0.2, 1)]));
+        const production = updateProductionBuilding(structure, productionDefinition, state.supplyNetwork.connectionFor(structure), 5, {
+          activeResources: economy.activeResources,
+          factionMultiplier: landmarkModifierFor(player.id, "productionRateMultiplier"),
+          demand
+        });
+        if (structure.type === "researchcenter") {
+          economy.research ||= { level: 0, progress: 0, status: "Researching" };
+          const supplied = Object.entries(consumes).every(([resource, rate]) => (structure.inventory[resource] || 0) >= rate);
+          if (player.forceState?.allIn) economy.research.status = "Suspended · all resources committed to the battle";
+          else if (!supplied) economy.research.status = "Delayed · local research inputs unavailable";
+          else {
+            Object.entries(consumes).forEach(([resource, rate]) => { structure.inventory[resource] = Math.max(0, (structure.inventory[resource] || 0) - rate); });
             economy.research.progress += 7 * landmarkModifierFor(player.id, "researchRateMultiplier") * clamp(structure.condition, 0.2, 1);
             economy.research.status = `Research level ${economy.research.level} · ${Math.floor(economy.research.progress)}%`;
             if (economy.research.progress >= 100) {
@@ -8734,15 +8822,30 @@ import {
               economy.officers.factoryOverseer = `${factionBuildingLabel(player.id, "researchcenter")} completed research level ${economy.research.level}`;
               incident(`${player.faction} completed research level ${economy.research.level}; future production priorities were recalculated.`, structure.id, "info");
             }
-            }
           }
         }
         const output = {};
-        for (const key of Object.keys(produces).filter(key => activeResourceSet.has(key))) {
+        delete structure.resourceNodeId;
+        delete structure.depositStatus;
+        for (const key of Object.keys(productionDefinition?.outputs || {}).filter(key => activeResourceSet.has(key))) {
           const amount = structure.inventory[key] || 0;
           if (amount >= 4) output[key] = amount;
         }
-        if (Object.keys(output).length && !state.convoys.some(item => !item.finished && item.originId === structure.id)) {
+        const assignedCarrier = state.units.find(unit => unit.alive && unit.faction === player.id && unit.role === "supply" && unit.logisticsState?.sourceId === structure.id);
+        if (Object.keys(output).length && !assignedCarrier) {
+          const availableCarrier = state.units.filter(unit => unit.alive && unit.faction === player.id && unit.role === "supply"
+            && !unit.logisticsState?.sourceId && !(unit.resourceCargo?.amount > 0))
+            .sort((a, b) => distance(a, structure) - distance(b, structure))[0];
+          const resourceType = Object.keys(output).sort((a, b) => resourceNeedScore(player, b) - resourceNeedScore(player, a))[0];
+          if (availableCarrier && resourceType) assignResourceCarrier(availableCarrier, {
+            sourceKind: "production-building",
+            sourceId: structure.id,
+            destinationId: closestWarehousePoint(player.id, structure).id || null,
+            resourceType
+          });
+        }
+        const physicalCarrierAssigned = state.units.some(unit => unit.alive && unit.faction === player.id && unit.logisticsState?.sourceId === structure.id);
+        if (Object.keys(output).length && !physicalCarrierAssigned && !state.convoys.some(item => !item.finished && item.originId === structure.id)) {
           const destination = closestStoragePoint(player.id, structure);
           if (destination.id === structure.id || distance(destination, structure) < 3) {
             Object.keys(output).forEach(key => { structure.inventory[key] -= output[key]; });
@@ -8950,7 +9053,7 @@ import {
         const carriers = state.units.filter(unit => unit.alive && !unit.incapacitated && unit.faction === player.id && unit.role === "supply").length;
         const desiredBuilders = player.builderTarget || (player.race === "Orks" || player.race === "Necrons" ? 6 : 2);
         const carrierSources = [
-          ...state.resourceZones.filter(zone => zone.owner === player.id && zone.remaining > 0 && !zone.requiresBuilding).map(zone => ({ ...resourceZoneCenter(zone), remaining: zone.remaining, gatherRate: zone.gatherRate })),
+          ...state.structures.filter(structure => structure.faction === player.id && structure.alive !== false && structure.progress >= 1 && productionDefinitionForStructure(player, structure)),
           ...state.economicNodes.filter(node => node.active && node.owner === player.id && Object.keys(node.exports || {}).length)
         ];
         const desiredCarriers = desiredResourceCarriers(carrierSources, player.base, player.supplyCarrierTarget || (player.race === "Orks" || player.race === "Necrons" ? 3 : 2));
@@ -8970,7 +9073,26 @@ import {
         state.nextSupportTrain[player.id] = state.time + (role === "builder" ? 24 : 18);
       }
 
+      function refreshSupplyNetwork() {
+        const signature = [
+          ...state.structures.filter(item => item.alive !== false && item.progress >= 1).map(item => `${item.id}:${item.faction}:${item.type}`),
+          ...state.economicNodes.filter(item => item.active !== false).map(item => `${item.id}:${item.owner || "neutral"}`),
+          ...state.tradeRoutes.filter(item => item.authored !== false).map(item => `${item.id}:${item.complete !== false}`)
+        ].sort().join("|");
+        if (signature !== state.supplyTopologySignature) {
+          state.supplyTopologySignature = signature;
+          state.supplyNetwork.invalidateTopology();
+        }
+        state.supplyNetwork.rebuild({
+          structures: state.structures,
+          economicNodes: state.economicNodes,
+          tradeRoutes: state.tradeRoutes,
+          players: state.players
+        });
+      }
+
       function economyTick(players = state.players) {
+        refreshSupplyNetwork();
         for (const player of players) {
           updatePlayerForceCommitment(player);
           const unitCap = desiredFieldStrengthFor(player);
@@ -9057,6 +9179,7 @@ import {
           const unit = unitCandidate?.alive ? unitCandidate : null;
           if (unit) {
             unit.ammo = clamp(unit.ammo + (convoy.cargo.ammunition || 0) * 2, 0, unit.maxAmmo);
+            synchronizeAmmoState(unit);
             unit.medicalReserve = (unit.medicalReserve || 0) + (convoy.cargo.medical || 0);
             unit.rations = (unit.rations || 0) + (convoy.cargo.food || 0);
             unit.fuelReserve = (unit.fuelReserve || 0) + (convoy.cargo.fuel || 0);
@@ -9391,7 +9514,6 @@ import {
         const race = player.race;
         const ecology = state.factionEcology?.[player.id] || {};
         const shortages = new Set(economyFor(player.id).shortages || []);
-        const usableZoneResources = new Set(economyFor(player.id).zoneResources || []);
         const usableActiveResources = new Set(economyFor(player.id).activeResources || []);
         const options = [];
         for (const key of candidates) {
@@ -9399,8 +9521,7 @@ import {
           const terrain = terrainAt(point);
           if (["deepwater", "lava", "cliff", "mountain"].includes(terrain.type)) continue;
           const road = nearestRoadSegment(point, TERRITORY_CELL_SIZE * 0.78);
-          const resourceNodes = strategicCellIndex.resourcesNear(point, TERRITORY_CELL_SIZE * 0.9)
-            .filter(node => usableZoneResources.has(node.resourceType));
+          const resourceNodes = [];
           const economicNodes = strategicCellIndex.landmarksNear(point, TERRITORY_CELL_SIZE * 0.9);
           const localStructures = strategicCellIndex.structuresNear(point, TERRITORY_CELL_SIZE * 0.8);
           const localUnits = strategicCellIndex.unitsNear(point, TERRITORY_CELL_SIZE);
@@ -12471,7 +12592,7 @@ import {
         set("temporarySupplyRoutes", state.supplyRoutes.filter(route => route.active).length);
         set("convoyHistory", state.routeHistory.convoy.length);
         set("roadHistory", state.routeHistory.road.length);
-        set("phase11ZoneManager", "dynamic-polygonal");
+        set("phase11ZoneManager", "legacy-read-only");
         set("phase13RouteAuthority", "ai-supply-only;map-authored-trade");
         set("depletedNodes", state.resourceZones.filter(zone => zone.remaining <= 0).length);
         set("projectilePool", state.projectilePool.length);
@@ -12497,6 +12618,11 @@ import {
         set("forceCommitment", state.players.map(player => `${player.id}:${player.forceState?.commitmentStage || "contact"}:${Math.round((player.forceState?.commitment || 0.35) * 100)}`).join("|"));
         set("chaosOperations", state.players.filter(player => player.chaosStrategy).map(player => `${player.id}:${player.chaosStrategy.phase}:${player.chaosStrategy.profileId}`).join("|"));
         set("economyProfiles", state.players.map(player => `${player.id}:${economyFor(player.id).profileId}:${economyFor(player.id).activeResources.join(",")}`).join("|"));
+        const producers = state.structures.filter(structure => productionDefinitionForStructure(playerFor(structure.faction), structure));
+        set("productionNetwork", `${producers.filter(structure => state.supplyNetwork.connectionFor(structure).connected).length}/${producers.length};rebuilds:${state.supplyNetwork.rebuildCount}`);
+        set("producerOutput", producers.reduce((sum, structure) => sum + (structure.productionState?.totalProduced || 0), 0).toFixed(1));
+        set("economySecurity", state.players.map(player => `${player.id}:${player.economySecurity?.safe ? "safe" : "guard"}:${Math.round((player.economySecurity?.guardCoverage || 0) * 100)}`).join("|"));
+        set("ammoState", `retreats:${state.units.filter(unit => unit.retreatReason === "ammo").length};reloading:${state.units.filter(unit => (unit.weaponState?.reloadRemaining || 0) > 0).length};requests:${Object.values(state.economies).reduce((sum, economy) => sum + economy.queue.filter(item => item.type === "resupply").length, 0)}`);
         set("telemetryIntervalMs", runtimeTelemetry.intervalMs);
       }
 
@@ -12921,6 +13047,10 @@ import {
       function startSimulation() {
         root.classList.remove("is-configuring", "is-editing");
         canvas.style.cursor = "crosshair";
+        const migration = migrateLegacyResourceZones({ resourceZones: state.resourceZones, structures: state.structures, carriers: state.units, players: state.players });
+        state.resourceZones = migration.resourceZones;
+        state.economyMigrationDiagnostics.push(...migration.diagnostics);
+        state.selectedResourceZoneId = null;
         state.economyZoneManager.adopt(state.resourceZones);
         rebuildStrategicTerritorySystem();
         els.victoryScreen.hidden = true;
@@ -12982,7 +13112,6 @@ import {
             } : null
           })),
           features: state.features.filter(feature => !feature.deleted && !feature.resourceNode).map(feature => scaleFeatureToTestMap(feature, scaleX, scaleY)),
-          resourceZones: state.resourceZones.map(zone => serializeResourceZone(zone, scaleX, scaleY)),
           economicNodes: state.economicNodes.map(node => serializeEconomicNode(node, scaleX, scaleY)),
           tradeRoutes: state.tradeRoutes.map(route => serializeTradeRoute(route, scaleX, scaleY))
         };
@@ -13061,13 +13190,16 @@ import {
         state.clock = { ...state.clock, ...(payload.clock || {}), elapsedSeconds: Number(payload.clock?.elapsedSeconds) || 0 };
         state.economicOverlay = { ...state.economicOverlay, ...(payload.economicOverlay || {}) };
         resetBattle("custom", payload.features.filter(feature => !feature.resourceNode).map(feature => scaleFeatureToTestMap(feature, loadScaleX, loadScaleY)));
-        state.resourceZones = (payload.resourceZones || []).map((zone, index) => createResourceZone(
+        const legacyResourceZones = (payload.resourceZones || []).map((zone, index) => createResourceZone(
           zone.id || `resource-zone-${index + 1}`,
           { x: 0, y: 0 },
           { ...zone, points: (zone.points || []).map(point => ({ x: clamp(point.x * loadScaleX, 0, TEST_MAP_WIDTH), y: clamp(point.y * loadScaleY, 0, TEST_MAP_HEIGHT) })) }
         ));
-        state.nextResourceZoneId = state.resourceZones.length + 1;
-        state.selectedResourceZoneId = state.resourceZones[0]?.id || null;
+        const migration = migrateLegacyResourceZones({ resourceZones: legacyResourceZones, structures: state.structures, carriers: state.units, players: state.players });
+        state.resourceZones = migration.resourceZones;
+        state.economyMigrationDiagnostics = migration.diagnostics;
+        state.nextResourceZoneId = 1;
+        state.selectedResourceZoneId = null;
         state.economicNodes = (payload.economicNodes || []).map((node, index) => createEconomicNode(
           node.id || `economic-node-${index + 1}`,
           { x: clamp((node.x ?? node.position?.x ?? 0) * loadScaleX, 0, TEST_MAP_WIDTH), y: clamp((node.y ?? node.position?.y ?? 0) * loadScaleY, 0, TEST_MAP_HEIGHT) },

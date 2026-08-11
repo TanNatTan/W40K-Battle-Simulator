@@ -5,6 +5,7 @@ export const ARMY_ROLE_PRIORITY = Object.freeze([
   "capture",
   "territory-defense",
   "base-defense",
+  "economy-defense",
   "reinforcement",
   "reconnaissance",
   "route-security",
@@ -33,6 +34,7 @@ export function calculateArmyRoleBudget(context = {}, squadCount = Number(contex
     capture: Object.freeze({ priority: 2, min: !emergency && count >= 5 ? 1 : 0, max: Math.min(count, Math.max(count ? 1 : 0, Math.ceil(count * 0.2))) }),
     "territory-defense": Object.freeze({ priority: 3, min: 0, max: Math.min(count, emergency ? 3 : 2) }),
     "base-defense": Object.freeze({ priority: 3, min: emergency ? Math.min(2, count) : 0, max: Math.min(count, emergency ? 3 : 2) }),
+    "economy-defense": Object.freeze({ priority: 3, min: clamp01(context.economyThreat) > 0.25 ? Math.min(1, count) : 0, max: Math.min(count, 2) }),
     reinforcement: Object.freeze({ priority: 4, min: 0, max: Math.min(count, 3) }),
     reconnaissance: Object.freeze({ priority: 5, min: 0, max: Math.min(count, 2) }),
     "route-security": Object.freeze({ priority: 6, min: 0, max: Math.min(count, 2) }),
@@ -78,6 +80,7 @@ export function allocateArmyRoles({ squads = [], membersBySquad = new Map(), con
   // P1 is allocated before every other battlefield responsibility.
   takeBest("offensive", Math.min(available.length, budget.offensive.min));
   if (budget.emergency) takeBest("base-defense", Math.min(available.length, budget["base-defense"].min));
+  takeBest("economy-defense", Math.min(available.length, budget["economy-defense"].min));
   takeBest("capture", Math.min(available.length, budget.capture.min));
 
   while (available.length) {

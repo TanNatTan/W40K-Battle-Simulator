@@ -27,7 +27,7 @@ export function ensureResourceCarrierState(carrier, assignment = {}) {
   return carrier.logisticsState;
 }
 
-export function assignResourceCarrier(carrier, { sourceKind = "resource-zone", sourceId, destinationId = null, resourceType } = {}) {
+export function assignResourceCarrier(carrier, { sourceKind = "production-building", sourceId, destinationId = null, resourceType } = {}) {
   return ensureResourceCarrierState(carrier, {
     sourceKind,
     sourceId,

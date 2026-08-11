@@ -13,8 +13,9 @@ import {
 
 const member = (overrides = {}) => ({ hp: 100, maxHp: 100, morale: 0.8, fatigue: 0.1, ammo: 8, maxAmmo: 10, speed: 22, damage: 14, range: 120, experience: 45, role: "trooper", ...overrides });
 
-test("all twelve squad responsibilities exist and readiness reflects casualties", () => {
-  assert.equal(SQUAD_ROLES.length, 12);
+test("all thirteen squad responsibilities include economy defense and readiness reflects casualties", () => {
+  assert.equal(SQUAD_ROLES.length, 13);
+  assert.ok(SQUAD_ROLES.includes("economy-defense"));
   assert.ok(squadReadiness([member(), member()], 2) > squadReadiness([member({ hp: 20 })], 4));
 });
 
