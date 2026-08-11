@@ -16,24 +16,24 @@ function combatMember(index = 0) {
   return { id: `u-${index}`, role: "trooper", hp: 100, maxHp: 100, damage: 16, range: 120, speed: 22, morale: 0.8, ammo: 20, maxAmmo: 20, experience: 30 };
 }
 
-test("P1 offense receives the army majority before lower-priority roles", () => {
+test("ordinary offense keeps a working majority after guard floors", () => {
   const squads = Array.from({ length: 12 }, (_, index) => ({ id: `s-${index}`, readiness: 0.9 }));
   const membersBySquad = new Map(squads.map((squad, index) => [squad.id, [combatMember(index)]]));
   const context = { squadCount: 12, baseThreat: 0.1, territoryThreat: 0.1, reinforcementThreat: 0.1, forceDisadvantage: 0.1 };
   const budget = calculateArmyRoleBudget(context, squads.length);
-  assert.equal(budget.offensive.min, 8);
+  assert.equal(budget.offensive.min, 6);
   const result = allocateArmyRoles({ squads, membersBySquad, context, demands: { reserve: 200, reconnaissance: 180, capture: 160, offensive: 20 } });
-  assert.ok(result.counts.offensive >= 8);
+  assert.ok(result.counts.offensive >= 6);
   assert.ok(result.counts.capture >= 1);
   assert.ok(result.counts.reconnaissance <= 2);
   assert.ok(result.counts.reserve <= 3);
 });
 
-test("a base emergency can steal defenders without collapsing offense", () => {
+test("a base emergency assigns defenders before retaining a smaller offense", () => {
   const context = { squadCount: 12, baseThreat: 1, territoryThreat: 0.8, reinforcementThreat: 0.8, forceDisadvantage: 0.7 };
   const budget = calculateArmyRoleBudget(context, 12);
   assert.equal(budget.emergency, true);
-  assert.equal(budget.offensive.min, 5);
+  assert.equal(budget.offensive.min, 3);
   assert.equal(budget["base-defense"].min, 2);
 });
 

@@ -1,14 +1,14 @@
 import { SQUAD_ROLES, roleSuitability } from "./SquadRoleSystem.js";
 
 export const ARMY_ROLE_PRIORITY = Object.freeze([
-  "offensive",
-  "capture",
-  "territory-defense",
   "base-defense",
   "economy-defense",
+  "route-security",
+  "territory-defense",
+  "offensive",
+  "capture",
   "reinforcement",
   "reconnaissance",
-  "route-security",
   "escort",
   "medical-support",
   "siege",
@@ -27,17 +27,24 @@ export function calculateArmyRoleBudget(context = {}, squadCount = Number(contex
   );
   const emergency = danger >= 0.72;
   const count = Math.max(0, Math.floor(squadCount));
+  const readiness = context.macroReadiness || {};
+  const infrastructureExists = readiness.criticalProductionReady > 0 || context.criticalProducerNeed > 0;
+  const economyUnready = readiness.headquartersReady === false || readiness.criticalProductionReady < 0.5 || readiness.expansionAllowed === false;
+  const aggressive = Number(context.aggression) >= 70 && readiness.aggressiveOverride;
+  const baseGuardFloor = count && (emergency || economyUnready || infrastructureExists) ? Math.min(count, emergency ? 2 : 1) : 0;
+  const economyGuardFloor = count > baseGuardFloor && (clamp01(context.economyThreat) > 0.25 || economyUnready && infrastructureExists) ? 1 : 0;
+  const offensiveRatio = emergency ? 0.2 : economyUnready && !aggressive ? 0.28 : aggressive ? 0.58 : 0.5;
   return Object.freeze({
     danger,
     emergency,
-    offensive: Object.freeze({ priority: 1, min: Math.min(count, Math.max(Math.min(2, count), Math.ceil(count * (emergency ? 0.35 : 0.62)))), max: count }),
-    capture: Object.freeze({ priority: 2, min: !emergency && count >= 5 ? 1 : 0, max: Math.min(count, Math.max(count ? 1 : 0, Math.ceil(count * 0.2))) }),
+    offensive: Object.freeze({ priority: 4, min: Math.min(count, Math.ceil(count * offensiveRatio)), max: count }),
+    capture: Object.freeze({ priority: 5, min: !emergency && readiness.expansionAllowed !== false && count >= 5 ? 1 : 0, max: Math.min(count, Math.max(count ? 1 : 0, Math.ceil(count * 0.2))) }),
     "territory-defense": Object.freeze({ priority: 3, min: 0, max: Math.min(count, emergency ? 3 : 2) }),
-    "base-defense": Object.freeze({ priority: 3, min: emergency ? Math.min(2, count) : 0, max: Math.min(count, emergency ? 3 : 2) }),
-    "economy-defense": Object.freeze({ priority: 3, min: clamp01(context.economyThreat) > 0.25 ? Math.min(1, count) : 0, max: Math.min(count, 2) }),
+    "base-defense": Object.freeze({ priority: 1, min: baseGuardFloor, max: Math.min(count, emergency ? 3 : 2) }),
+    "economy-defense": Object.freeze({ priority: 2, min: Math.min(economyGuardFloor, Math.max(0, count - baseGuardFloor)), max: Math.min(count, 2) }),
     reinforcement: Object.freeze({ priority: 4, min: 0, max: Math.min(count, 3) }),
     reconnaissance: Object.freeze({ priority: 5, min: 0, max: Math.min(count, 2) }),
-    "route-security": Object.freeze({ priority: 6, min: 0, max: Math.min(count, 2) }),
+    "route-security": Object.freeze({ priority: 3, min: clamp01(context.routeThreat) > 0.55 && count > baseGuardFloor + economyGuardFloor ? 1 : 0, max: Math.min(count, 2) }),
     escort: Object.freeze({ priority: 7, min: 0, max: Math.min(count, 2) }),
     "medical-support": Object.freeze({ priority: 7, min: 0, max: Math.min(count, 2) }),
     siege: Object.freeze({ priority: 7, min: 0, max: Math.min(count, 2) }),
@@ -77,10 +84,12 @@ export function allocateArmyRoles({ squads = [], membersBySquad = new Map(), con
     }
   };
 
-  // P1 is allocated before every other battlefield responsibility.
-  takeBest("offensive", Math.min(available.length, budget.offensive.min));
-  if (budget.emergency) takeBest("base-defense", Math.min(available.length, budget["base-defense"].min));
+  // Guard floors are authoritative. Aggression can reduce reserve requirements,
+  // but cannot erase protection for headquarters and critical production.
+  takeBest("base-defense", Math.min(available.length, budget["base-defense"].min));
   takeBest("economy-defense", Math.min(available.length, budget["economy-defense"].min));
+  takeBest("route-security", Math.min(available.length, budget["route-security"].min));
+  takeBest("offensive", Math.min(available.length, budget.offensive.min));
   takeBest("capture", Math.min(available.length, budget.capture.min));
 
   while (available.length) {

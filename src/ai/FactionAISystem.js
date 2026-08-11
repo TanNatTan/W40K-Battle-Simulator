@@ -89,6 +89,25 @@ export function scoreStrategicChoices(profile, context = {}, learnedWeights = {}
     logistics: (20 + shortage * 62 + routeRisk * 42) * weights.logistics,
     regroup: 12 + casualtyRatio * 78 + Math.max(0, enemyStrength - ownStrength) * 54
   };
+  const readiness = context.macroReadiness;
+  if (readiness) {
+    if (readiness.hqEmergency || readiness.headquartersReady === false) {
+      scores.defend += 180;
+      scores.logistics += 80;
+      scores.attack *= 0.12;
+      scores.expand *= 0.05;
+    } else if (readiness.criticalProductionReady < 0.5) {
+      scores.logistics += 95 * (1 - readiness.criticalProductionReady);
+      scores.defend += 45;
+      scores.attack *= readiness.aggressiveOverride ? 0.72 : 0.35;
+      scores.expand *= readiness.aggressiveOverride ? 0.7 : 0.18;
+    } else if (!readiness.expansionAllowed) {
+      scores.defend += 55;
+      scores.logistics += 42;
+      scores.expand *= 0.16;
+      scores.attack *= 0.5;
+    }
+  }
   const objectiveBias = context.objectiveBias || {};
   for (const choice of STRATEGIC_CHOICES) {
     scores[choice] *= clamp(objectiveBias[choice] ?? 1, 0.35, 1.8);

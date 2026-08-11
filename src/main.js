@@ -9,6 +9,7 @@ import { SCALE_PRESETS, WorkBudget, scalePresetFor } from "./performance/ScaleSy
 import { FACTION_GAMEPLAY_BRANCHES, createFactionGameplayState } from "./factions/DistinctiveGameplaySystem.js";
 import { Profiler } from "./diagnostics/Profiler.js";
 import { RuntimeTelemetry } from "./diagnostics/RuntimeTelemetry.js";
+import { ConstructionTelemetry } from "./diagnostics/ConstructionTelemetry.js";
 import { SnapshotRingBuffer } from "./replay/SnapshotRingBuffer.js";
 import { runFixedStepBudget } from "./simulation/FixedStepRunner.js";
 import { dayNightDarkness, globalDayNightVisibility } from "./rendering/DayNightSystem.js";
@@ -31,8 +32,10 @@ import { RESOURCE_CARRIER_STATES, assignResourceCarrier, desiredResourceCarriers
 import { SupplyNetwork } from "./logistics/SupplyNetwork.js";
 import { PRODUCTION_BUILDING_DEFINITIONS, productionDefinitionForStructure, productionDefinitionsFor, validateProductionCatalog } from "./economy/ProductionBuildingCatalog.js";
 import { updateProductionBuilding } from "./economy/ProductionSystem.js";
+import { createStartingHeadquarters, spawnZoneCentroid } from "./economy/BattleBootstrapSystem.js";
+import { normalizeConstructionProject, selectConstructionProject } from "./economy/ConstructionPlanningSystem.js";
 import { LEGACY_RESOURCE_ZONE_DIAGNOSTIC, migrateLegacyResourceZones } from "./economy/EconomyMigration.js";
-import { ECONOMY_SECURITY_TUNING, assessEconomySecurity, canDispatchEconomicExpedition, criticalProducerClusters, updateEconomySecurityMemory } from "./ai/EconomySecurityPolicy.js";
+import { ECONOMY_SECURITY_TUNING, assessEconomySecurity, assessMacroReadiness, canDispatchEconomicExpedition, criticalProducerClusters, updateEconomySecurityMemory } from "./ai/EconomySecurityPolicy.js";
 
 globalThis.AWTSystems = Object.freeze({
   EconomyZoneManager,
@@ -56,6 +59,7 @@ globalThis.AWTSystems = Object.freeze({
   createFactionGameplayState,
   Profiler,
   RuntimeTelemetry,
+  ConstructionTelemetry,
   SnapshotRingBuffer,
   runFixedStepBudget,
   dayNightDarkness,
@@ -121,10 +125,15 @@ globalThis.AWTSystems = Object.freeze({
   productionDefinitionsFor,
   validateProductionCatalog,
   updateProductionBuilding,
+  createStartingHeadquarters,
+  spawnZoneCentroid,
+  normalizeConstructionProject,
+  selectConstructionProject,
   LEGACY_RESOURCE_ZONE_DIAGNOSTIC,
   migrateLegacyResourceZones,
   ECONOMY_SECURITY_TUNING,
   assessEconomySecurity,
+  assessMacroReadiness,
   canDispatchEconomicExpedition,
   criticalProducerClusters,
   updateEconomySecurityMemory

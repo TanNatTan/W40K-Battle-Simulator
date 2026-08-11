@@ -229,9 +229,12 @@ export class TerritorySystem {
         owner: null,
         state: CELL_STATES.neutral,
         objective: null,
+        objectiveId: null,
+        objectiveStrategicValue: 0,
         resources: { resourceAccess: 0, roadControl: 0, supplyConnected: false },
         siege: null,
         lastOwner: null,
+        previousOwnerId: null,
         isolatedTicks: 0,
         isBase: false
       };
@@ -265,7 +268,11 @@ export class TerritorySystem {
     for (const objective of options.objectives || []) {
       if (!OBJECTIVE_TYPES.includes(objective.type)) continue;
       const cell = objective.cellId == null ? this.byId.get(this.partition.closestCell(objective).id) : this.byId.get(objective.cellId);
-      if (cell) cell.objective = objective.type;
+      if (cell) {
+        cell.objective = objective.type;
+        cell.objectiveId = objective.sourceId || objective.id || `objective:${cell.id}`;
+        cell.objectiveStrategicValue = Number(objective.strategicValue) || (OBJECTIVE_EFFECTS[objective.type]?.control || 1) * 20;
+      }
     }
     for (const zone of options.resourceZones || []) {
       const cell = this.byId.get(this.partition.closestCell(zone).id);
@@ -304,7 +311,10 @@ export class TerritorySystem {
   }
 
   _setOwner(cell, owner, state) {
-    if (cell.owner && cell.owner !== owner) cell.lastOwner = cell.owner;
+    if (cell.owner && cell.owner !== owner) {
+      cell.lastOwner = cell.owner;
+      cell.previousOwnerId = cell.owner;
+    }
     cell.owner = owner;
     cell.state = state;
     cell.siege = null;
@@ -349,6 +359,7 @@ export class TerritorySystem {
     if (!cell?.owner) return false;
     const owner = cell.owner;
     cell.lastOwner = owner;
+    cell.previousOwnerId = owner;
     cell.owner = null;
     cell.state = CELL_STATES.neutral;
     cell.siege = null;
@@ -370,7 +381,15 @@ export class TerritorySystem {
     const cell = this.byId.get(cellId);
     if (!cell || cell.owner === challengerId) return false;
     cell.state = CELL_STATES.contested;
-    cell.siege = { attackerId: challengerId, progress: 1, unitsAssigned: 0 };
+    cell.siege = {
+      attackerId: challengerId,
+      progress: 1,
+      unitsAssigned: 0,
+      effectiveCaptureSeconds: this.unitConfig.baseCaptureSeconds,
+      startedAt: this.simSeconds,
+      contested: false,
+      eligibleForRecaptureBonus: false
+    };
     this._record("contest", cell, challengerId, cell.owner ? `siege against ${cell.owner}` : "claiming neutral territory");
     return this.resolveContest(cellId);
   }
@@ -387,6 +406,7 @@ export class TerritorySystem {
     if (!cell?.owner || cell.isBase) return false;
     const owner = cell.owner;
     cell.lastOwner = owner;
+    cell.previousOwnerId = owner;
     cell.owner = null;
     cell.state = CELL_STATES.abandoned;
     cell.siege = null;
@@ -517,6 +537,24 @@ export class TerritorySystem {
     }
   }
 
+  _effectiveCaptureSeconds(cell, attackerId, oppositionPower = 0) {
+    const eligible = attackerId != null && cell.previousOwnerId === attackerId && cell.owner !== attackerId;
+    return eligible && oppositionPower <= 0 ? this.unitConfig.baseCaptureSeconds * 0.5 : this.unitConfig.baseCaptureSeconds;
+  }
+
+  _createSiege(cell, attackerId, unitsAssigned, oppositionPower = 0) {
+    const eligibleForRecaptureBonus = cell.previousOwnerId === attackerId && cell.owner !== attackerId && oppositionPower <= 0;
+    return {
+      attackerId,
+      progress: 0,
+      unitsAssigned,
+      effectiveCaptureSeconds: this._effectiveCaptureSeconds(cell, attackerId, oppositionPower),
+      startedAt: this.simSeconds,
+      contested: oppositionPower > 0,
+      eligibleForRecaptureBonus
+    };
+  }
+
   _updateSieges(dtSeconds) {
     const forces = new Map();
     for (const unit of this.units) {
@@ -542,11 +580,14 @@ export class TerritorySystem {
         }
       }
       if (!cell.siege || cell.siege.attackerId !== attackerId) {
-        cell.siege = { attackerId, progress: 0, unitsAssigned };
+        cell.siege = this._createSiege(cell, attackerId, unitsAssigned);
       }
       cell.state = CELL_STATES.contested;
       cell.siege.unitsAssigned = unitsAssigned;
-      const rate = (1 / this.unitConfig.baseCaptureSeconds)
+      cell.siege.contested = false;
+      cell.siege.eligibleForRecaptureBonus = cell.previousOwnerId === attackerId && cell.owner !== attackerId;
+      cell.siege.effectiveCaptureSeconds = this._effectiveCaptureSeconds(cell, attackerId, 0);
+      const rate = (1 / cell.siege.effectiveCaptureSeconds)
         * (1 + this.unitConfig.perUnitBonus * Math.max(0, unitsAssigned - 1));
       cell.siege.progress = Math.min(1, cell.siege.progress + rate * dtSeconds);
       if (cell.siege.progress >= 1) this._resolveSiege(cell);
@@ -605,6 +646,9 @@ export class TerritorySystem {
       const opposition = Math.max(defenderPower, runnerUp?.[1] || 0);
       if (!leading || leading[1] <= opposition) {
         if (cell.siege) {
+          cell.siege.contested = groups.size > 1;
+          cell.siege.eligibleForRecaptureBonus = false;
+          cell.siege.effectiveCaptureSeconds = this.unitConfig.baseCaptureSeconds;
           cell.siege.progress = Math.max(0, cell.siege.progress - elapsed / this.unitConfig.baseCaptureSeconds);
           if (cell.siege.progress <= 0) {
             cell.siege = null;
@@ -616,11 +660,14 @@ export class TerritorySystem {
       const [attackerId, attackerPower] = leading;
       const effectiveUnits = Math.min(this.unitConfig.maxUnitsPerTarget, Math.max(1, attackerPower - opposition * 0.75));
       if (!cell.siege || cell.siege.attackerId !== attackerId) {
-        cell.siege = { attackerId, progress: 0, unitsAssigned: effectiveUnits };
+        cell.siege = this._createSiege(cell, attackerId, effectiveUnits, opposition);
       }
       cell.state = CELL_STATES.contested;
       cell.siege.unitsAssigned = effectiveUnits;
-      const rate = (1 / this.unitConfig.baseCaptureSeconds)
+      cell.siege.contested = opposition > 0;
+      cell.siege.eligibleForRecaptureBonus = cell.previousOwnerId === attackerId && cell.owner !== attackerId && opposition <= 0;
+      cell.siege.effectiveCaptureSeconds = this._effectiveCaptureSeconds(cell, attackerId, opposition);
+      const rate = (1 / cell.siege.effectiveCaptureSeconds)
         * (1 + this.unitConfig.perUnitBonus * Math.max(0, effectiveUnits - 1));
       cell.siege.progress = Math.min(1, cell.siege.progress + rate * elapsed);
       if (cell.siege.progress >= 1) this._resolveSiege(cell);
@@ -696,15 +743,31 @@ export class TerritorySystem {
     return this.units.filter(unit => unit.playerId === playerId);
   }
 
+  objectivePublicStates() {
+    return this.cells.filter(cell => cell.objective).map(cell => Object.freeze({
+      objectiveId: cell.objectiveId || `objective:${cell.id}`,
+      territoryCellId: cell.id,
+      type: cell.objective,
+      ownerId: cell.owner,
+      state: cell.siege ? (cell.siege.contested ? "contested" : "capturing") : cell.owner ? "controlled" : "neutral",
+      attackerId: cell.siege?.attackerId || null,
+      captureProgress: cell.siege?.progress || 0,
+      recaptureBonus: Boolean(cell.siege?.eligibleForRecaptureBonus),
+      strategicValue: cell.objectiveStrategicValue,
+      position: Object.freeze({ ...cell.centroid })
+    }));
+  }
+
   toJSON() {
     return {
-      version: 2,
+      version: 3,
       tickCount: this.tickCount,
       simSeconds: this.simSeconds,
       cells: this.cells.map(cell => ({
-        id: cell.id, owner: cell.owner, state: cell.state, objective: cell.objective,
+        id: cell.id, owner: cell.owner, state: cell.state, objective: cell.objective, objectiveId: cell.objectiveId,
+        objectiveStrategicValue: cell.objectiveStrategicValue,
         resources: { ...cell.resources }, siege: cell.siege ? { ...cell.siege } : null,
-        lastOwner: cell.lastOwner, isolatedTicks: cell.isolatedTicks, isBase: cell.isBase
+        lastOwner: cell.lastOwner, previousOwnerId: cell.previousOwnerId, isolatedTicks: cell.isolatedTicks, isBase: cell.isBase
       })),
       units: this.units.map(unit => ({
         id: unit.id,
@@ -733,6 +796,8 @@ export class TerritorySystem {
       cell.owner = saved.owner ?? null;
       cell.state = saved.state || CELL_STATES.neutral;
       cell.objective = saved.objective ?? null;
+      cell.objectiveId = saved.objectiveId ?? (cell.objective ? `objective:${cell.id}` : null);
+      cell.objectiveStrategicValue = Number(saved.objectiveStrategicValue) || 0;
       cell.resources = saved.resources ? { ...saved.resources } : {
         resourceAccess: Number(saved.resourceAccess) || 0,
         roadControl: Number(saved.roadControl) || 0,
@@ -744,6 +809,7 @@ export class TerritorySystem {
         unitsAssigned: 0
       } : null;
       cell.lastOwner = saved.lastOwner ?? null;
+      cell.previousOwnerId = saved.previousOwnerId ?? saved.lastOwner ?? null;
       cell.isolatedTicks = Number(saved.isolatedTicks) || 0;
       cell.isBase = Boolean(saved.isBase);
     }
