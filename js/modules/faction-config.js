@@ -27,6 +27,18 @@ export const factionConfig = Object.freeze({
         vehicle: ["Chimera", "Taurox", "Sentinel", "Hellhound", "Basilisk", "Manticore", "Hydra", "Leman Russ", "Rogal Dorn", "Baneblade"]
       }
     },
+    mechanicus: {
+      deployment: "Forge-world cohort, armored crawler columns, and noospheric relays",
+      buildings: { outpost: "Forge Temple", barracks: "Skitarii Maniple Foundry", workshop: "Cybernetica Workshop", researchcenter: "Noosphere Archive", fieldhospital: "Tech-Priest Reclamation Bay", generator: "Plasma Generatorium", warehouse: "Forge Vault", refinery: "Factorum Refinery", dropbay: "Macro-Lander Pad", observationtower: "Noospheric Relay", bunker: "Aegis Bulwark", turret: "Onager Defense Battery" },
+      roster: {
+        builder: ["Tech-Priest Enginseer", "Construction Servitor"],
+        supply: ["Servitor Cargo Cohort", "Triaros Supply Crawler"],
+        trooper: ["Skitarii Ranger", "Skitarii Vanguard", "Kataphron Breacher", "Sicarian Infiltrator"],
+        scout: ["Sydonian Dragoon", "Pteraxii Skystalker"], medic: ["Tech-Priest Reclamation Adept"], engineer: ["Tech-Priest Enginseer"],
+        commander: ["Skitarii Alpha", "Tech-Priest Dominus", "Tech-Priest Manipulus"], standard: ["Data-Tether Bearer"],
+        vehicle: ["Onager Dunecrawler", "Skorpius Dunerider", "Skorpius Disintegrator", "Kastelan Robot"]
+      }
+    },
     chaos: {
       deployment: "Warp beacons, corrupted drop pods, summoning",
       buildings: { outpost: "Dark Citadel", barracks: "Cult Mustering Hall", workshop: "Armoury of Damnation", researchcenter: "Forbidden Archive", fieldhospital: "Sacrificial Shrine", generator: "Warp Nexus", warehouse: "Ammunition Cache", refinery: "Dark Forge", dropbay: "Warp Beacon", observationtower: "Corruption Spire", bunker: "Chaos Bastion", turret: "Daemon Gun Platform" },

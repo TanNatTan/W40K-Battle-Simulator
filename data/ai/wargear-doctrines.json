@@ -13,6 +13,7 @@
     "ultramarines": { "preferences": { "bolt-rifle": 1.0, "plasma-gun": 0.8, "flamer": 0.6, "meltagun": 0.7, "heavy-bolter": 0.7 } },
     "imperial_fists": { "preferences": { "bolt-rifle": 1.1, "heavy-bolter": 1.4, "multi-melta": 0.9 } },
     "salamanders": { "preferences": { "flamer": 1.5, "meltagun": 1.5, "multi-melta": 1.4, "bolt-rifle": 0.6 } },
+    "emerald_suns": { "preferences": { "stalker-bolt-rifle": 1.45, "heavy-bolter": 1.25, "bolt-rifle": 1.15, "plasma-gun": 1.05, "meltagun": 0.85, "flamer": 0.65 } },
     "blood_angels": { "preferences": { "flamer": 1.1, "meltagun": 1.2, "plasma-gun": 0.8 } },
     "white_scars": { "preferences": { "bolt-rifle": 0.9, "plasma-gun": 1.0, "meltagun": 1.0, "heavy-bolter": 0.2, "multi-melta": 0.2 } },
     "raven_guard": { "preferences": { "stalker-bolt-rifle": 1.6, "plasma-gun": 0.8, "meltagun": 0.7 } },

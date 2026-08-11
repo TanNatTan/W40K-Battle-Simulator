@@ -15,6 +15,7 @@
     "Ultramarines": { "weights": { "defend": 1.08, "logistics": 1.02 }, "identity": { "discipline": 1.0 } },
     "Blood Angels": { "weights": { "attack": 1.16, "melee": 1.28, "defend": 0.84 } },
     "Salamanders": { "weights": { "defend": 1.2, "logistics": 1.08 }, "identity": { "rescue": 0.95 } },
+    "Emerald Suns": { "behavior": { "aggression": 54, "caution": 72, "expansion": 51, "economy": 61 }, "weights": { "attack": 1.02, "defend": 1.18, "expand": 0.92, "research": 1.06, "logistics": 1.14, "regroup": 1.12, "ranged": 1.27, "melee": 0.82, "vehicles": 1.08 }, "identity": { "controlledEscalation": 1.0, "attritionDefense": 0.9, "forcePreservation": 0.96, "geneSeedPreservation": 1.0, "mobility": 0.76 } },
     "White Scars": { "weights": { "attack": 1.1, "vehicles": 1.2, "expand": 1.08 }, "identity": { "mobility": 1.0 } },
     "Krieg": { "weights": { "attack": 1.08, "defend": 1.18, "logistics": 1.14 }, "identity": { "attrition": 1.0 } },
     "Cadian": { "weights": { "defend": 1.22, "ranged": 1.12 }, "identity": { "discipline": 0.95 } },

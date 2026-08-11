@@ -47,6 +47,9 @@ import { chooseRecoveryPoint, clearNavigationState, recoveryRingCandidates } fro
 import { IDEAL_BUILDERS, constructionRefund, constructionSiteKey, createConstructionState, desiredBuildersFor, evaluateConstructionCancellation } from "./construction/ConstructionSystem.js";
 import { chooseBuilderAssignment, scoreProjectForBuilder } from "./construction/BuilderAssignmentSystem.js";
 import { SUPPLY_TRANSPORT_SPEED, convoyBaseSpeed, convoyEffectiveSpeed, convoyMovementFactor } from "./logistics/ConvoyMovementSystem.js";
+import { BUILDER_PRODUCTION, builderProducerFor, builderProductionPriority, builderProductionProfileFor, desiredBuilderCount } from "./construction/BuilderProductionSystem.js";
+import { constrainPointToSpawnZone, structureFitsInsideSpawnZone, unitFitsInsideSpawnZone } from "./construction/BuilderContainmentSystem.js";
+import { EMERALD_SUNS, applyChapterBattleAdaptation, chapterMedicalModifiersFor, chapterVisualDefaultsFor, isEmeraldSuns } from "./ai/SpaceMarineChapterSystem.js";
 
 globalThis.AWTSystems = Object.freeze({
   EconomyZoneManager,
@@ -196,7 +199,20 @@ globalThis.AWTSystems = Object.freeze({
   SUPPLY_TRANSPORT_SPEED,
   convoyBaseSpeed,
   convoyEffectiveSpeed,
-  convoyMovementFactor
+  convoyMovementFactor,
+  BUILDER_PRODUCTION,
+  builderProducerFor,
+  builderProductionPriority,
+  builderProductionProfileFor,
+  desiredBuilderCount,
+  constrainPointToSpawnZone,
+  structureFitsInsideSpawnZone,
+  unitFitsInsideSpawnZone,
+  EMERALD_SUNS,
+  applyChapterBattleAdaptation,
+  chapterMedicalModifiersFor,
+  chapterVisualDefaultsFor,
+  isEmeraldSuns
 });
 globalThis.AWTData ||= {};
 try {
