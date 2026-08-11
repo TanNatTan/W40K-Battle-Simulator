@@ -109,9 +109,9 @@ import {
   subfactionBuildingTypesFor
 } from "../src/factions/SubfactionBuildingSystem.js";
 import {
+  builderRepairSlotAvailable,
   claimRepairAssignment,
-  releaseStaleRepairAssignment,
-  servitorRepairSlotAvailable
+  releaseStaleRepairAssignment
 } from "../src/construction/RepairCrewSystem.js";
 import { enforceActiveForceRatio } from "../src/ai/ActiveForceSystem.js";
 import { buildingCapacityClass, constructionCapacityForCell } from "../src/territory/TerritoryConstructionSystem.js";
@@ -4146,6 +4146,103 @@ import {
         return true;
       }
 
+      function tryStartBuilderConstruction(unit) {
+        if (unit.buildCd > 0) return false;
+        const type = chooseBuilding(unit.faction);
+        if (!type) {
+          unit.status = "Evaluating";
+          unit.lastAction = "No valid economy, research, army, or gathering project is currently available.";
+          unit.buildCd = 1;
+          return false;
+        }
+        const typeCooldownUntil = playerFor(unit.faction).constructionCooldowns?.[`type:${type}`] || 0;
+        if (typeCooldownUntil > state.time) {
+          unit.status = "Replanning construction";
+          unit.lastAction = `${factionBuildingLabel(unit.faction, type)} was recently cancelled; waiting ${Math.ceil(typeCooldownUntil - state.time)}s before reconsidering it.`;
+          unit.buildCd = Math.min(2, typeCooldownUntil - state.time);
+          return false;
+        }
+        const spec = buildingCatalog[type];
+        const economy = economyFor(unit.faction);
+        const builderPlayer = playerFor(unit.faction);
+        const telemetryKey = `builder:${unit.id}`;
+        constructionTelemetry.record(telemetryKey, "selected", state.time, {
+          faction: unit.faction,
+          buildingType: type,
+          reason: builderPlayer.lastConstructionProject?.reason || "headquarters recovery"
+        });
+        const advancedOrkProject = builderPlayer.race === "Orks" && ["workshop", "researchcenter", "refinery", "dropbay", "turret", "signature"].includes(type);
+        const supervisingMek = advancedOrkProject && nearbyCombatObjects(unit, 120).units.find(other => other.alive && other.faction === unit.faction && other.role === "engineer");
+        if (advancedOrkProject && !supervisingMek) {
+          unit.status = "Haulin' for a Mek";
+          unit.lastAction = `${factionBuildingLabel(unit.faction, type)} needs a Mekboy; this Gretchin is gathering scrap and waiting for supervision.`;
+          unit.buildCd = 2;
+          return false;
+        }
+        const buildCost = calculateCost({ type: "construction", player: builderPlayer, baseCost: spec.cost });
+        const dependencyReady = !spec.requires || state.structures.some(item => item.faction === unit.faction && item.type === spec.requires && item.progress >= 1);
+        if (!dependencyReady || !canAffordCost(economy.inventory, buildCost)) {
+          constructionTelemetry.record(telemetryKey, dependencyReady ? "funding-wait" : "dependency-wait", state.time, {
+            faction: unit.faction,
+            buildingType: type,
+            blockedReason: dependencyReady ? "insufficient-resources" : `requires-${spec.requires}`
+          });
+          unit.status = "Gathering";
+          unit.lastAction = dependencyReady ? `Awaiting ${Object.entries(buildCost).filter(([resource, amount]) => (economy.inventory[resource] || 0) < amount).map(([resource, amount]) => `${Math.ceil(amount - (economy.inventory[resource] || 0))} ${economyResourceLabels[resource] || resource}`).join(" and ")} for ${spec.label}.` : `Waiting for ${buildingCatalog[spec.requires]?.label || spec.requires}.`;
+          unit.buildCd = Math.max(unit.buildCd, 0.5);
+          return false;
+        }
+
+        const site = buildingSite(unit.faction, type);
+        if (!site || !constructionAllowedAt(unit.faction, type, site)) {
+          constructionTelemetry.record(telemetryKey, "site-wait", state.time, { faction: unit.faction, buildingType: type, blockedReason: "no-connected-valid-site" });
+          unit.status = "Supply blocked";
+          unit.lastAction = "Waiting for a connected, collision-free construction site or expanded territory.";
+          unit.buildCd = 2;
+          return false;
+        }
+        for (const [resource, amount] of Object.entries(buildCost)) economy.inventory[resource] -= amount;
+        syncLegacyResources(unit.faction);
+        let structureId;
+        do structureId = `building-${state.nextBuildingId++}`;
+        while (structureById(structureId));
+        const structure = {
+          id: structureId,
+          type,
+          faction: unit.faction,
+          x: site.x,
+          y: site.y,
+          progress: 0,
+          condition: 1,
+          maxHp: spec.maxHp || 400,
+          hp: spec.maxHp || 400,
+          hitbox: { ...(spec.hitbox || { w: 28, h: 24 }) },
+          displayName: factionBuildingLabel(unit.faction, type),
+          biological: builderPlayer.race === "Tyranids",
+          constructionMethod: builderPlayer.race === "Tyranids" ? "grown bio-organism" : builderPlayer.race === "Orks" ? "scrap-built" : "constructed",
+          inventory: {},
+          alive: true,
+          createdAt: state.time,
+          leadBuilderId: unit.id,
+          contributors: { [unit.id]: 0 },
+          construction: createConstructionState({ committedResources: buildCost, now: state.time }),
+          completedAt: null
+        };
+        state.structures.push(structure);
+        constructionTelemetry.record(telemetryKey, "construction", state.time, { faction: unit.faction, buildingType: type, structureId: structure.id });
+        rebuildSpatialGrid();
+        state.navigationRevision += 1;
+        navigationPlanner.clear();
+        claimRepairAssignment(unit, null, state.time);
+        unit.buildProject = structure.id;
+        unit.status = builderPlayer.race === "Tyranids" ? "Growing bio-structure" : builderPlayer.race === "Orks" ? "Lashin' scrap together" : "Constructing";
+        addUnitLog(unit, builderPlayer.race === "Tyranids"
+          ? `The Hive Mind selected ${structure.displayName}; feeder tendrils began growing a stationary organism.`
+          : `AI selected ${structure.displayName}: ${spec.purpose} utility outweighed cost, threat, and collision risk.`);
+        incident(`${playerFor(unit.faction).faction} ${builderPlayer.race === "Tyranids" ? "began growing" : "funded"} ${structure.displayName} (${spec.purpose}).`, unit.id, "info");
+        return true;
+      }
+
       function updateBuilder(unit, dt) {
         ensureIndividualRuntime(unit);
         if (recoverBuilderInsideSpawnZone(unit)) return;
@@ -4209,39 +4306,12 @@ import {
         }
 
         const player = playerFor(unit.faction);
-        const removableObstacle = nearbyEnvironmentFeatures(unit, 110)
-          .filter(feature => feature.removable && feature.collisionState !== "cleared"
-            && builderTaskPointAllowed(unit, feature, (feature.r || 0) * 0.25)
-            && (player.race !== "Orks" || ["heavy-debris", "medium-debris", "biomass"].includes(feature.collisionProfile?.family)))
-          .sort((a, b) => distance(unit, a) - distance(unit, b))[0];
-        if (!unit.buildProject && removableObstacle) {
-          if (distance(unit, removableObstacle) > 14 + (unit.collisionRadius || 3)) moveToward(unit, removableObstacle, dt, player.race === "Orks" ? 1.1 : 0.9);
-          else {
-            const cleared = damageEnvironmentFeature(removableObstacle, dt * (8 + unit.engineering * 12), unit);
-            if (player.race === "Orks") {
-              economyFor(unit.faction).inventory.materials += dt * 0.8;
-              economyFor(unit.faction).inventory.scrap = (economyFor(unit.faction).inventory.scrap || 0) + dt * 0.8;
-              unit.status = "Lootin' scrap";
-              unit.lastAction = `Dragging usable scrap out of ${brushNames[removableObstacle.type] || "wreckage"} for da Meks.`;
-            } else if (player.race === "Tyranids") {
-              state.factionEcology[unit.faction].biomass += dt * 0.7;
-              unit.status = "Reclaiming biomass";
-              unit.lastAction = "Feeder tendrils are dissolving recoverable biomass.";
-            } else {
-              unit.status = "Clearing obstacle";
-              unit.lastAction = `Clearing ${brushNames[removableObstacle.type] || "debris"} from movement and road layers.`;
-            }
-            if (cleared) incident(`${unitLabel(unit)} cleared an environmental obstacle and updated the local route grid.`, unit.id, "info");
-          }
-          return;
-        }
-
         const repairPriority = (battleObjectivePlanFor(unit.faction).signals.preservation || 0) >= 0.7 || aiBehaviorFor(unit.faction).caution >= 70;
         releaseStaleRepairAssignment(unit, state.time);
         const availableBuildingRepairs = state.sustainmentRequests.filter(request => {
           if (request.targetType !== "building") return false;
           const target = sustainmentTargetById(request.targetId);
-          return target && servitorRepairSlotAvailable({
+          return target && target.hp < target.maxHp && builderRepairSlotAvailable({
             player,
             unit,
             request,
@@ -4261,11 +4331,7 @@ import {
         const urgentRepair = selectedBuildingRepair?.request.targetType === "building"
           && (selectedBuildingRepair.request.severity >= 0.18 || repairPriority && selectedBuildingRepair.request.severity >= 0.08)
           ? selectedBuildingRepair.target : null;
-        if (unit.buildProject && urgentRepair && (repairPriority || urgentRepair.condition < 0.3)) {
-          unit.buildProject = null;
-          unit.lastAction = `Paused construction to save ${buildingCatalog[urgentRepair.type]?.label || "an allied structure"}.`;
-        }
-        if (!unit.buildProject && !urgentRepair && unit.builderDecisionCd <= 0) {
+        if (!unit.buildProject && unit.builderDecisionCd <= 0) {
           const alliedProjects = state.structures
             .filter(item => item.alive !== false && item.progress < 1 && item.faction === unit.faction
               && item.construction?.state !== "cancelled" && distance(unit, item) < 260
@@ -4280,10 +4346,12 @@ import {
             builder: unit,
             projects: alliedProjects,
             independentScore: 55,
-            relationshipFor: project => relationshipScore(unit, unitById(project.leadBuilderId))
+            relationshipFor: project => relationshipScore(unit, unitById(project.leadBuilderId)),
+            constructionFirst: true
           });
           const alliedProject = assignment.action === "join" ? structureById(assignment.project.id) : null;
           if (alliedProject) {
+            claimRepairAssignment(unit, null, state.time);
             unit.buildProject = alliedProject.id;
             alliedProject.contributors ||= {};
             alliedProject.contributors[unit.id] ||= 0;
@@ -4397,8 +4465,12 @@ import {
           return;
         }
 
+        // Construction is every builder's primary duty. Repair and route work are
+        // fallbacks only when no active or immediately startable project exists.
+        if (tryStartBuilderConstruction(unit)) return;
+
         const damaged = urgentRepair || (selectedBuildingRepair?.request.targetType === "building" ? selectedBuildingRepair.target : null);
-        if (damaged) {
+        if (damaged && damaged.hp < damaged.maxHp) {
           claimRepairAssignment(unit, damaged.id, state.time);
           const repairRange = repairInteractionRange(unit, damaged);
           if (distance(unit, damaged) > repairRange) moveToward(unit, damaged, dt);
@@ -4438,102 +4510,40 @@ import {
           return;
         }
 
+        // Builders collect only when construction and real repair work are both unavailable.
+        if (updateResourceCollector(unit, dt)) return;
+
+        const removableObstacle = nearbyEnvironmentFeatures(unit, 110)
+          .filter(feature => feature.removable && feature.collisionState !== "cleared"
+            && builderTaskPointAllowed(unit, feature, (feature.r || 0) * 0.25)
+            && (player.race !== "Orks" || ["heavy-debris", "medium-debris", "biomass"].includes(feature.collisionProfile?.family)))
+          .sort((a, b) => distance(unit, a) - distance(unit, b))[0];
+        if (removableObstacle) {
+          if (distance(unit, removableObstacle) > 14 + (unit.collisionRadius || 3)) moveToward(unit, removableObstacle, dt, player.race === "Orks" ? 1.1 : 0.9);
+          else {
+            const cleared = damageEnvironmentFeature(removableObstacle, dt * (8 + unit.engineering * 12), unit);
+            if (player.race === "Orks") {
+              economyFor(unit.faction).inventory.materials += dt * 0.8;
+              economyFor(unit.faction).inventory.scrap = (economyFor(unit.faction).inventory.scrap || 0) + dt * 0.8;
+              unit.status = "Lootin' scrap";
+              unit.lastAction = `Dragging usable scrap out of ${brushNames[removableObstacle.type] || "wreckage"} for da Meks.`;
+            } else if (player.race === "Tyranids") {
+              state.factionEcology[unit.faction].biomass += dt * 0.7;
+              unit.status = "Reclaiming biomass";
+              unit.lastAction = "Feeder tendrils are dissolving recoverable biomass.";
+            } else {
+              unit.status = "Clearing obstacle";
+              unit.lastAction = `Clearing ${brushNames[removableObstacle.type] || "debris"} from movement and road layers.`;
+            }
+            if (cleared) incident(`${unitLabel(unit)} cleared an environmental obstacle and updated the local route grid.`, unit.id, "info");
+          }
+          return;
+        }
+
         if (unit.buildCd > 0) {
           unit.status = "Evaluating";
-          unit.lastAction = "Comparing economy, military value, risk, and dependencies.";
-          return;
+          unit.lastAction = "Comparing economy, military value, risk, and dependencies before the next construction attempt.";
         }
-
-        const type = chooseBuilding(unit.faction);
-        if (!type) {
-          unit.status = "Evaluating";
-          unit.lastAction = "No valid economy, research, army, or gathering project is currently available.";
-          unit.buildCd = 1;
-          return;
-        }
-        const typeCooldownUntil = playerFor(unit.faction).constructionCooldowns?.[`type:${type}`] || 0;
-        if (typeCooldownUntil > state.time) {
-          unit.status = "Replanning construction";
-          unit.lastAction = `${factionBuildingLabel(unit.faction, type)} was recently cancelled; waiting ${Math.ceil(typeCooldownUntil - state.time)}s before reconsidering it.`;
-          unit.buildCd = Math.min(2, typeCooldownUntil - state.time);
-          return;
-        }
-        const spec = buildingCatalog[type];
-        const economy = economyFor(unit.faction);
-        const builderPlayer = playerFor(unit.faction);
-        const telemetryKey = `builder:${unit.id}`;
-        constructionTelemetry.record(telemetryKey, "selected", state.time, {
-          faction: unit.faction,
-          buildingType: type,
-          reason: builderPlayer.lastConstructionProject?.reason || "headquarters recovery"
-        });
-        const advancedOrkProject = builderPlayer.race === "Orks" && ["workshop", "researchcenter", "refinery", "dropbay", "turret", "signature"].includes(type);
-        const supervisingMek = advancedOrkProject && nearbyCombatObjects(unit, 120).units.find(other => other.alive && other.faction === unit.faction && other.role === "engineer");
-        if (advancedOrkProject && !supervisingMek) {
-          unit.status = "Haulin' for a Mek";
-          unit.lastAction = `${factionBuildingLabel(unit.faction, type)} needs a Mekboy; this Gretchin is gathering scrap and waiting for supervision.`;
-          unit.buildCd = 2;
-          return;
-        }
-        const buildCost = calculateCost({ type: "construction", player: builderPlayer, baseCost: spec.cost });
-        const dependencyReady = !spec.requires || state.structures.some(item => item.faction === unit.faction && item.type === spec.requires && item.progress >= 1);
-        if (!dependencyReady || !canAffordCost(economy.inventory, buildCost)) {
-          constructionTelemetry.record(telemetryKey, dependencyReady ? "funding-wait" : "dependency-wait", state.time, {
-            faction: unit.faction,
-            buildingType: type,
-            blockedReason: dependencyReady ? "insufficient-resources" : `requires-${spec.requires}`
-          });
-          unit.status = "Gathering";
-          unit.lastAction = dependencyReady ? `Awaiting ${Object.entries(buildCost).filter(([resource, amount]) => (economy.inventory[resource] || 0) < amount).map(([resource, amount]) => `${Math.ceil(amount - (economy.inventory[resource] || 0))} ${economyResourceLabels[resource] || resource}`).join(" and ")} for ${spec.label}.` : `Waiting for ${buildingCatalog[spec.requires]?.label || spec.requires}.`;
-          return;
-        }
-
-        const site = buildingSite(unit.faction, type);
-        if (!site || !constructionAllowedAt(unit.faction, type, site)) {
-          constructionTelemetry.record(telemetryKey, "site-wait", state.time, { faction: unit.faction, buildingType: type, blockedReason: "no-connected-valid-site" });
-          unit.status = "Supply blocked";
-          unit.lastAction = "Waiting for a connected, collision-free construction site or expanded territory.";
-          unit.buildCd = 2;
-          return;
-        }
-        for (const [resource, amount] of Object.entries(buildCost)) economy.inventory[resource] -= amount;
-        syncLegacyResources(unit.faction);
-        let structureId;
-        do structureId = `building-${state.nextBuildingId++}`;
-        while (structureById(structureId));
-        const structure = {
-          id: structureId,
-          type,
-          faction: unit.faction,
-          x: site.x,
-          y: site.y,
-          progress: 0,
-          condition: 1,
-          maxHp: spec.maxHp || 400,
-          hp: spec.maxHp || 400,
-          hitbox: { ...(spec.hitbox || { w: 28, h: 24 }) },
-          displayName: factionBuildingLabel(unit.faction, type),
-          biological: builderPlayer.race === "Tyranids",
-          constructionMethod: builderPlayer.race === "Tyranids" ? "grown bio-organism" : builderPlayer.race === "Orks" ? "scrap-built" : "constructed",
-          inventory: {},
-          alive: true,
-          createdAt: state.time,
-          leadBuilderId: unit.id,
-          contributors: { [unit.id]: 0 },
-          construction: createConstructionState({ committedResources: buildCost, now: state.time }),
-          completedAt: null
-        };
-        state.structures.push(structure);
-        constructionTelemetry.record(telemetryKey, "construction", state.time, { faction: unit.faction, buildingType: type, structureId: structure.id });
-        rebuildSpatialGrid();
-        state.navigationRevision += 1;
-        navigationPlanner.clear();
-        unit.buildProject = structure.id;
-        unit.status = builderPlayer.race === "Tyranids" ? "Growing bio-structure" : builderPlayer.race === "Orks" ? "Lashin' scrap together" : "Constructing";
-        addUnitLog(unit, builderPlayer.race === "Tyranids"
-          ? `The Hive Mind selected ${structure.displayName}; feeder tendrils began growing a stationary organism.`
-          : `AI selected ${structure.displayName}: ${spec.purpose} utility outweighed cost, threat, and collision risk.`);
-        incident(`${playerFor(unit.faction).faction} ${builderPlayer.race === "Tyranids" ? "began growing" : "funded"} ${structure.displayName} (${spec.purpose}).`, unit.id, "info");
       }
 
       function cancelConstruction(structure, reason) {
@@ -8174,7 +8184,6 @@ import {
         }
         if (unit.role === "builder") {
           if (recoverBuilderInsideSpawnZone(unit)) return;
-          if (updateResourceCollector(unit, dt)) return;
           updateBuilder(unit, dt);
           return;
         }

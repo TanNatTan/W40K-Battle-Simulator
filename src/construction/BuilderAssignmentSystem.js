@@ -14,11 +14,11 @@ export function scoreProjectForBuilder(builder = {}, project = {}, { relationshi
     + strategicBonus(project.type) - distanceBetween(builder, project) * 0.12 + Math.max(-10, Math.min(10, Number(relationship) || 0)) * 0.15;
 }
 
-export function chooseBuilderAssignment({ builder = {}, projects = [], independentScore = 58, relationshipFor = () => 0 } = {}) {
+export function chooseBuilderAssignment({ builder = {}, projects = [], independentScore = 58, relationshipFor = () => 0, constructionFirst = false } = {}) {
   const ranked = projects.map(project => ({
     project,
     score: scoreProjectForBuilder(builder, project, { relationship: relationshipFor(project) })
   })).filter(candidate => Number.isFinite(candidate.score)).sort((a, b) => b.score - a.score || String(a.project.id).localeCompare(String(b.project.id)));
-  if (ranked[0] && ranked[0].score > independentScore) return { action: "join", project: ranked[0].project, score: ranked[0].score, independentScore };
+  if (ranked[0] && (constructionFirst || ranked[0].score > independentScore)) return { action: "join", project: ranked[0].project, score: ranked[0].score, independentScore };
   return { action: "independent", project: null, score: independentScore, joinScore: ranked[0]?.score ?? -Infinity };
 }

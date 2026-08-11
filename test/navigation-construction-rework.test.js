@@ -102,6 +102,7 @@ test("builder assignment fills ideal crews then releases extra builders to indep
   const barracks = { id: "barracks", type: "barracks", x: 20, y: 0, progress: 0.1, alive: true, assignedBuilders: 1, desiredBuilders: 2, construction: createConstructionState() };
   assert.equal(chooseBuilderAssignment({ builder, projects: [barracks], independentScore: 55 }).action, "join");
   assert.equal(chooseBuilderAssignment({ builder, projects: [{ ...barracks, assignedBuilders: 2 }], independentScore: 55 }).action, "independent");
+  assert.equal(chooseBuilderAssignment({ builder, projects: [{ ...barracks, x: 220 }], independentScore: 500, constructionFirst: true }).action, "join");
 });
 
 test("construction cancellation is hysteretic and refunds only unspent value", () => {

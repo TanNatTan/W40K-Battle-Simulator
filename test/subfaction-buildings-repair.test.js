@@ -10,11 +10,12 @@ import {
   validateSubfactionBuildingCatalog
 } from "../src/factions/SubfactionBuildingSystem.js";
 import {
+  BUILDER_REPAIR_CREW_LIMIT,
   activeRepairCrewCount,
+  builderRepairCrewLimit,
+  builderRepairSlotAvailable,
   claimRepairAssignment,
-  releaseStaleRepairAssignment,
-  servitorRepairCrewLimit,
-  servitorRepairSlotAvailable
+  releaseStaleRepairAssignment
 } from "../src/construction/RepairCrewSystem.js";
 
 test("all 68 subfactions expose their complete 13-building doctrine", () => {
@@ -45,41 +46,52 @@ test("subfaction building labels preserve the authored faction identity", () => 
   assert.equal(subfactionBuildingLabelFor("Slaanesh Host", "turret"), "Sonic Warp Shrine");
 });
 
-test("Space Marine Servitors use one routine repair slot and at most two severe slots", () => {
+test("every faction limits building repairs to one assigned builder", () => {
   const player = { faction: "Space Marines", subfaction: "Salamanders" };
   const servitor = { id: "s1", faction: "a", role: "builder", name: "Servitor", alive: true };
   const routine = { targetId: "forge", targetType: "building", severity: 0.2, underFire: false };
   const severe = { ...routine, severity: 0.55 };
   const target = { id: "forge", type: "workshop", hp: 420, maxHp: 600, condition: 0.7 };
-  assert.equal(servitorRepairCrewLimit(player, servitor, routine, target), 1);
-  assert.equal(servitorRepairCrewLimit(player, servitor, severe, target), 2);
+  assert.equal(BUILDER_REPAIR_CREW_LIMIT, 1);
+  assert.equal(builderRepairCrewLimit(player, servitor, routine, target), 1);
+  assert.equal(builderRepairCrewLimit(player, servitor, severe, target), 1);
 
   const first = { ...servitor };
   claimRepairAssignment(first, target.id, 10);
   const second = { ...servitor, id: "s2" };
   const third = { ...servitor, id: "s3" };
   assert.equal(activeRepairCrewCount({ units: [first, second, third], targetId: target.id, faction: "a", now: 10.2 }), 1);
-  assert.equal(servitorRepairSlotAvailable({ player, unit: second, request: routine, target, units: [first, second, third], now: 10.2 }), false);
-  assert.equal(servitorRepairSlotAvailable({ player, unit: second, request: severe, target, units: [first, second, third], now: 10.2 }), true);
+  assert.equal(builderRepairSlotAvailable({ player, unit: second, request: routine, target, units: [first, second, third], now: 10.2 }), false);
+  assert.equal(builderRepairSlotAvailable({ player, unit: second, request: severe, target, units: [first, second, third], now: 10.2 }), false);
   claimRepairAssignment(second, target.id, 10.2);
-  assert.equal(servitorRepairSlotAvailable({ player, unit: third, request: severe, target, units: [first, second, third], now: 10.3 }), false);
+  assert.equal(builderRepairSlotAvailable({ player, unit: third, request: severe, target, units: [first, second, third], now: 10.3 }), false);
 });
 
-test("stale repair claims expire and non-Servitor builders retain faction sustainment behavior", () => {
+test("stale repair claims expire and the one-builder limit applies to non-Servitor factions", () => {
   const stale = { id: "s1", faction: "a", role: "builder", name: "Servitor", repairTargetId: "forge", repairAssignmentAt: 2 };
   assert.equal(releaseStaleRepairAssignment(stale, 3), true);
   assert.equal(stale.repairTargetId, null);
 
   const grot = { id: "g1", faction: "b", role: "builder", name: "Gretchin" };
-  assert.equal(servitorRepairCrewLimit({ faction: "Scrap Legion" }, grot, { targetType: "building" }, {}), Infinity);
+  assert.equal(builderRepairCrewLimit({ faction: "Scrap Legion" }, grot, { targetType: "building" }, {}), 1);
 });
 
-test("browser runtime constructs named signature facilities and applies the Servitor crew gate", async () => {
+test("browser runtime constructs first and applies the universal builder repair gate", async () => {
   const source = await readFile(new URL("../js/app.js", import.meta.url), "utf8");
   assert.match(source, /signature:\s*\{ label: "Signature Facility"/);
   assert.match(source, /subfactionBuildingLabelFor\(player, type, fallback\)/);
   assert.match(source, /subfactionBuildingTypesFor\(player\)/);
   assert.match(source, /availableBuildingRepairs = state\.sustainmentRequests\.filter/);
-  assert.match(source, /servitorRepairSlotAvailable\(\{/);
+  assert.match(source, /builderRepairSlotAvailable\(\{/);
+  assert.match(source, /if \(tryStartBuilderConstruction\(unit\)\) return;/);
+  assert.match(source, /constructionFirst: true/);
+  assert.doesNotMatch(source, /Paused construction to save/);
   assert.match(source, /claimRepairAssignment\(unit, damaged\.id, state\.time\)/);
+  const constructionAttempt = source.indexOf("if (tryStartBuilderConstruction(unit)) return;");
+  const buildingRepair = source.indexOf("const damaged = urgentRepair", constructionAttempt);
+  const resourceCollection = source.indexOf("if (updateResourceCollector(unit, dt)) return;", buildingRepair);
+  const obstacleClearing = source.indexOf("const removableObstacle", resourceCollection);
+  assert.ok(constructionAttempt >= 0 && constructionAttempt < buildingRepair);
+  assert.ok(buildingRepair < resourceCollection);
+  assert.ok(resourceCollection < obstacleClearing);
 });

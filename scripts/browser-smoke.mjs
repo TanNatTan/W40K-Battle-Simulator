@@ -374,7 +374,10 @@ try {
     building.hp = building.maxHp * 0.5;
     building.condition = 0.5;
     builder.buildProject = null;
-    builder.builderDecisionCd = 0;
+    builder.builderDecisionCd = 100;
+    builder.buildCd = 100;
+    builder.repairTargetId = building.id;
+    builder.repairAssignmentAt = state.time;
     builder.x = building.x + building.hitbox.w / 2 + (builder.collisionRadius || 3) + 2;
     builder.y = building.y;
     const economy = state.economies[building.faction];
