@@ -8,6 +8,15 @@ export const SUSTAINMENT_SERVICES = Object.freeze({
   ROUTE_REPAIR: "route-repair"
 });
 
+export const REPAIR_BALANCE = Object.freeze({
+  builderResponseRadius: 480,
+  engineerResponseRadius: 360,
+  interactionPadding: 8,
+  minimumBuildingHealthPerSecond: 60,
+  buildingHealthFractionPerSecond: 0.12,
+  unsupportedRateMultiplier: 0.7
+});
+
 const PROFILES = Object.freeze({
   "Space Marines": Object.freeze({ medicalRate: 1.45, repairRate: 1.35, buildingRate: 1.2, fieldLimit: 0.7, medicalEfficiency: 1.3, repairEfficiency: 1.2, risk: 0 }),
   "Imperial Guard": Object.freeze({ medicalRate: 1, repairRate: 1, buildingRate: 1, fieldLimit: 0.56, medicalEfficiency: 0.95, repairEfficiency: 0.92, risk: 0 }),
@@ -54,7 +63,9 @@ export function sustainmentRequestFor(target = {}, { now = 0, underFire = false,
   const damagedSystems = Object.entries(target.vehicleSystems || {}).filter(([, value]) => Number(value) < 0.75).map(([system]) => system);
   const bleeding = clamp01(target.bleeding);
   const needsMedical = !isBuilding && !isVehicle && (target.incapacitated || bleeding > 0.01 || healthRatio < 0.92);
-  const needsRepair = (isVehicle || isBuilding) && (healthRatio < 0.96 || damagedSystems.length);
+  const needsRepair = isBuilding
+    ? healthRatio < 1
+    : isVehicle && (healthRatio < 0.96 || damagedSystems.length);
   if (!needsMedical && !needsRepair) return null;
   const targetType = isBuilding ? "building" : isVehicle ? "vehicle" : "infantry";
   const severity = clamp01((1 - healthRatio) * 0.78 + (target.incapacitated ? 0.3 : 0) + bleeding * 0.18 + (damagedSystems.length ? 0.18 : 0));
@@ -117,6 +128,27 @@ export function selectSustainmentRequest(provider = {}, requests = [], { targetB
     })
     .filter(candidate => candidate.target && candidate.travelDistance <= maximumRange)
     .sort((a, b) => b.score - a.score || a.travelDistance - b.travelDistance)[0] || null;
+}
+
+export function repairInteractionRange(provider = {}, target = {}) {
+  const providerRadius = Math.max(2, Number(provider.collisionRadius) || 3);
+  if (target.hitbox) {
+    const halfWidth = Math.max(1, Number(target.hitbox.w) || 0) / 2 + providerRadius;
+    const halfHeight = Math.max(1, Number(target.hitbox.h) || 0) / 2 + providerRadius;
+    return Math.hypot(halfWidth, halfHeight) + REPAIR_BALANCE.interactionPadding;
+  }
+  return Math.max(13, providerRadius + Math.max(2, Number(target.collisionRadius) || 6) + REPAIR_BALANCE.interactionPadding);
+}
+
+export function buildingRepairRate(provider = {}, target = {}, profile = PROFILES["Imperial Guard"], supplied = true) {
+  const maximumHealth = Math.max(1, Number(target.maxHp) || Number(target.hp) || 1);
+  const baseRate = Math.max(
+    REPAIR_BALANCE.minimumBuildingHealthPerSecond,
+    maximumHealth * REPAIR_BALANCE.buildingHealthFractionPerSecond
+  );
+  const engineeringMultiplier = Math.max(0.85, Math.min(1.25, 0.85 + Math.max(0, Number(provider.engineering) || 0) * 0.4));
+  return baseRate * Math.max(0.5, Number(profile.buildingRate) || 1) * engineeringMultiplier
+    * (supplied ? 1 : REPAIR_BALANCE.unsupportedRateMultiplier);
 }
 
 export function sustainmentCostFor(request = {}, restoredHealth = 0, profile = PROFILES["Imperial Guard"]) {

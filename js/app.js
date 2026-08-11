@@ -123,9 +123,12 @@ import {
   evaluateConstructionCancellation
 } from "../src/construction/ConstructionSystem.js";
 import {
+  REPAIR_BALANCE,
+  buildingRepairRate,
   buildSustainmentRequests,
   factionSustainmentCost,
   fieldServiceLimit,
+  repairInteractionRange,
   selectSustainmentRequest,
   sustainmentCostFor,
   sustainmentProfileFor
@@ -4059,9 +4062,15 @@ import {
           return Math.abs(distanceA - targetBand) - Math.abs(distanceB - targetBand);
         });
         const keyStride = Math.max(1, Math.ceil(preferredKeys.length / 40));
+        const cellSiteOffset = Math.min(30, TERRITORY_CELL_SIZE * 0.3);
         for (let keyIndex = 0; keyIndex < preferredKeys.length; keyIndex += keyStride) {
           const center = territoryCellCenter(preferredKeys[keyIndex]);
-          for (const [offsetX, offsetY] of [[0, 0], [11, 0], [-11, 0], [0, 11], [0, -11]]) {
+          for (const [offsetX, offsetY] of [
+            [0, 0],
+            [cellSiteOffset, 0], [-cellSiteOffset, 0], [0, cellSiteOffset], [0, -cellSiteOffset],
+            [cellSiteOffset, cellSiteOffset], [-cellSiteOffset, cellSiteOffset],
+            [cellSiteOffset, -cellSiteOffset], [-cellSiteOffset, -cellSiteOffset]
+          ]) {
             candidates.push({
               x: clamp(Math.round((center.x + offsetX) / 8) * 8, 34, worldWidth() - 34),
               y: clamp(Math.round((center.y + offsetY) / 8) * 8, 34, worldHeight() - 34)
@@ -4244,7 +4253,7 @@ import {
         const selectedBuildingRepairCandidate = selectSustainmentRequest(unit, availableBuildingRepairs, {
           targetById: sustainmentTargetById,
           areAllies,
-          maximumRange: 260
+          maximumRange: REPAIR_BALANCE.builderResponseRadius
         });
         const selectedBuildingRepair = selectedBuildingRepairCandidate?.target
           && builderTaskPointAllowed(unit, selectedBuildingRepairCandidate.target, 8)
@@ -4391,13 +4400,14 @@ import {
         const damaged = urgentRepair || (selectedBuildingRepair?.request.targetType === "building" ? selectedBuildingRepair.target : null);
         if (damaged) {
           claimRepairAssignment(unit, damaged.id, state.time);
-          if (distance(unit, damaged) > 13) moveToward(unit, damaged, dt);
+          const repairRange = repairInteractionRange(unit, damaged);
+          if (distance(unit, damaged) > repairRange) moveToward(unit, damaged, dt);
           else {
             ensureStructureRuntime(damaged);
-            const factor = insideSupplyRadius(damaged, unit.faction) ? 1 : 0.45;
+            const supplied = insideSupplyRadius(damaged, unit.faction);
             const profile = sustainmentProfileFor(playerFor(unit.faction));
             const request = state.sustainmentByTarget.get(damaged.id) || selectedBuildingRepair?.request;
-            const restored = Math.min(damaged.maxHp - damaged.hp, dt * 14 * factor * profile.buildingRate);
+            const restored = Math.min(damaged.maxHp - damaged.hp, dt * buildingRepairRate(unit, damaged, profile, supplied));
             if (request && restored > 0 && spendSustainmentResources(unit.faction, request, restored, profile)) {
               damaged.hp = clamp(damaged.hp + restored, 0, damaged.maxHp);
               damaged.condition = damaged.hp / damaged.maxHp;
@@ -7141,11 +7151,11 @@ import {
         const selected = selectSustainmentRequest(unit, state.sustainmentRequests, {
           targetById: sustainmentTargetById,
           areAllies,
-          maximumRange: 180
+          maximumRange: REPAIR_BALANCE.engineerResponseRadius
         });
         if (!selected || selected.request.service === "medical") return false;
         const target = selected.target;
-        const repairRange = target.role === "vehicle" ? 15 : 13;
+        const repairRange = repairInteractionRange(unit, target);
         if (distance(unit, target) > repairRange) moveToward(unit, target, dt);
         else {
           if (target.type) ensureStructureRuntime(target);
@@ -7153,9 +7163,11 @@ import {
           const profile = sustainmentProfileFor(player);
           const fullService = Boolean(fullServiceFacilityFor(target, selected.request.service));
           const limit = fieldServiceLimit(selected.request, profile, fullService);
-          const supplyFactor = insideSupplyRadius(target, unit.faction) ? 1 : 0.45;
-          const rate = (target.role === "vehicle" ? 8 * profile.repairRate : 10 * profile.buildingRate)
-            * Math.max(0.5, unit.engineering || 0.5) * supplyFactor;
+          const supplied = insideSupplyRadius(target, unit.faction);
+          const supplyFactor = supplied ? 1 : 0.45;
+          const rate = target.role === "vehicle"
+            ? 8 * profile.repairRate * Math.max(0.5, unit.engineering || 0.5) * supplyFactor
+            : buildingRepairRate(unit, target, profile, supplied);
           const restored = Math.max(0, Math.min(target.maxHp * limit - target.hp, dt * rate));
           if (restored > 0 && spendSustainmentResources(unit.faction, selected.request, restored, profile)) {
             target.hp = clamp(target.hp + restored, 0, target.maxHp * limit);
@@ -10297,11 +10309,19 @@ import {
         return state.territories.find(territory => territory.cellBacked && territory.claimedCells?.has(key)) || null;
       }
 
+      function operationalBuildingAnchorsTerritoryCell(key, faction) {
+        return state.structures.some(structure => structure.alive !== false
+          && structure.progress >= 1
+          && structure.faction === faction
+          && territoryCellKey(structure.x, structure.y) === key);
+      }
+
       function transferTerritoryCell(key, faction, reason) {
         const target = primaryTerritoryFor(faction);
         if (!target) return false;
         const previous = territoryOwnerForCell(key);
         if (previous?.owner === faction) return false;
+        if (previous && operationalBuildingAnchorsTerritoryCell(key, previous.owner)) return false;
         if (previous) {
           previous.claimedCells.delete(key);
           previous.controlledCells.delete(key);
@@ -10561,7 +10581,7 @@ import {
             defended.add(territoryCellKey(unit.x, unit.y));
           }
           defendedCellsByOwner.set(player.id, defended);
-          const alliedStructures = state.structures.filter(structure => structure.alive !== false && areAllies(structure.faction, player.id));
+          const alliedStructures = state.structures.filter(structure => structure.alive !== false && structure.progress >= 1 && areAllies(structure.faction, player.id));
           structureCellsByOwner.set(player.id, new Set(alliedStructures.filter(structure => structure.faction === player.id)
             .map(structure => territoryCellKey(structure.x, structure.y))));
           supplyStructuresByOwner.set(player.id, alliedStructures.filter(structure => structure.progress >= 1
@@ -10583,8 +10603,13 @@ import {
               const claimantTerritory = primaryTerritoryFor(hostile[0]);
               const connectedAttack = claimantTerritory && neighboringTerritoryCells(key).some(neighbor => claimantTerritory.claimedCells.has(neighbor));
               if (hostile[1] >= 2 && hostile[1] > ownerPower && (connectedAttack || aiBehaviorFor(hostile[0]).aggression >= 68) && pressure >= territory.captureDifficulty) {
-                changed = transferTerritoryCell(key, hostile[0], `Captured from ${playerFor(territory.owner).faction}`) || changed;
-                incident(`${playerFor(hostile[0]).faction} captured a cell from ${playerFor(territory.owner).faction}.`, null, "critical");
+                if (transferTerritoryCell(key, hostile[0], `Captured from ${playerFor(territory.owner).faction}`)) {
+                  changed = true;
+                  incident(`${playerFor(hostile[0]).faction} captured a cell from ${playerFor(territory.owner).faction}.`, null, "critical");
+                } else if (operationalBuildingAnchorsTerritoryCell(key, territory.owner)) {
+                  territory.reason = "Operational buildings anchor this territory until destroyed";
+                  territory.cellPressure.set(key, Math.min(territory.captureDifficulty, pressure));
+                }
               }
             } else territory.cellPressure.set(key, Math.max(0, (territory.cellPressure.get(key) || 0) - 8));
           }
@@ -10699,7 +10724,13 @@ import {
             cellId: state.strategicTerritory.partition.closestCell(unit).id,
             power: unit.role === "vehicle" ? 3 : unit.role === "commander" ? 2 : ["builder", "supply"].includes(unit.role) ? 0.35 : 1
           }));
-          const territoryEvents = state.strategicTerritory.advancePhysical(2, physicalForces, { isAllied: areAllies });
+          const protectedCells = new Map();
+          for (const structure of state.structures.filter(item => item.alive !== false && item.progress >= 1)) {
+            const cellId = state.strategicTerritory.partition.closestCell(structure).id;
+            if (!protectedCells.has(cellId)) protectedCells.set(cellId, new Set());
+            protectedCells.get(cellId).add(structure.faction);
+          }
+          const territoryEvents = state.strategicTerritory.advancePhysical(2, physicalForces, { isAllied: areAllies, protectedCells });
           if (territoryEvents.length || state.strategicTerritory.cells.some(cell => cell.siege)) state.minimapMarkerDirty = true;
           state.strategicTerritory.assertNoNewObjects();
           state.strategicTerritory.assertNoNewUnits();

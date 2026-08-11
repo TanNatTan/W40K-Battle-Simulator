@@ -365,6 +365,43 @@ try {
     || builderHealth.structures < builderHealth.buildersByFaction.length) {
     throw new Error(`Builder lifecycle failed: ${JSON.stringify(builderHealth)}`);
   }
+  const repairSetup = await evaluate(`(() => {
+    const root = document.querySelector('#autonomous-war-theater');
+    const state = root.awtDebugState;
+    const building = state.structures.find(item => item.alive !== false && item.progress >= 1 && item.type === 'outpost');
+    const builder = state.units.find(unit => unit.alive && unit.role === 'builder' && unit.faction === building?.faction);
+    if (!building || !builder) return null;
+    building.hp = building.maxHp * 0.5;
+    building.condition = 0.5;
+    builder.buildProject = null;
+    builder.builderDecisionCd = 0;
+    builder.x = building.x + building.hitbox.w / 2 + (builder.collisionRadius || 3) + 2;
+    builder.y = building.y;
+    const economy = state.economies[building.faction];
+    if (economy?.inventory) {
+      economy.inventory.parts = Math.max(1000, economy.inventory.parts || 0);
+      economy.inventory.materials = Math.max(1000, economy.inventory.materials || 0);
+    }
+    return { buildingId: building.id, builderId: builder.id, startHp: building.hp, maxHp: building.maxHp };
+  })()`);
+  if (!repairSetup) throw new Error("Could not prepare live building-repair probe.");
+  await new Promise(resolve => setTimeout(resolve, 1200));
+  const repairProbe = await evaluate(`(() => {
+    const root = document.querySelector('#autonomous-war-theater');
+    const state = root.awtDebugState;
+    const building = state.structures.find(item => item.id === '${repairSetup.buildingId}');
+    const builder = state.units.find(unit => unit.id === '${repairSetup.builderId}');
+    return {
+      hp: building?.hp || 0,
+      maxHp: building?.maxHp || 0,
+      condition: building?.condition || 0,
+      builderStatus: builder?.status || null,
+      failures: Number(root.dataset.frameFailures || 0)
+    };
+  })()`);
+  if (repairProbe.failures !== 0 || repairProbe.maxHp <= 0 || repairProbe.hp < repairProbe.maxHp - 0.01 || repairProbe.condition < 0.9999) {
+    throw new Error(`Live builder did not completely repair the damaged building: ${JSON.stringify({ repairSetup, repairProbe })}`);
+  }
   let harvestPrepared = false;
   for (let attempt = 0; attempt < 30 && !harvestPrepared; attempt += 1) {
     harvestPrepared = await evaluate(`(() => {
@@ -492,7 +529,7 @@ try {
   }
   const lifecycle = { runningStart, runningEnd, pausedStart, pausedEnd, resumedStart, resumedEnd, faultStart, faultEnd };
 
-  console.log(JSON.stringify({ startup, playerSetup, editor: { ...editor, cameraAfter }, simulation, builderHealth, carrierHarvestProbe, squadRoleProbe, phase20to23, replayTransport: { replayBefore, replayAfter, liveAfterReplay }, lifecycle }, null, 2));
+  console.log(JSON.stringify({ startup, playerSetup, editor: { ...editor, cameraAfter }, simulation, builderHealth, repairProbe, carrierHarvestProbe, squadRoleProbe, phase20to23, replayTransport: { replayBefore, replayAfter, liveAfterReplay }, lifecycle }, null, 2));
 } finally {
   socket?.close();
   if (browser && browser.exitCode === null) {

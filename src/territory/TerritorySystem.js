@@ -58,6 +58,11 @@ const mulberry32 = seed => {
 
 const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 
+function protectedForOwner(protectedCells, cellId, owner) {
+  const protection = protectedCells?.get?.(cellId);
+  return protection instanceof Set ? protection.has(owner) : protection === owner;
+}
+
 export const PolygonMath = Object.freeze({
   clipHalfPlane(subject, linePoint, normal) {
     if (!subject.length) return [];
@@ -414,7 +419,7 @@ export class TerritorySystem {
     return true;
   }
 
-  reconnectIsolatedCells(playerId, graceTicks = 2) {
+  reconnectIsolatedCells(playerId, graceTicks = 2, protectedCells = new Map()) {
     const owned = this.fieldFor(playerId);
     const bases = owned.filter(cell => cell.isBase);
     const reachable = new Set(bases.map(cell => cell.id));
@@ -440,7 +445,7 @@ export class TerritorySystem {
         cell.supplyConnected = false;
         cell.isolatedTicks += 1;
         isolated.push(cell.id);
-        if (cell.isolatedTicks > graceTicks) this.abandonCell(cell.id);
+        if (cell.isolatedTicks > graceTicks && !protectedForOwner(protectedCells, cell.id, playerId)) this.abandonCell(cell.id);
       }
     }
     return { isolated, reconnected };
@@ -621,7 +626,7 @@ export class TerritorySystem {
 
   /** Advance capture using real runtime units supplied by the host simulation.
    *  No internal territory agent can contribute to this path. */
-  advancePhysical(dtSeconds = 1, forces = [], { isAllied = (first, second) => first === second } = {}) {
+  advancePhysical(dtSeconds = 1, forces = [], { isAllied = (first, second) => first === second, protectedCells = new Map() } = {}) {
     if (this.gameOver) return [];
     const elapsed = Math.max(0, Number(dtSeconds) || 0);
     const logStart = this.log.length;
@@ -635,6 +640,11 @@ export class TerritorySystem {
       groups.set(force.playerId, (groups.get(force.playerId) || 0) + Math.max(0, Number(force.power) || 1));
     }
     for (const cell of this.cells) {
+      if (cell.owner && protectedForOwner(protectedCells, cell.id, cell.owner)) {
+        cell.siege = null;
+        cell.state = CELL_STATES.claimed;
+        continue;
+      }
       const groups = forcesByCell.get(cell.id) || new Map();
       const attackers = [...groups.entries()]
         .filter(([playerId]) => !cell.owner || !isAllied(playerId, cell.owner))
@@ -676,7 +686,7 @@ export class TerritorySystem {
     this._reconnectTimer += elapsed;
     if (this._reconnectTimer >= 2) {
       this._reconnectTimer %= 2;
-      for (const playerId of this.players.keys()) this.reconnectIsolatedCells(playerId);
+      for (const playerId of this.players.keys()) this.reconnectIsolatedCells(playerId, 2, protectedCells);
     }
     this.assertNoNewObjects();
     this.assertNoNewUnits();

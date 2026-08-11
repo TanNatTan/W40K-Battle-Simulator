@@ -41,7 +41,7 @@ import { FACTION_OBJECTIVE_METHODS, resolveFactionObjectiveDoctrine } from "./ai
 import { STRATEGIC_PORTFOLIO_BASES, createStrategicPortfolio, portfolioRoleFloors } from "./ai/StrategicPortfolioSystem.js";
 import { chooseRegroupPoint, pointInPolygon, regroupCandidates } from "./ai/RegroupPointSystem.js";
 import { BUILDING_CLEARANCE, blocksServiceCorridor, buildingClearanceFor, placementRectsOverlap } from "./construction/BaseLayoutSystem.js";
-import { SUSTAINMENT_PROFILES, SUSTAINMENT_SERVICES, buildSustainmentRequests, factionSustainmentCost, fieldServiceLimit, providerCanService, selectSustainmentRequest, sustainmentCostFor, sustainmentProfileFor, sustainmentRequestFor } from "./support/SustainmentSystem.js";
+import { REPAIR_BALANCE, SUSTAINMENT_PROFILES, SUSTAINMENT_SERVICES, buildingRepairRate, buildSustainmentRequests, factionSustainmentCost, fieldServiceLimit, providerCanService, repairInteractionRange, selectSustainmentRequest, sustainmentCostFor, sustainmentProfileFor, sustainmentRequestFor } from "./support/SustainmentSystem.js";
 import { createNavigationMonitor, ensureNavigationMonitor, markNavigationRecovery, movementDiagnostic, navigationFingerprint, rememberFailedPath, sampleNavigationProgress } from "./map/MovementProgressSystem.js";
 import { chooseRecoveryPoint, clearNavigationState, recoveryRingCandidates } from "./map/StuckRecoverySystem.js";
 import { IDEAL_BUILDERS, constructionRefund, constructionSiteKey, createConstructionState, desiredBuildersFor, evaluateConstructionCancellation } from "./construction/ConstructionSystem.js";
@@ -174,10 +174,13 @@ globalThis.AWTSystems = Object.freeze({
   placementRectsOverlap,
   SUSTAINMENT_PROFILES,
   SUSTAINMENT_SERVICES,
+  REPAIR_BALANCE,
+  buildingRepairRate,
   buildSustainmentRequests,
   factionSustainmentCost,
   fieldServiceLimit,
   providerCanService,
+  repairInteractionRange,
   selectSustainmentRequest,
   sustainmentCostFor,
   sustainmentProfileFor,

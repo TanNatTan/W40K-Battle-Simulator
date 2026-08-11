@@ -4,13 +4,13 @@ const STORAGE_TYPES = new Set(["warehouse", "fueldepot", "ammodepot"]);
 const DEFENSE_TYPES = new Set(["bunker", "observationtower"]);
 
 export const BUILDING_CLEARANCE = Object.freeze({
-  headquarters: 26,
-  largeProduction: 20,
-  production: 16,
-  storage: 14,
-  defense: 10,
-  turret: 8,
-  default: 12
+  headquarters: 18,
+  largeProduction: 14,
+  production: 10,
+  storage: 9,
+  defense: 6,
+  turret: 4,
+  default: 8
 });
 
 export function buildingClearanceFor(type = "", spec = {}) {
