@@ -96,7 +96,7 @@ import { RateGate, activityRateMultiplier } from "../src/ai/WarfareDoctrineSyste
 import { StrategicCellIndex } from "../src/performance/StrategicCellIndex.js";
 import { evaluateProximityAwareness, proximityCombatModifiers } from "../src/ai/ProximityAwareness.js";
 import { mergeSquadContactBoard, refreshContactMemory } from "../src/ai/PerceptionMemorySystem.js";
-import { scoreTargetCandidate, selectTarget } from "../src/ai/TargetSelectionSystem.js";
+import { assessEnemyCondition, scoreTargetCandidate, selectTarget } from "../src/ai/TargetSelectionSystem.js";
 import {
   SQUAD_ROLE_DEFINITIONS,
   roleDemandScores,
@@ -3086,6 +3086,7 @@ import {
           combatIntent: "Follow objective",
           killConfidence: 0,
           combatCommitment: null,
+          enemyConditionAssessment: null,
           protectTargetId: null,
           protectionRequested: false,
           retreating: false,
@@ -4676,17 +4677,20 @@ import {
         const nearby = nearbyCombatObjects(unit, Math.max(120, unit.range * 1.35));
         const allies = [...nearby.units, ...nearby.structures].filter(other => other.alive !== false && areAllies(other.faction, unit.faction));
         const enemies = [...nearby.units, ...nearby.structures].filter(other => other.alive !== false && !areAllies(other.faction, unit.faction));
-        const targetHp = target.hp / Math.max(1, target.maxHp || target.hp || 1);
+        const activeEnemies = enemies.filter(other => !other.incapacitated);
+        const condition = assessEnemyCondition(target);
+        const targetHp = condition.healthRatio;
         const targetMorale = target.morale ?? target.condition ?? 0.7;
         const ownReadiness = clamp((unit.hp / unit.maxHp * 0.46) + (unit.morale * 0.3) + (unit.ammo / Math.max(1, unit.maxAmmo) * 0.24), 0, 1);
         const alliedPower = allies.reduce((sum, other) => sum + combatPowerScore(other), 0);
         const enemyPower = enemies.reduce((sum, other) => sum + combatPowerScore(other), 0);
         const forceAdvantage = clamp((alliedPower - enemyPower) / Math.max(1, alliedPower + enemyPower), -1, 1);
-        const vulnerability = clamp((1 - targetHp) * 0.62 + (1 - targetMorale) * 0.2 + (target.retreating ? 0.18 : 0), 0, 1);
+        const vulnerability = clamp((1 - targetHp) * 0.62 + (1 - targetMorale) * 0.2 + (target.retreating ? 0.18 : 0)
+          + (condition.knockedDown ? 0.12 : 0) + (condition.incapacitated ? 0.26 : 0), 0, 1);
         const targetRange = target.range || unit.range;
         const weaponAdvantage = clamp((unit.range - targetRange) / Math.max(unit.range, targetRange), -1, 1);
         const vengeance = Math.max(vengeanceDrive(unit, target), relationshipScore(unit, target) <= -55 ? 0.5 : 0);
-        const incomingThreat = clamp(enemyPower / Math.max(1, alliedPower + 1), 0, 1);
+        const incomingThreat = clamp(activeEnemies.reduce((sum, other) => sum + combatPowerScore(other), 0) / Math.max(1, alliedPower + 1), 0, 1);
         const distancePenalty = clamp(distance(unit, target) / Math.max(1, unit.range * 2.4), 0, 1);
         const lowAmmo = clamp(1 - unit.ammo / Math.max(1, unit.maxAmmo), 0, 1);
         const isolation = allies.length <= 1 ? 1 : clamp(1 - allies.length / 5, 0, 1);
@@ -4698,15 +4702,19 @@ import {
         const confidence = clamp(
           50 + 16 * (ownReadiness - 0.5) + 18 * forceAdvantage + 15 * vulnerability
           + 8 * (unit.morale - 0.5) + 8 * (unit.aggression - 0.5) + 10 * weaponAdvantage
-          + 6 * vengeance - 14 * incomingThreat - 9 * distancePenalty - 12 * lowAmmo
+          + 6 * vengeance + (condition.finishRecommended ? 14 : 0) - 14 * incomingThreat - 9 * distancePenalty - 12 * lowAmmo
           - 8 * unit.fatigue - 12 * isolation + factionConfidence + alertBias.confidence,
           0, 100
         );
         const caution = clamp((unit.patience + unit.discipline + (1 - unit.courage)) / 3, 0, 1);
         const threshold = clamp(56 + 10 * (unit.discipline - 0.5) + 10 * (caution - 0.5) - 10 * (unit.aggression - 0.5) - 6 * vengeance
+          - (condition.finishRecommended ? 8 : 0)
           - (race === "Orks" ? 8 : race === "Tyranids" && unit.underSynapse ? 5 : 0) + alertBias.threshold, 32, 78);
         let intent = confidence >= threshold ? "Eliminate" : confidence >= threshold - 12 ? "Force retreat" : confidence >= 28 && unit.ammo > 2 ? "Suppress" : "Ignore";
+        const safeFinishWindow = condition.finishRecommended
+          && (!condition.incapacitated || activeEnemies.length === 0 || forceAdvantage >= 0.1);
         if (target.retreating && confidence < threshold) intent = "Force retreat";
+        if (safeFinishWindow && (unit.ammo > 0 || (unit.damage || 0) > 0)) intent = "Eliminate";
         const pursuitRadius = clamp(unit.range * (0.9 + 1.3 * unit.aggression + 0.5 * vengeance - 0.6 * caution), unit.range * 0.65, unit.range * 2.4);
         return {
           targetId: target.id, intent, confidence, threshold, evaluatedAt: state.time, active: true, rejected: false,
@@ -5781,10 +5789,10 @@ import {
         return { units, structures };
       }
 
-      function combatTargetById(id) {
+      function combatTargetById(id, { includeIncapacitated = false } = {}) {
         if (!id) return null;
         const unit = unitById(id);
-        if (unit?.alive && !unit.incapacitated) return unit;
+        if (unit?.alive && (includeIncapacitated || !unit.incapacitated)) return unit;
         const structure = structureById(id);
         return structure && structure.alive !== false ? structure : null;
       }
@@ -5817,6 +5825,11 @@ import {
           }
         }
         const nearby = nearbyCombatObjects(unit, sensor * 1.7);
+        const activeThreats = nearby.units.filter(other => other.alive && !other.incapacitated
+          && !areAllies(other.faction, unit.faction) && canDetectTarget(unit, other)
+          && (other.targetId === unit.id || other.targetId === unit.squadId
+            || distance(unit, other) <= Math.max(32, (other.range || 0) * 0.48)));
+        const immediateThreatPressure = clamp(activeThreats.length / 3, 0, 1);
         const chaosStrategy = playerFor(unit.faction)?.chaosStrategy;
         let bestTarget = null;
         let bestScore = -Infinity;
@@ -5827,7 +5840,7 @@ import {
           focusCounts.set(ally.targetId, (focusCounts.get(ally.targetId) || 0) + 1);
         }
         for (const other of nearby.units) {
-          if (!other.alive || other.incapacitated || areAllies(other.faction, unit.faction)) continue;
+          if (!other.alive || areAllies(other.faction, unit.faction)) continue;
           const d = distance(unit, other);
           const detectionRadius = sensor * terrainAt(other).detection * clamp(0.45 + visionOcclusionBetween(unit, other) * 0.55, 0.45, 1);
           other.lightState = sun.period;
@@ -5849,6 +5862,7 @@ import {
             confidence: unit.perceptionMemory?.contacts?.[other.id]?.confidence ?? 1,
             currentTargetId: unit.cachedTargetId,
             focusCount,
+            immediateThreatPressure,
             squadId: unit.squadId,
             lineOfFire: visionOcclusionBetween(unit, other) > 0.12,
             isolated: nearby.units.filter(actor => actor.alive && actor.faction === other.faction && distance(actor, other) < 90).length <= 1
@@ -6106,7 +6120,7 @@ import {
         incident(`${unitLabel(unit)} was incapacitated. Nearby allies will secure the area before treatment or evacuation.`, unit.id, "critical");
       }
 
-      function finishUnitDeath(unit, cause = "fatal wounds") {
+      function finishUnitDeath(unit, cause = "fatal wounds", killer = null) {
         if (!unit?.alive) return;
         if (unit.role === "supply" && unit.resourceCargo?.amount > 0) {
           const logistics = ensureResourceCarrierState(unit);
@@ -6117,6 +6131,10 @@ import {
         unit.hp = 0;
         unit.alive = false;
         unit.incapacitated = false;
+        unit.stabilized = false;
+        unit.rescueRequested = false;
+        unit.evacuated = false;
+        unit.bleeding = 0;
         unit.woundState = "Dead";
         unit.status = cause;
         unit.deathStartedAt = state.time;
@@ -6126,7 +6144,16 @@ import {
         if (carrier) carrier.carryingPatientId = null;
         unit.carriedById = null;
         state.casualties[unit.faction] = (state.casualties[unit.faction] || 0) + 1;
-        handleFactionDeath(unit, null);
+        if (killer?.alive && !areAllies(killer.faction, unit.faction)) {
+          killer.kills = (killer.kills || 0) + 1;
+          killer.memories ||= [];
+          killer.memories.push(`Finished ${unitLabel(unit)} after assessing the enemy as combat ineffective.`);
+          killer.combatCommitment = null;
+          killer.targetId = null;
+          killer.cachedTargetId = null;
+          addUnitLog(killer, `Confirmed ${unitLabel(unit)} as a finished hostile.`);
+        }
+        handleFactionDeath(unit, killer);
       }
 
       function applyProjectileImpact(projectile, target) {
@@ -6152,6 +6179,12 @@ import {
             target.criticalReported = true;
             incident(`${unitLabel(target)} collision box is critical at ${Math.round(target.condition * 100)}% HP.`, target.id, "warning");
           }
+          return;
+        }
+
+        if (target.incapacitated) {
+          finishUnitDeath(target, `Finished by ${weaponProfileFor(shooter || {}).label || "enemy fire"}`, shooter);
+          incident(`${unitLabel(target)} was finished after an enemy assessed the casualty as a remaining military threat.`, target.id, "critical");
           return;
         }
 
@@ -7112,10 +7145,17 @@ import {
       }
 
       function applyMeleeStrike(attacker, targetId, charged) {
-        const target = combatTargetById(targetId);
+        const target = combatTargetById(targetId, { includeIncapacitated: true });
         const melee = weaponProfileFor(attacker).melee;
         if (!target || !target.alive || distance(attacker, target) > melee.reach + (attacker.collisionRadius || 3) + (target.collisionRadius || 4) + 4) {
           attacker.status = "Melee attack missed";
+          return;
+        }
+        if (target.incapacitated) {
+          finishUnitDeath(target, "Finished in close combat", attacker);
+          attacker.status = "Finishing strike";
+          attacker.lastAction = `Finished incapacitated hostile ${unitLabel(target)} after a close-range condition assessment.`;
+          incident(`${unitLabel(target)} was finished in close combat.`, target.id, "critical");
           return;
         }
         attacker.meleeState.charged = charged;
@@ -7523,8 +7563,8 @@ import {
           unit.targetId = null;
         } else if (unit.sensorCooldown <= 0 && sensorWorkBudget.take()) {
           state.sensorBudgetUsed = sensorWorkBudget.used;
-          const sharedTarget = assignedSquad?.orderType === "Regroup" ? null : combatTargetById(assignedSquad?.targetId);
-          const retainedTarget = combatTargetById(unit.cachedTargetId);
+          const sharedTarget = assignedSquad?.orderType === "Regroup" ? null : combatTargetById(assignedSquad?.targetId, { includeIncapacitated: true });
+          const retainedTarget = combatTargetById(unit.cachedTargetId, { includeIncapacitated: true });
           const retainCommitment = retainedTarget
             && unit.combatCommitment?.targetId === retainedTarget.id
             && unit.combatCommitment.active !== false
@@ -7539,9 +7579,17 @@ import {
           if ((unit.alertLevel || 0) > 0.4) unit.sensorCooldown = Math.min(unit.sensorCooldown,
             state.speed >= 8 ? 1.5 : state.performancePreset.id === "total" ? 0.4 : state.performancePreset.id === "major" ? 0.25 : 0.12);
         } else if (unit.cachedTargetId) {
-          target = combatTargetById(unit.cachedTargetId);
+          target = combatTargetById(unit.cachedTargetId, { includeIncapacitated: true });
         }
         if (target) {
+          const enemyCondition = assessEnemyCondition(target);
+          unit.enemyConditionAssessment = {
+            targetId: target.id,
+            state: enemyCondition.state,
+            conditionPercent: enemyCondition.conditionPercent,
+            finishRecommended: enemyCondition.finishRecommended,
+            assessedAt: state.time
+          };
           unit.targetId = target.id;
           if (!unit.combatCommitment || unit.combatCommitment.targetId !== target.id || unit.combatCommitment.expiresAt <= state.time) {
             const previousCommitment = unit.combatCommitment;
@@ -7589,12 +7637,16 @@ import {
           } else if (distance(unit, target) <= unit.range * 0.92) {
             unit.aimTime = clamp((unit.aimTime || 0) + dt * (0.8 + unit.reflexes), 0, 2.5);
             if (unit.fireCd <= 0 && unit.ammo > 0) fireAt(unit, target);
-            else unit.status = commitment.intent === "Eliminate" ? `Finishing target${alertSuffix(unit)}` : `Suppressing${alertSuffix(unit)}`;
+            else unit.status = commitment.intent === "Eliminate"
+              ? `${enemyCondition.finishRecommended ? "Finishing weakened target" : "Finishing target"}${alertSuffix(unit)}`
+              : `Suppressing${alertSuffix(unit)}`;
             return;
           } else if (commitment.intent === "Eliminate" || commitment.intent === "Force retreat") {
             unit.aimTime = 0;
             moveToward(unit, target, dt, (commitment.intent === "Eliminate" ? 1.12 : 0.9) * alertMoveModifier(unit));
-            unit.status = commitment.intent === "Eliminate" ? `Pursuing kill${alertSuffix(unit)}` : `Pressuring retreat${alertSuffix(unit)}`;
+            unit.status = commitment.intent === "Eliminate"
+              ? `${enemyCondition.finishRecommended ? "Closing to finish weakened target" : "Pursuing kill"}${alertSuffix(unit)}`
+              : `Pressuring retreat${alertSuffix(unit)}`;
             unit.lastAction = `${commitment.intent} at ${unit.killConfidence}% confidence${Number.isFinite(unit.nearestThreatDistance) ? ` · hostile ${Math.round(unit.nearestThreatDistance)}m away` : ""}.`;
             return;
           } else {
@@ -7608,6 +7660,7 @@ import {
         }
 
         unit.targetId = null;
+        unit.enemyConditionAssessment = null;
         unit.combatIntent = "Follow objective";
         unit.killConfidence = 0;
         if (unit.combatCommitment) unit.combatCommitment.active = false;
@@ -10510,6 +10563,7 @@ import {
             fatigue: unit.fatigue, alive: unit.alive, status: unit.status, squadId: unit.squadId,
             range: unit.range, spriteScale: unit.spriteScale, deathStartedAt: unit.deathStartedAt,
             combatIntent: unit.combatIntent, killConfidence: unit.killConfidence,
+            enemyConditionAssessment: unit.enemyConditionAssessment ? { ...unit.enemyConditionAssessment } : null,
             lastAction: unit.lastAction, logs: unit.logs?.slice(-3) || []
           })),
           structures: state.structures.map(item => ({
@@ -12831,6 +12885,10 @@ import {
         els.moraleValue.textContent = String(morale);
         els.fatigueValue.textContent = String(fatigue);
         els.unitStats.textContent = `Accuracy ${(unit.accuracy * 100).toFixed(1)} · Precision ${(unit.precision * 100).toFixed(1)} · Reflexes ${(unit.reflexes * 100).toFixed(0)} · ${unit.personality} · ${view.combatIntent || unit.combatIntent} ${view.killConfidence ?? unit.killConfidence}%`;
+        const conditionAssessment = view.enemyConditionAssessment || unit.enemyConditionAssessment;
+        if (conditionAssessment?.targetId) {
+          els.unitStats.textContent += ` | Enemy assessment: ${conditionAssessment.state} (${conditionAssessment.conditionPercent}% condition)${conditionAssessment.finishRecommended ? " | finish recommended" : ""}`;
+        }
         els.unitKills.textContent = `${unit.kills} confirmed`;
         const light = lightingAt(view, unit.faction, currentSnapshot()?.clockElapsed ?? state.clock.elapsedSeconds);
         const lightingState = state.dayNight.enabled ? `${light.period} · global visibility ${Math.round(light.brightness * 100)}%` : "Day/night disabled";

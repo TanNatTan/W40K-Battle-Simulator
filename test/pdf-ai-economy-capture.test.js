@@ -11,7 +11,7 @@ import { SupplyNetwork } from "../src/logistics/SupplyNetwork.js";
 import { assessEconomySecurity, assessMacroReadiness } from "../src/ai/EconomySecurityPolicy.js";
 import { allocateArmyRoles } from "../src/ai/ArmyRoleAllocator.js";
 import { mergeSquadContactBoard, refreshContactMemory } from "../src/ai/PerceptionMemorySystem.js";
-import { scoreTargetCandidate, selectTarget } from "../src/ai/TargetSelectionSystem.js";
+import { assessEnemyCondition, scoreTargetCandidate, selectTarget } from "../src/ai/TargetSelectionSystem.js";
 import { SpatialPartition, TerritorySystem } from "../src/territory/TerritorySystem.js";
 import { requestRangedShot, retreatReasonFor, synchronizeAmmoState, updateCombatState } from "../src/combat/CombatSystem.js";
 
@@ -139,6 +139,28 @@ test("target utility values dangerous enemies and prevents marginal target flick
   assert.equal(forced.target.id, heavy.id);
 });
 
+test("units assess wounded enemies and finish low-condition targets when immediate threats permit", () => {
+  const attacker = { id: "self", role: "trooper", range: 140, penetration: 10 };
+  const healthy = { id: "healthy", role: "trooper", hp: 100, maxHp: 100, damage: 12, range: 110 };
+  const critical = { ...healthy, id: "critical", hp: 22, woundState: "Gravely Injured", retreating: true };
+  const down = { ...healthy, id: "down", hp: 1, incapacitated: true, woundState: "Incapacitated", damage: 0, range: 0 };
+  assert.deepEqual(
+    [assessEnemyCondition(healthy).state, assessEnemyCondition(critical).state, assessEnemyCondition(down).state],
+    ["healthy", "critical", "incapacitated"]
+  );
+  assert.equal(assessEnemyCondition(critical).finishRecommended, true);
+  assert.equal(assessEnemyCondition(down).combatCapable, false);
+  const healthyScore = scoreTargetCandidate(attacker, healthy, { distance: 60, detectionRadius: 160 });
+  const criticalScore = scoreTargetCandidate(attacker, critical, { distance: 60, detectionRadius: 160 });
+  assert.ok(criticalScore > healthyScore, "a critically wounded combatant should receive a finish opportunity bonus");
+  const safeFinishScore = scoreTargetCandidate(attacker, down, { distance: 25, detectionRadius: 160, immediateThreatPressure: 0 });
+  const pressuredFinishScore = scoreTargetCandidate(attacker, down, { distance: 25, detectionRadius: 160, immediateThreatPressure: 1 });
+  assert.ok(safeFinishScore > pressuredFinishScore, "active threats should reduce the priority of an incapacitated enemy");
+  const immediateThreat = { ...healthy, id: "immediate", damage: 30, range: 140, targetId: attacker.id };
+  const immediateThreatScore = scoreTargetCandidate(attacker, immediateThreat, { distance: 55, detectionRadius: 160, immediateThreatPressure: 1 });
+  assert.ok(immediateThreatScore > pressuredFinishScore, "a dangerous enemy firing on the unit must be handled before a helpless casualty");
+});
+
 test("the immediately previous owner recaptures in half time only while unopposed", () => {
   const partition = new SpatialPartition({ width: 500, height: 300, cellCount: 14, seed: 7, relaxIterations: 1 });
   const players = [{ id: "a", base: { x: 35, y: 150 } }, { id: "b", base: { x: 465, y: 150 } }];
@@ -194,4 +216,7 @@ test("browser runtime wires bootstrap HQs and public objective markers independe
   assert.match(source, /function drawStrategicObjectives\(/);
   assert.match(source, /drawFog\(\);\s*drawStrategicObjectives\(\);/);
   assert.match(source, /objectivePublicStates\(\)/);
+  assert.match(source, /includeIncapacitated: true/);
+  assert.match(source, /enemyConditionAssessment/);
+  assert.match(source, /finishUnitDeath\(target, "Finished in close combat", attacker\)/);
 });
