@@ -1,4 +1,4 @@
-const STAGES = Object.freeze(["selected", "funding-wait", "dependency-wait", "site-wait", "builder-travel", "construction", "completed", "training-wait", "force-cap-wait", "manifest-resource-wait", "deployed"]);
+const STAGES = Object.freeze(["selected", "funding-wait", "dependency-wait", "site-wait", "builder-travel", "construction", "completed", "cancelled", "training-wait", "force-cap-wait", "manifest-resource-wait", "deployed"]);
 
 export class ConstructionTelemetry {
   constructor(limit = 500) {

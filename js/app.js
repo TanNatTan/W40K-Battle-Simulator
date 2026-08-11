@@ -27,6 +27,14 @@ import { clamp, distance } from "../src/utilities/math.js";
 import { formatElapsed, pad2 } from "../src/utilities/format.js";
 import { seededRandom } from "../src/utilities/random.js";
 import { NavigationPlanner } from "../src/map/NavigationPlanner.js";
+import {
+  createNavigationMonitor,
+  ensureNavigationMonitor,
+  markNavigationRecovery,
+  movementDiagnostic,
+  sampleNavigationProgress
+} from "../src/map/MovementProgressSystem.js";
+import { chooseRecoveryPoint, clearNavigationState } from "../src/map/StuckRecoverySystem.js";
 import { TerrainTextureLibrary } from "../src/rendering/TerrainTextureLibrary.js";
 import {
   FORMATION_TYPES,
@@ -85,6 +93,14 @@ import { updateProductionBuilding } from "../src/economy/ProductionSystem.js";
 import { createStartingHeadquarters } from "../src/economy/BattleBootstrapSystem.js";
 import { selectConstructionProject } from "../src/economy/ConstructionPlanningSystem.js";
 import { blocksServiceCorridor, buildingClearanceFor, placementRectsOverlap } from "../src/construction/BaseLayoutSystem.js";
+import { chooseBuilderAssignment } from "../src/construction/BuilderAssignmentSystem.js";
+import {
+  constructionRefund,
+  constructionSiteKey,
+  createConstructionState,
+  desiredBuildersFor,
+  evaluateConstructionCancellation
+} from "../src/construction/ConstructionSystem.js";
 import {
   buildSustainmentRequests,
   factionSustainmentCost,
@@ -95,6 +111,7 @@ import {
 } from "../src/support/SustainmentSystem.js";
 import { migrateLegacyResourceZones } from "../src/economy/EconomyMigration.js";
 import { SupplyNetwork } from "../src/logistics/SupplyNetwork.js";
+import { convoyEffectiveSpeed } from "../src/logistics/ConvoyMovementSystem.js";
 import { assessEconomySecurity, assessMacroReadiness, canDispatchEconomicExpedition, criticalProducerClusters, updateEconomySecurityMemory } from "../src/ai/EconomySecurityPolicy.js";
 import { actionCost, calculateCost, canAffordCost, costForManifest, spendCost, trainingDelayFor, unitCostFor } from "../src/economy/CostSystem.js";
 import { allocateForceCaps, commandPresenceFor, createForceState, updateForceState } from "../src/ai/ForceCommitmentSystem.js";
@@ -298,6 +315,7 @@ import {
         unitStats: root.querySelector("#awt-unit-stats"),
         unitKills: root.querySelector("#awt-unit-kills"),
         unitDepth: root.querySelector("#awt-unit-depth"),
+        movementDiagnostic: root.querySelector("#awt-movement-diagnostic"),
         squadSummary: root.querySelector("#awt-squad-summary"),
         squadRoleSummary: root.querySelector("#awt-squad-role-summary"),
         unitAction: root.querySelector("#awt-unit-action"),
@@ -1212,6 +1230,7 @@ import {
         roadSpatialIndex: new Map(),
         roadRevision: 0,
         nextConvoyId: 1,
+        nextBuildingId: 1,
         nextDropPodId: 1,
         nextLogisticsTick: 0,
         logisticsOpen: false,
@@ -1233,7 +1252,7 @@ import {
         battleHistory: [],
         strategicOutcomes: {},
         victoryEvaluationAccumulator: 0,
-        aiDiagnostics: { relationshipEdges: 0, killPursuits: 0, formationSquads: 0, routeOrders: 0, guardSquads: 0, securedRoads: 0, ambushRoads: 0, checkpoints: 0, environmentCollisions: 0, obstacleProjectileHits: 0 },
+        aiDiagnostics: { relationshipEdges: 0, killPursuits: 0, formationSquads: 0, routeOrders: 0, guardSquads: 0, securedRoads: 0, ambushRoads: 0, checkpoints: 0, environmentCollisions: 0, obstacleProjectileHits: 0, constructionCancellations: 0, spawnRecoveries: 0 },
         nextSnapshot: 0,
         nextEconomy: 0,
         nextMilestone: 240,
@@ -1243,6 +1262,7 @@ import {
         spatialAccumulator: 0,
         socialAccumulator: 0,
         sustainmentAccumulator: 0,
+        constructionAccumulator: 0,
         squadAIAccumulator: 0,
         commanderAIAccumulator: 0,
         armyAIAccumulator: 0,
@@ -2244,6 +2264,25 @@ import {
         }) || null;
       }
 
+      function structureReservationCollisionAt(point, proposedHitbox, proposedClearance = 0, ignoreId = null) {
+        const proposed = proposedHitbox || { w: 8, h: 8 };
+        const queryRadius = Math.max(proposed.w || 0, proposed.h || 0) / 2 + 32 + Math.max(0, proposedClearance);
+        const candidates = state.spatialGrid?.size
+          ? spatialObjectsInBounds({
+              left: point.x - queryRadius,
+              right: point.x + queryRadius,
+              top: point.y - queryRadius,
+              bottom: point.y + queryRadius
+            }).structures
+          : state.structures;
+        return candidates.find(structure => {
+          if (structure.id === ignoreId || structure.alive === false || structure.construction?.state === "cancelled") return false;
+          ensureStructureRuntime(structure);
+          const existingClearance = buildingClearanceFor(structure.type, buildingCatalog[structure.type]);
+          return placementRectsOverlap(point, proposed, proposedClearance, structure, existingClearance);
+        }) || null;
+      }
+
       function moveUnitOutsideStructure(unit, structure) {
         ensureStructureRuntime(structure);
         const clearance = Math.max(structure.hitbox.w, structure.hitbox.h) / 2 + (unit.role === "vehicle" ? 10 : 6);
@@ -2839,6 +2878,7 @@ import {
         unit.knockedDownRemaining ??= 0;
         unit.stagger ??= 0;
         unit.facing ??= 0;
+        ensureNavigationMonitor(unit, state.time);
         if (!validateDeploymentRecord(unit.deployment)) {
           const player = playerFor(unit.faction);
           unit.deployment = createDeploymentRecord({
@@ -3091,7 +3131,7 @@ import {
           squadId: null,
           formationSlot: null,
           collisionRadius: role === "vehicle" ? 14 : role === "supply" ? 8 : player.faction === "Space Marines" ? 5 : player.race === "Orks" && role === "builder" ? 2 : 3,
-          speed: role === "vehicle" ? 30 : role === "supply" ? 25 : role === "scout" ? 26 : 21,
+          speed: role === "vehicle" ? 30 : role === "supply" ? 30 : role === "scout" ? 26 : 21,
           range: role === "vehicle" ? 150 : role === "scout" ? 130 : ["builder", "supply"].includes(role) ? 0 : 112,
           damage: baseDamage * (1 + Math.min(5, researchLevel) * 0.04),
           researchLevel,
@@ -3482,6 +3522,7 @@ import {
           player.forceCapOverride = null;
           player.structureCapOverride = null;
           player.scenarioTags = [];
+          player.constructionCooldowns = {};
         });
         const requestedScale = state.performanceRequested === "auto" ? "skirmish" : state.performanceRequested;
         const battleScalePreset = scalePresetFor(0, requestedScale);
@@ -3562,8 +3603,10 @@ import {
         state.roadSpatialIndex = new Map();
         state.roadRevision = 0;
         state.nextConvoyId = 1;
+        state.nextBuildingId = 1;
         state.nextDropPodId = 1;
         state.nextLogisticsTick = 0;
+        state.constructionAccumulator = 0;
         state.casualties = {};
         state.deathRemovalStats = { units: 0, structures: 0 };
         state.adapted = {};
@@ -3589,7 +3632,7 @@ import {
         state.navigationPlansDeferred = 0;
         state.navigationBudgetUsed = 0;
         navigationPlanner.clear();
-        state.aiDiagnostics = { relationshipEdges: 0, killPursuits: 0, formationSquads: 0, routeOrders: 0, guardSquads: 0, securedRoads: 0, ambushRoads: 0, checkpoints: 0, environmentCollisions: 0, obstacleProjectileHits: 0 };
+        state.aiDiagnostics = { relationshipEdges: 0, killPursuits: 0, formationSquads: 0, routeOrders: 0, guardSquads: 0, securedRoads: 0, ambushRoads: 0, checkpoints: 0, environmentCollisions: 0, obstacleProjectileHits: 0, constructionCancellations: 0, spawnRecoveries: 0 };
         state.explored = {};
         state.visibleFogChunks = {};
         state.exploredFogCells = {};
@@ -3942,7 +3985,7 @@ import {
       function constructionAllowedAt(faction, type, site) {
         const spec = buildingCatalog[type];
         const clearance = buildingClearanceFor(type, spec);
-        if (!spec || structureCollisionAt(site, 0, null, spec.hitbox, clearance)) return false;
+        if (!spec || structureReservationCollisionAt(site, spec.hitbox, clearance)) return false;
         if (type !== "outpost" && blocksServiceCorridor({ point: site, hitbox: spec.hitbox, base: baseFor(faction) })) return false;
         const constructionRadius = Math.max(spec.hitbox?.w || 28, spec.hitbox?.h || 24) * 0.48;
         if (environmentCollisionAt(site, { role: "vehicle", collisionRadius: constructionRadius, maxHp: 80, strength: 0.5 }, constructionRadius)) return false;
@@ -3992,7 +4035,9 @@ import {
             });
           }
         }
-        const viable = candidates.filter(candidate => constructionAllowedAt(faction, type, candidate));
+        const cooldowns = playerFor(faction).constructionCooldowns || {};
+        const viable = candidates.filter(candidate => (cooldowns[constructionSiteKey({ ...candidate, type })] || 0) <= state.time
+          && constructionAllowedAt(faction, type, candidate));
         if (!viable.length) return null;
         return viable.map(candidate => {
           const light = lightingAt(candidate, faction);
@@ -4113,19 +4158,30 @@ import {
           unit.lastAction = `Paused construction to save ${buildingCatalog[urgentRepair.type]?.label || "an allied structure"}.`;
         }
         if (!unit.buildProject && !urgentRepair && unit.builderDecisionCd <= 0) {
-          const alliedProject = state.structures
-            .filter(item => item.alive !== false && item.progress < 1 && item.faction === unit.faction && distance(unit, item) < 260)
-            .map(item => {
-              const lead = unitById(item.leadBuilderId);
-              return { item, score: 90 - distance(unit, item) * 0.18 + relationshipScore(unit, lead) * 0.12 };
-            })
-            .sort((a, b) => b.score - a.score)[0]?.item;
+          const alliedProjects = state.structures
+            .filter(item => item.alive !== false && item.progress < 1 && item.faction === unit.faction
+              && item.construction?.state !== "cancelled" && distance(unit, item) < 260)
+            .map(item => ({
+              ...item,
+              spec: buildingCatalog[item.type],
+              desiredBuilders: desiredBuildersFor(item.type, buildingCatalog[item.type]),
+              assignedBuilders: state.units.filter(builder => builder.alive && builder.role === "builder" && builder.buildProject === item.id).length
+            }));
+          const assignment = chooseBuilderAssignment({
+            builder: unit,
+            projects: alliedProjects,
+            independentScore: 55,
+            relationshipFor: project => relationshipScore(unit, unitById(project.leadBuilderId))
+          });
+          const alliedProject = assignment.action === "join" ? structureById(assignment.project.id) : null;
           if (alliedProject) {
             unit.buildProject = alliedProject.id;
             alliedProject.contributors ||= {};
             alliedProject.contributors[unit.id] ||= 0;
+            alliedProject.construction ||= createConstructionState({ now: alliedProject.createdAt || state.time });
             const lead = unitById(alliedProject.leadBuilderId);
             if (lead) recordRelationshipEvent(unit, lead, "completedTogether", "joined an allied construction project", { cooldown: 30, reciprocal: 0.7 });
+            unit.lastAction = `Joined ${alliedProject.displayName || factionBuildingLabel(unit.faction, alliedProject.type)} as builder ${assignment.project.assignedBuilders + 1}/${assignment.project.desiredBuilders}.`;
           }
           unit.builderDecisionCd = 0.75;
         }
@@ -4144,6 +4200,11 @@ import {
             unit.buildStall = remainingDistance < approachDistance - 0.02 ? 0 : (unit.buildStall || 0) + dt;
             if (unit.buildStall > 4) {
               ensureStructureRuntime(structure);
+              structure.construction ||= createConstructionState({ now: structure.createdAt || state.time });
+              if (state.time - (unit.lastBuildApproachFailureAt || -Infinity) >= 3) {
+                structure.construction.failedApproaches += 1;
+                unit.lastBuildApproachFailureAt = state.time;
+              }
               const startRadius = Math.max(structure.hitbox.w, structure.hitbox.h) / 2 + 9;
               const recoverySites = [];
               for (let ring = 0; ring < 4; ring += 1) {
@@ -4182,18 +4243,25 @@ import {
             structure.contributors[unit.id] = (structure.contributors[unit.id] || 0) + dt;
             structure.activeBuilderTimes ||= {};
             structure.activeBuilderTimes[unit.id] = state.time;
+            structure.construction ||= createConstructionState({ now: structure.createdAt || state.time });
             const activeBuilders = Object.values(structure.activeBuilderTimes).filter(lastAt => state.time - lastAt <= 0.6).length;
             const collaborationFactor = 1 / (1 + 0.35 * Math.max(0, activeBuilders - 1));
             const constructionPlayer = playerFor(unit.faction);
             const orkSupervisor = constructionPlayer.race === "Orks" && nearbyCombatObjects(unit, 46).units.some(other => other.alive && other.faction === unit.faction && other.id !== unit.id && ["engineer", "commander"].includes(other.role));
             const growthFactor = constructionPlayer.race === "Tyranids" ? 1.12 : constructionPlayer.race === "Orks" && orkSupervisor ? 1.28 : 1;
+            const previousProgress = structure.progress;
             structure.progress = clamp(structure.progress + dt * (0.07 + unit.engineering * 0.04) * collaborationFactor * (supplied ? 1 : 0.58) * growthFactor, 0, 1);
+            if (structure.progress > previousProgress + 0.00001) {
+              structure.construction.lastProgressAt = state.time;
+              structure.construction.stalledFor = 0;
+            }
             unit.status = constructionPlayer.race === "Tyranids" ? "Growing structure" : constructionPlayer.race === "Orks" ? "Grot construction" : "Building";
             unit.lastAction = constructionPlayer.race === "Tyranids"
               ? `${structure.displayName || factionBuildingLabel(unit.faction, structure.type)} ${Math.round(structure.progress * 100)}% gestated${supplied ? "" : " · synaptic supply weak"}.`
               : `${structure.displayName || factionBuildingLabel(unit.faction, structure.type)} ${Math.round(structure.progress * 100)}% complete${orkSupervisor ? " · workin' faster under supervision" : supplied ? "" : " · outside supply radius"}.`;
             if (structure.progress >= 1 && !structure.completedAt) {
               structure.completedAt = state.time;
+              structure.construction.state = "complete";
               constructionTelemetry.record(`builder:${unit.id}`, "completed", state.time, { faction: unit.faction, buildingType: structure.type, structureId: structure.id });
               ensureStructureRuntime(structure);
               for (const contributor of state.units.filter(other => other.buildProject === structure.id)) {
@@ -4273,6 +4341,13 @@ import {
           unit.buildCd = 1;
           return;
         }
+        const typeCooldownUntil = playerFor(unit.faction).constructionCooldowns?.[`type:${type}`] || 0;
+        if (typeCooldownUntil > state.time) {
+          unit.status = "Replanning construction";
+          unit.lastAction = `${factionBuildingLabel(unit.faction, type)} was recently cancelled; waiting ${Math.ceil(typeCooldownUntil - state.time)}s before reconsidering it.`;
+          unit.buildCd = Math.min(2, typeCooldownUntil - state.time);
+          return;
+        }
         const spec = buildingCatalog[type];
         const economy = economyFor(unit.faction);
         const builderPlayer = playerFor(unit.faction);
@@ -4313,8 +4388,11 @@ import {
         }
         for (const [resource, amount] of Object.entries(buildCost)) economy.inventory[resource] -= amount;
         syncLegacyResources(unit.faction);
+        let structureId;
+        do structureId = `building-${state.nextBuildingId++}`;
+        while (structureById(structureId));
         const structure = {
-          id: `building-${state.structures.length + 1}`,
+          id: structureId,
           type,
           faction: unit.faction,
           x: site.x,
@@ -4332,6 +4410,7 @@ import {
           createdAt: state.time,
           leadBuilderId: unit.id,
           contributors: { [unit.id]: 0 },
+          construction: createConstructionState({ committedResources: buildCost, now: state.time }),
           completedAt: null
         };
         state.structures.push(structure);
@@ -4345,6 +4424,98 @@ import {
           ? `The Hive Mind selected ${structure.displayName}; feeder tendrils began growing a stationary organism.`
           : `AI selected ${structure.displayName}: ${spec.purpose} utility outweighed cost, threat, and collision risk.`);
         incident(`${playerFor(unit.faction).faction} ${builderPlayer.race === "Tyranids" ? "began growing" : "funded"} ${structure.displayName} (${spec.purpose}).`, unit.id, "info");
+      }
+
+      function cancelConstruction(structure, reason) {
+        if (!structure || structure.progress >= 1 || structure.alive === false || structure.construction?.state === "cancelled") return false;
+        const player = playerFor(structure.faction);
+        const economy = economyFor(structure.faction);
+        const capacity = economyCapacity(structure.faction);
+        structure.construction ||= createConstructionState({ now: structure.createdAt || state.time });
+        const reclamation = player.race === "Necrons" ? 1.1 : player.race === "Tyranids" ? 0.95 : player.race === "Orks" ? 0.85 : 1;
+        const refund = constructionRefund(structure.construction.committedResources, structure.progress, reclamation);
+        for (const [resource, amount] of Object.entries(refund)) {
+          economy.inventory[resource] = Math.min(capacity[resource] || Infinity, (economy.inventory[resource] || 0) + amount);
+        }
+        structure.construction.state = "cancelled";
+        structure.construction.cancellationReason = reason;
+        structure.construction.cancelledAt = state.time;
+        for (const builder of state.units) {
+          if (builder.buildProject !== structure.id) continue;
+          builder.buildProject = null;
+          builder.buildStall = 0;
+          builder.detour = null;
+          builder.builderDecisionCd = 0;
+          builder.buildCd = Math.min(builder.buildCd || 0, 1);
+          builder.status = "Project cancelled";
+          builder.lastAction = `${structure.displayName || factionBuildingLabel(structure.faction, structure.type)} was cancelled: ${reason}.`;
+        }
+        player.constructionCooldowns ||= {};
+        player.constructionCooldowns[constructionSiteKey(structure)] = state.time + 20;
+        player.constructionCooldowns[`type:${structure.type}`] = state.time + 20;
+        state.aiDiagnostics.constructionCancellations = (state.aiDiagnostics.constructionCancellations || 0) + 1;
+        state.structures = state.structures.filter(candidate => candidate.id !== structure.id);
+        state.supplyNetwork.invalidateTopology();
+        state.navigationRevision += 1;
+        navigationPlanner.clear();
+        rebuildSpatialGrid();
+        syncLegacyResources(structure.faction);
+        constructionTelemetry.record(`construction:${structure.id}`, "cancelled", state.time, {
+          faction: structure.faction,
+          buildingType: structure.type,
+          blockedReason: reason,
+          refund
+        });
+        incident(`${player.faction} cancelled ${structure.displayName || factionBuildingLabel(structure.faction, structure.type)} (${reason}) and reclaimed ${Math.round(Object.values(refund).reduce((sum, amount) => sum + amount, 0))} resources.`, structure.id, "warning");
+        return true;
+      }
+
+      function updateConstructionProjects() {
+        const cancellations = [];
+        for (const structure of state.structures) {
+          if (structure.alive === false || structure.progress >= 1) continue;
+          structure.construction ||= createConstructionState({ now: structure.createdAt || state.time });
+          structure.construction.stalledFor = Math.max(0, state.time - (structure.construction.lastProgressAt ?? structure.createdAt ?? state.time));
+          const spec = buildingCatalog[structure.type] || {};
+          const activeBuilders = state.units.filter(builder => builder.alive && builder.role === "builder" && builder.buildProject === structure.id).length;
+          const territory = territoryAt(structure);
+          const parentMissing = Boolean(spec.requires) && !state.structures.some(candidate => candidate.faction === structure.faction
+            && candidate.type === spec.requires && candidate.progress >= 1 && candidate.alive !== false);
+          const placementConflictCandidate = structureReservationCollisionAt(
+            structure,
+            structure.hitbox || spec.hitbox,
+            buildingClearanceFor(structure.type, spec),
+            structure.id
+          );
+          // If two reservations overlap, keep the first commitment. Cancelling only the
+          // newer foundation prevents both projects from tearing each other down.
+          const placementConflict = Boolean(placementConflictCandidate) && (
+            (placementConflictCandidate.createdAt || 0) < (structure.createdAt || 0)
+            || (placementConflictCandidate.createdAt || 0) === (structure.createdAt || 0)
+              && state.structures.indexOf(placementConflictCandidate) < state.structures.indexOf(structure)
+          );
+          const duplicates = state.structures.filter(candidate => candidate.id !== structure.id && candidate.alive !== false
+            && candidate.faction === structure.faction && candidate.type === structure.type && candidate.progress < 1);
+          const duplicateLowPriority = duplicates.some(candidate => (candidate.createdAt || 0) < (structure.createdAt || 0));
+          const economy = economyFor(structure.faction);
+          const economyEmergency = (economy.shortages || []).length >= 2;
+          const lowPriority = ["turret", "observationtower", "warehouse", "bunker"].includes(structure.type) || duplicateLowPriority;
+          const nearby = nearbyCombatObjects(structure, 150).units;
+          const hostilePower = nearby.filter(unit => unit.alive && !areAllies(unit.faction, structure.faction)).reduce((sum, unit) => sum + combatPowerScore(unit), 0);
+          const friendlyPower = nearby.filter(unit => unit.alive && areAllies(unit.faction, structure.faction)).reduce((sum, unit) => sum + combatPowerScore(unit), 0);
+          const decision = evaluateConstructionCancellation(structure, {
+            activeBuilders,
+            placementConflict,
+            territoryLost: Boolean(territory && territory.owner && territory.owner !== structure.faction),
+            parentMissing,
+            duplicateLowPriority,
+            economyEmergency,
+            lowPriority,
+            indefensible: hostilePower > friendlyPower * 1.5 + 20
+          });
+          if (decision.cancel) cancellations.push({ structure, reason: decision.reason });
+        }
+        for (const cancellation of cancellations) cancelConstruction(cancellation.structure, cancellation.reason);
       }
 
       function navigationProfileFor(unit) {
@@ -4374,10 +4545,12 @@ import {
         let cost = 1 / Math.max(0.18, terrain.speed * obstacleFactor);
         if (profile === "vehicle" && ["mud", "swamp", "snow", "ice", "denseforest", "jungle"].includes(terrain.type)) cost *= 1.65;
         if (["road", "dirtroad", "stoneroad", "asphalt", "trail", "bridge", "stonebridge", "woodenbridge", "pontoonbridge"].includes(terrain.type)) cost *= profile === "vehicle" ? 0.58 : 0.78;
+        const cellKey = `${Math.round(point.x / navigationPlanner.cellSize)},${Math.round(point.y / navigationPlanner.cellSize)}`;
+        if (unit.navigationMonitor?.failedCells?.includes(cellKey)) cost *= 2.5;
         return clamp(cost, 0.35, 8);
       }
 
-      function planAutonomousRoute(unit, destination) {
+      function planAutonomousRoute(unit, destination, options = {}) {
         const totalDistance = distance(unit, destination);
         if (totalDistance < 48) return false;
         const localReach = Math.min(totalDistance, unit.role === "vehicle" ? 960 : 720);
@@ -4388,7 +4561,7 @@ import {
             }
           : destination;
         const profile = navigationProfileFor(unit);
-        const request = { start: unit, goal: localGoal, profile, revision: state.navigationRevision };
+        const request = { start: unit, goal: localGoal, profile, revision: state.navigationRevision, bypassCache: Boolean(options.ignoreCache) };
         const cachedPath = navigationPlanner.cachedPath(request);
         if (!cachedPath && !navigationWorkBudget.take()) {
           state.navigationPlansDeferred += 1;
@@ -4421,6 +4594,86 @@ import {
         state.navigationBudgetUsed = navigationWorkBudget.used;
         if (cachedPath) state.navigationCacheHits += 1;
         return true;
+      }
+
+      function navigationRecoveryPointValid(unit, point) {
+        const profile = navigationProfileFor(unit);
+        return navigationPassableAt(point, unit, profile)
+          && !nearbyCombatObjects(point, Math.max(10, (unit.collisionRadius || 3) * 2.2)).units
+            .some(other => other.alive && other.id !== unit.id && distance(other, point) < (unit.collisionRadius || 3) + (other.collisionRadius || 3) + 2);
+      }
+
+      function recoverUnitAtSpawnOrigin(unit, objective) {
+        const player = playerFor(unit.faction);
+        const origin = baseFor(unit.faction);
+        const bounds = { left: 24, right: worldWidth() - 24, top: 24, bottom: worldHeight() - 24 };
+        const destination = chooseRecoveryPoint(origin, objective, {
+          radii: [32, 48, 64, 80, 96, 112, 128],
+          pointsPerRing: 20,
+          seed: unit.index || 0,
+          bounds,
+          valid: point => pointInSpawnZone(point, player) && navigationRecoveryPointValid(unit, point),
+          occupied: () => false
+        });
+        if (!destination) return false;
+        const recoveries = unit.navigationMonitor?.spawnRecoveries || 1;
+        unit.x = destination.x;
+        unit.y = destination.y;
+        clearNavigationState(unit);
+        unit.navigationMonitor = createNavigationMonitor(state.time);
+        unit.navigationMonitor.spawnRecoveries = recoveries;
+        unit.status = "Navigation recovered";
+        unit.lastAction = "Repeated route failure detected; redeployed to the spawn recovery ring without restoring combat condition.";
+        state.aiDiagnostics.spawnRecoveries = (state.aiDiagnostics.spawnRecoveries || 0) + 1;
+        return true;
+      }
+
+      function handleNavigationRecovery(unit, objective, stage) {
+        const monitor = ensureNavigationMonitor(unit, state.time);
+        const failedPath = unit.navigationPath || [];
+        if (stage === 1) {
+          const detour = chooseRecoveryPoint(unit, objective, {
+            radii: [Math.max(18, (unit.collisionRadius || 3) * 2.5), 32, 48],
+            pointsPerRing: 12,
+            seed: unit.index || 0,
+            bounds: { left: 24, right: worldWidth() - 24, top: 24, bottom: worldHeight() - 24 },
+            valid: point => navigationRecoveryPointValid(unit, point),
+            occupied: () => false
+          });
+          if (detour) unit.detour = detour;
+          markNavigationRecovery(monitor, 1, { now: state.time });
+          unit.lastAction = "Low net movement detected; trying a local escape angle.";
+          return true;
+        }
+        if (stage === 2) {
+          markNavigationRecovery(monitor, 2, { now: state.time, failedPath });
+          clearNavigationState(unit);
+          planAutonomousRoute(unit, objective, { ignoreCache: true, avoidPreviousPath: true });
+          unit.lastAction = "Repeated route loop detected; forcing an uncached route around failed cells.";
+          return true;
+        }
+        if (stage === 3) {
+          markNavigationRecovery(monitor, 3, { now: state.time });
+          const destination = chooseRecoveryPoint(unit, objective, {
+            radii: [32, 48, 64, 96, 128],
+            pointsPerRing: 16,
+            seed: unit.index || 0,
+            bounds: { left: 24, right: worldWidth() - 24, top: 24, bottom: worldHeight() - 24 },
+            requireCloser: true,
+            valid: point => navigationRecoveryPointValid(unit, point),
+            occupied: () => false
+          });
+          if (destination) {
+            unit.x = destination.x;
+            unit.y = destination.y;
+            clearNavigationState(unit);
+            unit.status = "Locally redeployed";
+            unit.lastAction = "Persistent obstruction detected; shifted to the nearest free navigation cell closer to the objective.";
+          }
+          return true;
+        }
+        markNavigationRecovery(monitor, 4, { now: state.time });
+        return recoverUnitAtSpawnOrigin(unit, objective);
       }
 
       function moveToward(unit, point, dt, speedFactor = 1) {
@@ -4465,7 +4718,37 @@ import {
         const suppressionFactor = clamp(1 - (unit.suppression || 0) * 0.42, 0.45, 1);
         const obstacleMovement = environmentalMovementFactor(unit, unit);
         const vehicleFactor = unit.role === "vehicle" ? (unit.vehiclePerformance?.speedFactor ?? 1) : 1;
-        const step = unit.speed * terrain.speed * obstacleMovement * (unit.roadMovementFactor || 1) * (1 - unit.fatigue * 0.36) * speedFactor * fuelFactor * vehicleFactor * clamp(legCondition, 0.35, 1) * suppressionFactor * (unit.conditionMultiplier || 1) * dt;
+        const fatigueFactor = 1 - unit.fatigue * 0.36;
+        const clampedLegCondition = clamp(legCondition, 0.35, 1);
+        const effectiveSpeed = unit.speed * terrain.speed * obstacleMovement * (unit.roadMovementFactor || 1) * fatigueFactor
+          * speedFactor * fuelFactor * vehicleFactor * clampedLegCondition * suppressionFactor * (unit.conditionMultiplier || 1);
+        const monitor = ensureNavigationMonitor(unit, state.time);
+        const progress = d <= Math.max(10, radius)
+          ? { recoveryStage: 0 }
+          : sampleNavigationProgress(monitor, {
+              now: state.time,
+              position: unit,
+              goal: point,
+              path: unit.navigationPath || [],
+              expectedSpeed: effectiveSpeed,
+              cellSize: navigationPlanner.cellSize
+            });
+        unit.movementDiagnostic = movementDiagnostic({
+          baseSpeed: unit.speed,
+          terrain: terrain.speed,
+          obstacle: obstacleMovement,
+          road: unit.roadMovementFactor || 1,
+          fatigue: fatigueFactor,
+          suppression: suppressionFactor,
+          legs: clampedLegCondition,
+          condition: unit.conditionMultiplier || 1,
+          fuel: fuelFactor,
+          vehicle: vehicleFactor,
+          speedFactor,
+          monitor
+        });
+        if (progress.recoveryStage && handleNavigationRecovery(unit, point, progress.recoveryStage)) return;
+        const step = effectiveSpeed * dt;
         const next = { x: clamp(unit.x + dx / d * step, 24, worldWidth() - 24), y: clamp(unit.y + dy / d * step, 24, worldHeight() - 24) };
         const blockedAt = candidate => structureCollisionAt(candidate, radius, ignoreId) || environmentCollisionAt(candidate, unit, radius);
         let collision = blockedAt(next);
@@ -9709,10 +9992,10 @@ import {
             }
           }
           const roadSpeed = activeRoad ? clamp((activeRoad.segment.condition ?? 0.2) * 1.1 + 0.28 - (activeRoad.segment.traffic || 0) / Math.max(1, activeRoad.segment.capacity) * 0.18, 0.28, 1.35) : 0.72;
-          const speed = convoyUsesSpecialTransit(convoy) ? 34 : ["sea", "river"].includes(convoy.routeType) ? 18 : convoy.routeType === "rail" ? 24 : 13 * roadSpeed;
-          const hold = convoy.status === "Awaiting escort" ? 0.24 : 1;
-          convoy.x += dx / d * speed * hold * dt;
-          convoy.y += dy / d * speed * hold * dt;
+          const speed = convoyEffectiveSpeed(convoy, roadSpeed);
+          convoy.effectiveSpeed = speed;
+          convoy.x += dx / d * speed * dt;
+          convoy.y += dy / d * speed * dt;
           if (d < 7) convoy.waypoint += 1;
           if (distance(convoy, destination) < 9) deliverConvoy(convoy);
           else if (convoy.waypoint >= convoy.route.length) {
@@ -9804,7 +10087,7 @@ import {
         return true;
       }
 
-      function rebuildTerritoryTopology(territory) {
+      function rebuildTerritoryTopology(territory, cached = null) {
         territory.frontierCells = new Set();
         territory.controlledCells = new Set();
         territory.influencedCells = new Set(territory.claimedCells);
@@ -9813,12 +10096,13 @@ import {
         territory.disconnectedSince ||= new Map();
         const owner = territory.owner;
         const base = baseFor(owner);
-        const supplyStructures = state.structures.filter(structure => structure.alive !== false && structure.progress >= 1
+        const supplyStructures = cached?.supplyStructuresByOwner?.get(owner) || state.structures.filter(structure => structure.alive !== false && structure.progress >= 1
           && areAllies(structure.faction, owner) && (buildingCatalog[structure.type]?.supplyRadius || 0) > 0);
+        const defendedCells = cached?.defendedCellsByOwner?.get(owner);
         for (const key of territory.claimedCells) {
           const center = territoryCellCenter(key);
           const supplied = distance(center, base) <= 235 || supplyStructures.some(structure => distance(center, structure) <= (buildingCatalog[structure.type]?.supplyRadius || 0) + TERRITORY_CELL_SIZE * 0.7);
-          const defended = state.units.some(unit => unit.alive && areAllies(unit.faction, owner) && territoryCellKey(unit.x, unit.y) === key && unit.role !== "scout");
+          const defended = defendedCells ? defendedCells.has(key) : state.units.some(unit => unit.alive && areAllies(unit.faction, owner) && territoryCellKey(unit.x, unit.y) === key && unit.role !== "scout");
           if (supplied || defended) territory.controlledCells.add(key);
           if (neighboringTerritoryCells(key).some(neighbor => !territory.claimedCells.has(neighbor))) territory.frontierCells.add(key);
         }
@@ -10028,9 +10312,28 @@ import {
           const power = unit.role === "vehicle" ? 3 : unit.role === "commander" ? 2 : ["builder", "supply"].includes(unit.role) ? 0.35 : 1;
           groups.set(unit.faction, (groups.get(unit.faction) || 0) + power);
         }
+        // Cache owner-aware topology inputs once. The former implementation
+        // searched every unit and structure again for every claimed cell.
+        const defendedCellsByOwner = new Map();
+        const structureCellsByOwner = new Map();
+        const supplyStructuresByOwner = new Map();
+        for (const player of state.players) {
+          const defended = new Set();
+          for (const unit of state.units) {
+            if (!unit.alive || unit.role === "scout" || !areAllies(unit.faction, player.id)) continue;
+            defended.add(territoryCellKey(unit.x, unit.y));
+          }
+          defendedCellsByOwner.set(player.id, defended);
+          const alliedStructures = state.structures.filter(structure => structure.alive !== false && areAllies(structure.faction, player.id));
+          structureCellsByOwner.set(player.id, new Set(alliedStructures.filter(structure => structure.faction === player.id)
+            .map(structure => territoryCellKey(structure.x, structure.y))));
+          supplyStructuresByOwner.set(player.id, alliedStructures.filter(structure => structure.progress >= 1
+            && (buildingCatalog[structure.type]?.supplyRadius || 0) > 0));
+        }
+        const topologyCache = { defendedCellsByOwner, structureCellsByOwner, supplyStructuresByOwner };
         let changed = false;
         for (const territory of state.territories.filter(item => item.cellBacked && item.owner)) {
-          rebuildTerritoryTopology(territory);
+          rebuildTerritoryTopology(territory, topologyCache);
           territory.contestedCells = new Set();
           for (const key of [...territory.claimedCells]) {
             const groups = occupantsByCell.get(key) || new Map();
@@ -10051,7 +10354,7 @@ import {
           for (const key of [...territory.disconnectedCells]) {
             const isolatedFor = state.time - (territory.disconnectedSince.get(key) || state.time);
             const defended = (occupantsByCell.get(key)?.get(territory.owner) || 0) >= 1;
-            const fortified = state.structures.some(structure => structure.alive !== false && structure.faction === territory.owner && territoryCellKey(structure.x, structure.y) === key);
+            const fortified = structureCellsByOwner.get(territory.owner)?.has(key) || false;
             if (territory.canAbandon && !territory.locked && isolatedFor > 42 && !defended && !fortified) {
               territory.claimedCells.delete(key);
               territory.disconnectedSince.delete(key);
@@ -10072,7 +10375,7 @@ import {
             const key = territoryCellKey(outpost.x, outpost.y);
             if (territory.claimedCells.has(key)) territory.controlledCells.add(key);
           }
-          rebuildTerritoryTopology(territory);
+          rebuildTerritoryTopology(territory, topologyCache);
           const behavior = aiBehaviorFor(player);
           const culturalCooldown = player.faction === "Space Marines" ? 30 : player.race === "Tyranids" ? 12 : player.race === "Orks" ? 10 : 20;
           const cooldown = clamp(culturalCooldown - (behavior.expansion - 50) * 0.16 + (behavior.caution - 50) * 0.08, 7, 38);
@@ -10635,6 +10938,12 @@ import {
           profiler.profile("support.sustainment", refreshSustainmentRequests);
           state.sustainmentAccumulator = 0;
         }
+        state.constructionAccumulator += dt;
+        const constructionInterval = denseTotalBattle ? 2 : 1;
+        if (state.constructionAccumulator >= constructionInterval) {
+          profiler.profile("construction.projects", updateConstructionProjects);
+          state.constructionAccumulator = 0;
+        }
         state.roadAIAccumulator += dt;
         if (state.roadAIAccumulator >= 3) {
           updateRoadDynamics(state.roadAIAccumulator);
@@ -10696,6 +11005,12 @@ import {
           }, [packed.values.buffer, packed.factions.buffer, packed.teams.buffer]);
         }
         profiler.profile("simulation.units", () => {
+          // A deliberately full-roster fixture can place hundreds of actors inside
+          // one camera radius. Amortize their tactical thinking further while the
+          // normal Total Battlefield schedule remains unchanged for sparse views.
+          const entityUpdatePreset = denseTotalBattle && state.units.length >= 320
+            ? { ...state.performancePreset, nearStride: 10, nearEngagedStride: 8, distantStride: 24 }
+            : state.performancePreset;
           state.units.forEach((unit, index) => {
             unit.deferredSimulationDt = (unit.deferredSimulationDt || 0) + dt;
             const supportUnit = ["builder", "supply"].includes(unit.role);
@@ -10711,7 +11026,7 @@ import {
               distanceFromCamera,
               critical: unit.id === state.selectedId || unit.role === "commander" && state.performancePreset.nearEngagedStride === 1,
               engaged: Boolean(unit.targetId),
-              preset: state.performancePreset
+              preset: entityUpdatePreset
             });
             if (!updateNow) return;
             const elapsed = Math.min(1.5, unit.deferredSimulationDt);
@@ -12020,6 +12335,56 @@ import {
         ctx.globalAlpha = 1;
       }
 
+      function drawDenseUnitBatches(visibleUnits) {
+        const batches = new Map();
+        const detailed = [];
+        for (const unit of visibleUnits) {
+          if (unit.embarkedInId || !pointVisible(unit, 36)) continue;
+          if (!unit.alive || unit.id === state.selectedId) {
+            detailed.push(unit);
+            continue;
+          }
+          let batch = batches.get(unit.faction);
+          if (!batch) {
+            batch = { infantry: new Path2D(), support: new Path2D(), vehicles: new Path2D(), commanders: new Path2D(), infantryCount: 0, supportCount: 0, vehicleCount: 0, commanderCount: 0 };
+            batches.set(unit.faction, batch);
+          }
+          if (unit.role === "vehicle") {
+            batch.vehicles.rect(unit.x - 8, unit.y - 5, 16, 10);
+            batch.vehicleCount += 1;
+          } else if (["builder", "supply", "medic", "engineer"].includes(unit.role)) {
+            batch.support.moveTo(unit.x, unit.y - 5);
+            batch.support.lineTo(unit.x + 5, unit.y);
+            batch.support.lineTo(unit.x, unit.y + 5);
+            batch.support.lineTo(unit.x - 5, unit.y);
+            batch.support.closePath();
+            batch.supportCount += 1;
+          } else if (unit.role === "commander") {
+            batch.commanders.moveTo(unit.x, unit.y - 6);
+            batch.commanders.lineTo(unit.x + 6, unit.y + 5);
+            batch.commanders.lineTo(unit.x - 6, unit.y + 5);
+            batch.commanders.closePath();
+            batch.commanderCount += 1;
+          } else {
+            batch.infantry.rect(unit.x - 3, unit.y - 4, 6, 8);
+            batch.infantryCount += 1;
+          }
+        }
+        ctx.save();
+        ctx.lineWidth = 1;
+        for (const [faction, batch] of batches) {
+          ctx.fillStyle = playerColor(faction);
+          ctx.strokeStyle = playerSecondaryColor(faction);
+          ctx.globalAlpha = 0.94;
+          if (batch.infantryCount) ctx.fill(batch.infantry);
+          if (batch.supportCount) { ctx.fill(batch.support); ctx.stroke(batch.support); }
+          if (batch.vehicleCount) { ctx.fill(batch.vehicles); ctx.stroke(batch.vehicles); }
+          if (batch.commanderCount) { ctx.fill(batch.commanders); ctx.stroke(batch.commanders); }
+        }
+        ctx.restore();
+        for (const unit of detailed) drawUnit(unit);
+      }
+
       function drawUnit(unit, historical) {
         const view = historical || unit;
         if (view.embarkedInId) return;
@@ -13016,6 +13381,7 @@ import {
           structures: snapshotObjects.structures.filter(item => objectVisibleToFog(item, state.fogPlayer, item.hitbox ? Math.max(item.hitbox.w, item.hitbox.h) / 2 : 0))
         } : visibleObjects;
         const overviewClusters = overviewMode ? buildOverviewClusters(renderObjects) : null;
+        const denseActorMode = !overviewMode && state.performancePreset.id === "total" && renderObjects.units.length >= 280;
         const renderedActors = overviewClusters
           ? overviewClusters.units.length + overviewClusters.structures.length
           : renderObjects.units.length + renderObjects.structures.length;
@@ -13038,8 +13404,11 @@ import {
           } else {
             drawStructures(snapshot, renderObjects.structures);
             drawTransports();
-            drawSquads(snapshot, renderObjects.units);
-            for (const unit of renderObjects.units) drawUnit(unit);
+            if (denseActorMode) drawDenseUnitBatches(renderObjects.units);
+            else {
+              drawSquads(snapshot, renderObjects.units);
+              for (const unit of renderObjects.units) drawUnit(unit);
+            }
           }
           drawProjectiles();
         });
@@ -13093,6 +13462,11 @@ import {
           ? `${unit.alertState} ${Math.round((unit.alertLevel || 0) * 100)}% · nearest hostile ${Math.round(unit.nearestThreatDistance)}m`
           : `${unit.alertState || "Calm"} ${Math.round((unit.alertLevel || 0) * 100)}%`;
         els.unitDepth.textContent = `Age ${unit.age} · XP ${unit.experience} · Courage ${(unit.courage * 100).toFixed(0)} · Discipline ${(unit.discipline * 100).toFixed(0)} · Alert ${alertDetail} · ${unit.armor} · ${unit.weapon} · ${lightingState}${social ? ` · Bonds: ${social}` : " · Bonds forming"}`;
+        const movement = view.movementDiagnostic || unit.movementDiagnostic;
+        if (movement) {
+          const factors = movement.factors || {};
+          els.movementDiagnostic.textContent = `Movement · Base ${movement.baseSpeed.toFixed(1)} · Terrain ×${(factors.terrain ?? 1).toFixed(2)} · Obstacle ×${(factors.obstacle ?? 1).toFixed(2)} · Road ×${(factors.road ?? 1).toFixed(2)} · Fatigue ×${(factors.fatigue ?? 1).toFixed(2)} · Suppression ×${(factors.suppression ?? 1).toFixed(2)} · Legs ×${(factors.legs ?? 1).toFixed(2)} · Condition ×${(factors.condition ?? 1).toFixed(2)} · Effective ${movement.effectiveSpeed.toFixed(1)} px/s · ${movement.navigation} ${Math.round((movement.progress || 0) * 100)}% · Stuck ${movement.stuck ? "YES" : "NO"} · Repaths ${movement.repaths || 0}`;
+        } else els.movementDiagnostic.textContent = "Movement diagnostics appear while the unit is travelling.";
         const recordedAI = currentSnapshot()?.analysis?.players?.[player.id];
         const aiInspection = buildAIInspector({
           player,

@@ -42,6 +42,11 @@ import { STRATEGIC_PORTFOLIO_BASES, createStrategicPortfolio, portfolioRoleFloor
 import { chooseRegroupPoint, pointInPolygon, regroupCandidates } from "./ai/RegroupPointSystem.js";
 import { BUILDING_CLEARANCE, blocksServiceCorridor, buildingClearanceFor, placementRectsOverlap } from "./construction/BaseLayoutSystem.js";
 import { SUSTAINMENT_PROFILES, SUSTAINMENT_SERVICES, buildSustainmentRequests, factionSustainmentCost, fieldServiceLimit, providerCanService, selectSustainmentRequest, sustainmentCostFor, sustainmentProfileFor, sustainmentRequestFor } from "./support/SustainmentSystem.js";
+import { createNavigationMonitor, ensureNavigationMonitor, markNavigationRecovery, movementDiagnostic, navigationFingerprint, rememberFailedPath, sampleNavigationProgress } from "./map/MovementProgressSystem.js";
+import { chooseRecoveryPoint, clearNavigationState, recoveryRingCandidates } from "./map/StuckRecoverySystem.js";
+import { IDEAL_BUILDERS, constructionRefund, constructionSiteKey, createConstructionState, desiredBuildersFor, evaluateConstructionCancellation } from "./construction/ConstructionSystem.js";
+import { chooseBuilderAssignment, scoreProjectForBuilder } from "./construction/BuilderAssignmentSystem.js";
+import { SUPPLY_TRANSPORT_SPEED, convoyBaseSpeed, convoyEffectiveSpeed, convoyMovementFactor } from "./logistics/ConvoyMovementSystem.js";
 
 globalThis.AWTSystems = Object.freeze({
   EconomyZoneManager,
@@ -169,7 +174,29 @@ globalThis.AWTSystems = Object.freeze({
   selectSustainmentRequest,
   sustainmentCostFor,
   sustainmentProfileFor,
-  sustainmentRequestFor
+  sustainmentRequestFor,
+  createNavigationMonitor,
+  ensureNavigationMonitor,
+  markNavigationRecovery,
+  movementDiagnostic,
+  navigationFingerprint,
+  rememberFailedPath,
+  sampleNavigationProgress,
+  chooseRecoveryPoint,
+  clearNavigationState,
+  recoveryRingCandidates,
+  IDEAL_BUILDERS,
+  constructionRefund,
+  constructionSiteKey,
+  createConstructionState,
+  desiredBuildersFor,
+  evaluateConstructionCancellation,
+  chooseBuilderAssignment,
+  scoreProjectForBuilder,
+  SUPPLY_TRANSPORT_SPEED,
+  convoyBaseSpeed,
+  convoyEffectiveSpeed,
+  convoyMovementFactor
 });
 globalThis.AWTData ||= {};
 try {

@@ -332,6 +332,8 @@ try {
       livingCarriers: carriers.filter(unit => unit.alive).length,
       carrierSources: carriers.map(unit => unit.deployment?.sourceType || null),
       activeProjects: builders.filter(unit => unit.buildProject).length,
+      constructionCancellations: state.aiDiagnostics.constructionCancellations || 0,
+      navigationMonitors: builders.filter(unit => unit.navigationMonitor).length,
       statuses: builders.map(unit => unit.status),
       buildersByFaction: state.players.map(player => ({
         faction: player.id,
@@ -358,6 +360,8 @@ try {
     || builderHealth.livingCarriers !== builderHealth.carrierCount
     || builderHealth.carrierSources.some(source => source !== 'building')
     || builderHealth.carriersByFaction.some(group => group.operationalHeadquarters && (group.count < 1 || group.count > group.target))
+    || builderHealth.constructionCancellations > builderHealth.buildersByFaction.length * 2
+    || builderHealth.navigationMonitors !== builderHealth.builderCount
     || builderHealth.structures < builderHealth.buildersByFaction.length) {
     throw new Error(`Builder lifecycle failed: ${JSON.stringify(builderHealth)}`);
   }

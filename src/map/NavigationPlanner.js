@@ -78,18 +78,19 @@ export class NavigationPlanner {
     };
   }
 
-  cachedPath({ start, goal, profile = "infantry", revision = 0 }) {
+  cachedPath({ start, goal, profile = "infantry", revision = 0, bypassCache = false }) {
+    if (bypassCache) return null;
     const startCell = this.worldToCell(start);
     const goalCell = this.worldToCell(goal);
     const cached = this.cache.get(`${cellKey(startCell)}|${cellKey(goalCell)}|${profile}|${revision}`);
     return cached ? cached.map(point => ({ ...point })) : null;
   }
 
-  findPath({ start, goal, profile = "infantry", revision = 0, isPassable, costAt = () => 1 }) {
+  findPath({ start, goal, profile = "infantry", revision = 0, isPassable, costAt = () => 1, bypassCache = false }) {
     const startCell = this.worldToCell(start);
     let goalCell = this.worldToCell(goal);
     const cacheKey = `${cellKey(startCell)}|${cellKey(goalCell)}|${profile}|${revision}`;
-    const cached = this.cache.get(cacheKey);
+    const cached = bypassCache ? null : this.cache.get(cacheKey);
     if (cached) return cached.map(point => ({ ...point }));
 
     const passable = cell => isPassable(this.cellCenter(cell), profile);
@@ -149,8 +150,10 @@ export class NavigationPlanner {
     const points = smoothed.slice(1).map(cell => this.cellCenter(cell));
     if (points.length) points[points.length - 1] = { ...goal };
 
-    this.cache.set(cacheKey, points.map(point => ({ ...point })));
-    while (this.cache.size > this.maxCacheEntries) this.cache.delete(this.cache.keys().next().value);
+    if (!bypassCache) {
+      this.cache.set(cacheKey, points.map(point => ({ ...point })));
+      while (this.cache.size > this.maxCacheEntries) this.cache.delete(this.cache.keys().next().value);
+    }
     return points;
   }
 
