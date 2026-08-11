@@ -54,6 +54,8 @@ import { SUBFACTION_BUILDINGS, SUBFACTION_BUILDING_ORDER, SUBFACTION_BUILDING_SL
 import { BUILDER_REPAIR_ASSIGNMENT_TTL, BUILDER_REPAIR_CREW_LIMIT, SERVITOR_REPAIR_ASSIGNMENT_TTL, activeRepairCrewCount, builderRepairCrewLimit, builderRepairSlotAvailable, claimRepairAssignment, releaseStaleRepairAssignment, servitorRepairCrewLimit, servitorRepairSlotAvailable } from "./construction/RepairCrewSystem.js";
 import { ACTIVE_FORCE_ROLES, PASSIVE_FORCE_ROLES, desiredActiveForceRatio, enforceActiveForceRatio } from "./ai/ActiveForceSystem.js";
 import { BUILDING_CAPACITY_CLASSES, TERRITORY_BUILD_CAPS, buildingCapacityClass, constructionCapacityForCell, countBuildingsByCapacityClass, territoryCapacityAvailable } from "./territory/TerritoryConstructionSystem.js";
+import { COMBAT_RESPONSES, chooseImmediateThreat, chooseSquadTarget, combatContactPhase, combatContactPoint, evaluateCombatResponse, refreshSquadCombatContact } from "./ai/CombatResponseSystem.js";
+import { BREAK_POLICIES, BREAK_POLICY_IDS, breakPolicyFor, breakPolicyIdFor, commissarInterventionFor, createPsychologyState, guardBreakStateFor, isCommissar, updateFactionPressure, withdrawalDecisionFor } from "./ai/FactionBreakPolicy.js";
 
 globalThis.AWTSystems = Object.freeze({
   EconomyZoneManager,
@@ -246,7 +248,24 @@ globalThis.AWTSystems = Object.freeze({
   buildingCapacityClass,
   constructionCapacityForCell,
   countBuildingsByCapacityClass,
-  territoryCapacityAvailable
+  territoryCapacityAvailable,
+  COMBAT_RESPONSES,
+  chooseImmediateThreat,
+  chooseSquadTarget,
+  combatContactPhase,
+  combatContactPoint,
+  evaluateCombatResponse,
+  refreshSquadCombatContact,
+  BREAK_POLICIES,
+  BREAK_POLICY_IDS,
+  breakPolicyFor,
+  breakPolicyIdFor,
+  commissarInterventionFor,
+  createPsychologyState,
+  guardBreakStateFor,
+  isCommissar,
+  updateFactionPressure,
+  withdrawalDecisionFor
 });
 globalThis.AWTData ||= {};
 try {

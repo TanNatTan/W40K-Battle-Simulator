@@ -16,7 +16,7 @@ const baseUnit = overrides => ({
   morale: 0.75,
   courage: 0.6,
   discipline: 0.58,
-  fear: 0.35,
+  resolve: 0.65,
   aggression: 0.55,
   vengeance: 0.2,
   suppression: 0,
@@ -24,21 +24,23 @@ const baseUnit = overrides => ({
   ...overrides
 });
 
-test("nearby hostiles create distinct aggressive and afraid unit reactions", () => {
+test("nearby hostiles create aggression broadly but fear only under a Guard fear policy", () => {
   const hostile = baseUnit({ id: "enemy", role: "commander", morale: 0.9 });
   const aggressive = baseUnit({ aggression: 0.98, vengeance: 0.8, courage: 0.82, discipline: 0.45 });
-  const afraid = baseUnit({ role: "builder", aggression: 0.08, courage: 0.12, discipline: 0.24, morale: 0.28, fear: 0.9, hp: 45 });
+  const afraid = baseUnit({ role: "builder", aggression: 0.08, courage: 0.12, discipline: 0.24, morale: 0.28, resolve: 0.2, hp: 45 });
   let aggressiveState = aggressive;
   let afraidState = afraid;
   for (let tick = 0; tick < 12; tick += 1) {
     aggressiveState = { ...aggressiveState, ...evaluateProximityAwareness(aggressiveState, [{ unit: hostile, distance: 18 }], [], 0.2, 160) };
-    afraidState = { ...afraidState, ...evaluateProximityAwareness(afraidState, [{ unit: hostile, distance: 18 }], [], 0.2, 160) };
+    afraidState = { ...afraidState, ...evaluateProximityAwareness(afraidState, [{ unit: hostile, distance: 18 }], [], 0.2, 160, { usesFear: true }) };
   }
   assert.equal(aggressiveState.alertState, "Aggressive");
   assert.equal(afraidState.alertState, "Afraid");
   assert.ok(proximityCombatModifiers(aggressiveState).confidence > 0);
   assert.ok(proximityCombatModifiers(afraidState).confidence < 0);
   assert.ok(proximityCombatModifiers(afraidState).move < proximityCombatModifiers(aggressiveState).move);
+  const fearless = evaluateProximityAwareness(afraid, [{ unit: hostile, distance: 18 }], [], 1, 160);
+  assert.notEqual(fearless.alertState, "Afraid");
 });
 
 test("alertness decays after nearby enemies disappear", () => {

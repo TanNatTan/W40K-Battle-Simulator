@@ -151,6 +151,19 @@ import {
 import { StrategicCellIndex } from "../src/performance/StrategicCellIndex.js";
 import { evaluateProximityAwareness, proximityCombatModifiers } from "../src/ai/ProximityAwareness.js";
 import { mergeSquadContactBoard, refreshContactMemory } from "../src/ai/PerceptionMemorySystem.js";
+import {
+  combatContactPoint,
+  evaluateCombatResponse,
+  refreshSquadCombatContact
+} from "../src/ai/CombatResponseSystem.js";
+import {
+  breakPolicyFor,
+  commissarInterventionFor,
+  createPsychologyState,
+  isCommissar,
+  updateFactionPressure,
+  withdrawalDecisionFor
+} from "../src/ai/FactionBreakPolicy.js";
 import { assessEnemyCondition, scoreTargetCandidate, selectTarget } from "../src/ai/TargetSelectionSystem.js";
 import { estimatedFriendlyDamageAssigned, finishOpportunityFor } from "../src/ai/TargetAssessmentSystem.js";
 import { resolveFactionObjectiveDoctrine } from "../src/ai/FactionObjectiveDoctrine.js";
@@ -175,7 +188,6 @@ import {
   ensureWeaponState,
   moraleAuraFor,
   requestRangedShot,
-  retreatReasonFor,
   resolveArmorHit,
   resolveMeleeStrike,
   synchronizeAmmoState,
@@ -653,7 +665,7 @@ import {
           deployment: "Ground deployment, convoys, Valkyries",
           buildings: { outpost: "Command Headquarters", barracks: "Barracks", workshop: "Manufactorum", researchcenter: "Tactica Command", fieldhospital: "Field Hospital", generator: "Generatorium", warehouse: "Supply Warehouse", refinery: "Promethium Refinery", dropbay: "Valkyrie Landing Pad", observationtower: "Vox Relay", bunker: "Bunker Network", turret: "Heavy Weapons Nest" },
           command: { squad: ["Sergeant"], field: ["Junior Officer"], company: ["Regimental Officer"], exceptional: ["General", "Lord Commander"] },
-          roster: { builder: ["Combat Engineer"], supply: ["Munitorum Cargo Carrier", "Trojan Support Vehicle"], trooper: ["Guardsman", "Shock Trooper", "Kasrkin", "Tempestus Scion"], scout: ["Ratling", "Sentinel Scout"], medic: ["Field Medic"], engineer: ["Combat Engineer"], commander: ["Sergeant", "Junior Officer", "Regimental Officer"], standard: ["Regimental Standard"], vehicle: ["Chimera", "Sentinel", "Leman Russ", "Rogal Dorn"] }
+          roster: { builder: ["Combat Engineer"], supply: ["Munitorum Cargo Carrier", "Trojan Support Vehicle"], trooper: ["Guardsman", "Shock Trooper", "Kasrkin", "Tempestus Scion"], scout: ["Ratling", "Sentinel Scout"], medic: ["Field Medic"], engineer: ["Combat Engineer"], commander: ["Sergeant", "Junior Officer", "Regimental Officer"], standard: ["Regimental Standard", "Commissar"], vehicle: ["Chimera", "Sentinel", "Leman Russ", "Rogal Dorn"] }
         },
         chaos: {
           deployment: "Warp beacons, corrupted drop pods, summoning",
@@ -2863,12 +2875,17 @@ import {
       }
 
       function ensureIndividualRuntime(unit) {
+        const unitPlayer = playerFor(unit.faction);
+        const psychology = createPsychologyState(unitPlayer, () => clamp(unit.morale ?? 0.6, 0, 1));
+        for (const [key, value] of Object.entries(psychology)) unit[key] ??= value;
+        delete unit.fear;
         unit.relationships ||= {};
         unit.relationshipCooldowns ||= {};
         unit.friends ||= [];
         unit.rivals ||= [];
         unit.personality ||= personalityFor(unit);
         unit.combatIntent ||= "Follow objective";
+        unit.combatResponse ||= "NO_CONTACT";
         unit.killConfidence ??= 0;
         unit.alertLevel ??= 0;
         unit.alertState ||= "Calm";
@@ -3108,7 +3125,6 @@ import {
           maxHp,
           alive: true,
           morale: rand(0.78, 0.88),
-          fear: rand(0.44, 0.54),
           fatigue: rand(0.03, 0.09),
           ammo: ["builder", "supply"].includes(role) ? 0 : role === "vehicle" ? 18 : 16,
           maxAmmo: ["builder", "supply"].includes(role) ? 0 : role === "vehicle" ? 18 : 16,
@@ -3199,6 +3215,7 @@ import {
           resourceCargo: role === "supply" ? { type: null, amount: 0, capacity: 32 } : null,
           commandRank: role === "commander" ? 4 : role === "standard" ? 3 : role === "medic" ? 2 : 1
         };
+        Object.assign(unit, createPsychologyState(player, battleRandom));
         if (player.race === "Orks") {
           unit.orkRank = role === "commander" ? "Boss Nob" : role === "builder" ? "Gretchin" : "Boy";
           unit.dominance = 0;
@@ -3221,7 +3238,7 @@ import {
           unit.underSynapse = unit.synapse;
           unit.instinctiveBehavior = role === "scout" ? "Hunt" : role === "builder" ? "Feed and tend" : role === "vehicle" ? "Territorial predator" : "Seek synapse";
           unit.morale = 1;
-          unit.fear = 0;
+          unit.resolve = 1;
           unit.loyalty = 1;
           unit.vengeance = 0;
           unit.logs = role === "builder" ? ["Tending the infestation.", "Awaiting synaptic growth direction."] : ["Linked to the Hive Mind.", "Awaiting target-priority impulse."];
@@ -3321,6 +3338,8 @@ import {
         squad.regroupPoint ||= null;
         squad.regroupSerial ??= 0;
         squad.roleAssignmentReason ||= "Initial reserve organization";
+        squad.combatContact ||= null;
+        squad.lastCommissarInterventionAt ??= -Infinity;
         return squad;
       }
 
@@ -4248,7 +4267,15 @@ import {
         if (recoverBuilderInsideSpawnZone(unit)) return;
         unit.buildCd -= dt;
         unit.builderDecisionCd = (unit.builderDecisionCd || 0) - dt;
-        if (unit.hp < unit.maxHp * 0.3 || unit.morale < 0.23) unit.retreating = true;
+        const builderWithdrawal = withdrawalDecisionFor(unit, playerFor(unit.faction), {
+          hasRangedWeapon: false,
+          safeWithdrawalAvailable: true,
+          criticalObjective: Boolean(unit.buildProject)
+        });
+        if (builderWithdrawal) {
+          unit.retreatReason = builderWithdrawal;
+          unit.retreating = true;
+        }
         if (unit.retreating) {
           const base = baseFor(unit.faction);
           unit.protectionRequested = true;
@@ -4257,10 +4284,17 @@ import {
           unit.lastAction = "Withdrawing from the work site and requesting protection.";
           if (distance(unit, base) < 44) {
             unit.morale = clamp(unit.morale + dt * 0.035, 0, 1);
+            const builderBreakPolicy = breakPolicyFor(playerFor(unit.faction));
+            if (builderBreakPolicy.usesFear) {
+              unit.combatStress = clamp((unit.combatStress || 0) - dt * 12, 0, 100);
+              Object.assign(unit, updateFactionPressure(unit, playerFor(unit.faction), { commanderPresent: true }, 0));
+            }
             unit.fatigue = clamp(unit.fatigue - dt * 0.025, 0, 1);
             unit.hp = clamp(unit.hp + dt * 0.45, 0, unit.maxHp * 0.58);
-            if (unit.morale > 0.5 && unit.hp > unit.maxHp * 0.4) {
+            const recoveredFromRout = unit.retreatReason !== "ROUT" || (unit.combatStress || 0) < (unit.breakThreshold || 80) - 15;
+            if (recoveredFromRout && unit.hp > unit.maxHp * 0.4) {
               unit.retreating = false;
+              unit.retreatReason = null;
               unit.protectionRequested = false;
             }
           }
@@ -5181,7 +5215,7 @@ import {
         const threshold = clamp(56 + 10 * (unit.discipline - 0.5) + 10 * (caution - 0.5) - 10 * (unit.aggression - 0.5) - 6 * vengeance
           - (finish.valuable && finish.safe ? 10 : 0)
           - (race === "Orks" ? 8 : race === "Tyranids" && unit.underSynapse ? 5 : 0) + alertBias.threshold, 32, 78);
-        let intent = confidence >= threshold ? "Eliminate" : confidence >= threshold - 12 ? "Force retreat" : confidence >= 28 && unit.ammo > 2 ? "Suppress" : "Ignore";
+        let intent = confidence >= threshold ? "Eliminate" : confidence >= threshold - 12 ? "Force retreat" : confidence >= 28 && unit.ammo > 2 ? "Suppress" : "Contain";
         const safeFinishWindow = finish.valuable && finish.safe
           && (!condition.incapacitated || activeEnemies.length === 0 || forceAdvantage >= 0.1);
         if (target.retreating && confidence < threshold) intent = "Force retreat";
@@ -5189,7 +5223,7 @@ import {
         const pursuitRadius = clamp(unit.range * (0.9 + 1.3 * unit.aggression + 0.5 * vengeance - 0.6 * caution), unit.range * 0.65, unit.range * 2.4);
         return {
           targetId: target.id, intent, confidence, threshold, evaluatedAt: state.time, active: true, rejected: false,
-          expiresAt: state.time + (state.speed >= 8 ? 5 : 1.4), originX: unit.x, originY: unit.y, pursuitRadius
+          expiresAt: state.time + (state.speed >= 8 ? 7 : 4), originX: unit.x, originY: unit.y, pursuitRadius
         };
       }
 
@@ -5606,10 +5640,11 @@ import {
             }
             addUnitLog(senior, `Took formal command of ${squad.name} after joining the formation.`);
           }
-          const retreatRatio = members.filter(member => member.retreating || member.hp < member.maxHp * 0.34 || member.morale < 0.28).length / members.length;
-          const averageMorale = members.reduce((sum, member) => sum + member.morale, 0) / members.length;
-          if (squad.orderType !== "Regroup" && (retreatRatio >= 0.45 || averageMorale < 0.3)) {
-            orderSquadToRegroup(squad, members, `Ordered ${squad.name} to regroup after cohesion and morale fell below the combat threshold.`);
+          const retreatRatio = members.filter(member => member.retreating || member.hp < member.maxHp * 0.34).length / members.length;
+          const squadBreakPolicy = breakPolicyFor(playerFor(squad.faction));
+          const averageCombatStress = members.reduce((sum, member) => sum + (member.combatStress || 0), 0) / members.length;
+          if (squad.orderType !== "Regroup" && (retreatRatio >= 0.45 || squadBreakPolicy.usesMoraleRout && averageCombatStress >= 75)) {
+            orderSquadToRegroup(squad, members, `Ordered ${squad.name} to regroup after casualties or faction-specific break pressure crossed the combat threshold.`);
           }
           const protectedAsset = squadAssetById(squad.protectedAssetId);
           const assignedRoad = state.roads.find(road => road.id === squad.roadId);
@@ -5656,7 +5691,7 @@ import {
           const restrictiveOrder = ["Hold Route", "Block Route", "Patrol Route", "Observe Route", "Ambush Route", "Keep Route Open", "Delay Enemy", "Destroy Route if Overrun", "Escort Route", "Defend Base", "Defend Territory", "Capture", "Recon", "Reserve", "Medical Support"].includes(squad.orderType);
           const combatAnchor = squad.routeAnchor || squad.assignedObjective || squad.objective || (assignedRoad ? roadMidpoint(assignedRoad) : null);
           const leaderRejectedTarget = Boolean(target && leader.combatCommitment && leader.combatCommitment.targetId === target.id
-            && (leader.combatCommitment.intent === "Ignore" || leader.combatCommitment.intent === "Force retreat" && target.retreating));
+            && leader.combatCommitment.intent === "Force retreat" && target.retreating);
           const targetAllowed = candidate => candidate && canDetectTarget(leader, candidate)
             && !(restrictiveOrder && combatAnchor && distance(candidate, combatAnchor) > Math.max(leader.range, roleDefinition.engagementRadius || 100));
           if (target && (!targetAllowed(target) || leaderRejectedTarget)) target = null;
@@ -6414,7 +6449,7 @@ import {
           const weakness = (1 - other.hp / Math.max(1, other.maxHp)) * 24;
           const commanderPriority = unit.role === "commander" ? 18 : 0;
           const vengeance = vengeanceDrive(unit, other) * 32 + clamp(-relationshipScore(unit, other) * 0.12, 0, 10);
-          const commitmentBias = unit.combatCommitment?.targetId === other.id && unit.combatCommitment.intent !== "Ignore" ? 14 : 0;
+          const commitmentBias = unit.combatCommitment?.targetId === other.id ? 14 : 0;
           const focusCount = focusCounts.get(other.id) || 0;
           const assignedDamage = estimatedFriendlyDamageAssigned(other.id, nearby.units.filter(actor => areAllies(actor.faction, unit.faction)));
           const race = playerFor(unit.faction).race;
@@ -6839,7 +6874,16 @@ import {
           handleFactionDeath(target, shooter);
           incident(`${unitLabel(target)} was killed by a ${zone} impact. Squad health recalculated.`, target.id, "critical");
         } else if (target.hp < target.maxHp * 0.3) {
-          target.retreating = true;
+          const casualtyWithdrawal = withdrawalDecisionFor(target, playerFor(target.faction), {
+            hasRangedWeapon: weaponProfileFor(target).magazineSize > 0,
+            hasReserveAmmo: (target.weaponState?.reserveAmmo || 0) > 0,
+            safeWithdrawalAvailable: true,
+            criticalObjective: false
+          });
+          if (casualtyWithdrawal) {
+            target.retreatReason = casualtyWithdrawal;
+            target.retreating = true;
+          }
           target.status = target.woundState;
           incident(`${unitLabel(target)} is ${target.woundState.toLowerCase()} after a ${zone} hit.`, target.id, "warning");
         }
@@ -7885,10 +7929,34 @@ import {
         if (squad) {
           squad.contactBoard ||= { contacts: {}, primaryThreatId: null, secondaryThreatIds: [], updatedAt: 0 };
           mergeSquadContactBoard(squad.contactBoard, squadMembers(squad.id).map(member => member.perceptionMemory).filter(Boolean), state.time);
+          const reportedTarget = hostiles.find(candidate => candidate.unit.id === squad.contactBoard.primaryThreatId)?.unit
+            || hostiles[0]?.unit;
+          if (reportedTarget) {
+            squad.combatContact = refreshSquadCombatContact(squad.combatContact, reportedTarget, state.time, {
+              confidence: squad.contactBoard.contacts?.[reportedTarget.id]?.confidence ?? 1,
+              reason: unit.role === "scout" ? "scout-confirmed contact" : "squad visual contact"
+            });
+          }
         }
         const previousAlertState = unit.alertState;
-        const awareness = evaluateProximityAwareness(unit, hostiles, allies, senseDt, awarenessRadius);
+        const player = playerFor(unit.faction);
+        const breakPolicy = breakPolicyFor(player);
+        const awareness = evaluateProximityAwareness(unit, hostiles, allies, senseDt, awarenessRadius, { usesFear: breakPolicy.usesFear });
         Object.assign(unit, awareness);
+        const livingSquadMembers = squad ? squadMembers(squad.id) : [];
+        const pressure = updateFactionPressure(unit, player, {
+          hostilePower: awareness.localHostilePower,
+          friendlyPower: awareness.localFriendlyPower,
+          suppression: unit.suppression,
+          casualtyRatio: squad ? clamp(1 - livingSquadMembers.length / Math.max(1, squad.nominalSize || livingSquadMembers.length), 0, 1) : 0,
+          isolated: allies.length === 0,
+          commanderPresent: allies.some(ally => ally.role === "commander"),
+          standardPresent: allies.some(ally => ally.role === "standard"),
+          massiveThreat: hostiles.some(candidate => candidate.unit.role === "vehicle" && (candidate.unit.maxHp || 0) >= 300),
+          inCover: terrainAt(unit).cover >= 0.25
+        }, senseDt);
+        Object.assign(unit, pressure);
+        if (breakPolicy.usesFear && ["BREAKING", "ROUT"].includes(unit.breakState)) unit.alertState = "Afraid";
         if (hostiles.length && (previousAlertState !== unit.alertState || unit.nearestThreatDistance < 56)) {
           doctrineRateGate.requestImmediate(`squad:${unit.faction}`);
         }
@@ -8194,45 +8262,112 @@ import {
           return;
         }
 
-        const retreatReason = retreatReasonFor(unit, { tyranid: race === "Tyranids" });
+        const assignedSquad = unit.squadId ? ensureSquadRuntime(squadFor(unit.squadId)) : null;
+        const combatWeapon = weaponProfileFor(unit);
+        const playerBreakPolicy = breakPolicyFor(playerFor(unit.faction));
+        let retreatReason = withdrawalDecisionFor(unit, playerFor(unit.faction), {
+          hasRangedWeapon: combatWeapon.magazineSize > 0,
+          hasReserveAmmo: (unit.weaponState?.reserveAmmo || 0) > 0,
+          commandWithdrawal: assignedSquad?.orderType === "Regroup",
+          safeWithdrawalAvailable: true,
+          criticalObjective: ["Defend Base", "Defend Territory", "Hold Route"].includes(assignedSquad?.orderType)
+        });
+        if (retreatReason === "ROUT" && assignedSquad && playerBreakPolicy.commissarIntervention) {
+          const members = squadMembers(assignedSquad.id);
+          const commissar = members.find(member => member.alive && isCommissar(member) && distance(unit, member) <= 90);
+          const intervention = commissarInterventionFor({
+            members,
+            commissar,
+            now: state.time,
+            lastInterventionAt: assignedSquad.lastCommissarInterventionAt
+          });
+          if (intervention.action !== "NONE") {
+            assignedSquad.lastCommissarInterventionAt = state.time;
+            if (intervention.action === "SUMMARY_EXECUTION") {
+              const condemned = unitById(intervention.candidateId);
+              if (condemned?.alive) {
+                finishUnitDeath(condemned, `Summary execution by ${unitLabel(commissar)}`, commissar);
+                addUnitLog(commissar, `Executed ${unitLabel(condemned)} after the squad entered a full rout.`);
+                incident(`${unitLabel(commissar)} executed ${unitLabel(condemned)} and restored discipline to ${assignedSquad.name}.`, condemned.id, "critical");
+              }
+            } else {
+              addUnitLog(commissar, `Rallied ${assignedSquad.name} before battlefield discipline collapsed.`);
+            }
+            for (const member of members) {
+              if (!member.alive || member.id === intervention.candidateId) continue;
+              member.combatStress = clamp((member.combatStress || 0) - intervention.stressReduction, 0, 100);
+              member.resolve = clamp((member.resolve || member.morale || 0.5) + intervention.resolveGain, 0, 1);
+              Object.assign(member, updateFactionPressure(member, playerFor(member.faction), {}, 0));
+              if (member.breakState !== "ROUT") {
+                member.retreating = false;
+                member.retreatReason = null;
+              }
+            }
+            if (!unit.alive) return;
+            retreatReason = withdrawalDecisionFor(unit, playerFor(unit.faction), {
+              hasRangedWeapon: combatWeapon.magazineSize > 0,
+              hasReserveAmmo: (unit.weaponState?.reserveAmmo || 0) > 0,
+              safeWithdrawalAvailable: true
+            });
+          }
+        }
         if (retreatReason) {
           unit.retreatReason = retreatReason;
           unit.retreating = true;
+          if (retreatReason === "ROUT") unit.breakStartedAt ??= state.time;
         }
         if (unit.retreating) {
           const base = baseFor(unit.faction);
           moveToward(unit, base, dt, unit.alertState === "Afraid" ? 1.28 : 1.12);
-          unit.status = unit.retreatReason === "health" ? unit.alertState === "Afraid" ? "Fleeing in panic" : "Retreating"
-            : unit.retreatReason === "ammo" ? "Returning to resupply"
-              : unit.retreatReason === "morale" || unit.retreatReason === "fear" ? "Regrouping" : "Following withdrawal order";
-          unit.lastAction = `${unit.status} toward the emergent base.`;
+          unit.status = unit.retreatReason === "ROUT" ? "Routing under combat stress"
+            : unit.retreatReason === "RESUPPLY" || unit.retreatReason === "ammo" ? "Returning to resupply"
+              : unit.retreatReason === "CASUALTY_PRESERVATION" || unit.retreatReason === "health" ? "Tactical casualty withdrawal"
+                : "Following withdrawal order";
+          unit.lastAction = `${unit.status} toward the nearest safe base position.`;
           if (distance(unit, base) < 44) {
             if (unit.ammo <= 0) requestUnitResupply(unit);
             unit.morale = clamp(unit.morale + dt * 0.03, 0, 1);
+            if (playerBreakPolicy.usesFear) {
+              unit.combatStress = clamp((unit.combatStress || 0) - dt * 12, 0, 100);
+              Object.assign(unit, updateFactionPressure(unit, playerFor(unit.faction), { commanderPresent: true }, 0));
+            }
             unit.fatigue = clamp(unit.fatigue - dt * 0.02, 0, 1);
             unit.hp = clamp(unit.hp + dt * 0.35, 0, unit.maxHp * 0.56);
-            if (unit.morale > 0.5 && unit.ammo > 0 && unit.hp > unit.maxHp * 0.38) {
+            const recoveredFromRout = unit.retreatReason !== "ROUT" || (unit.combatStress || 0) < (unit.breakThreshold || 80) - 15;
+            if (recoveredFromRout && unit.ammo > 0 && unit.hp > unit.maxHp * 0.38) {
               unit.retreating = false;
               unit.retreatReason = null;
+              unit.breakStartedAt = null;
             }
           }
           return;
         }
 
         if (updateReinforcementRendezvous(unit, dt)) return;
-        if (unit.role === "medic" && updateMedic(unit, dt)) return;
-        if (unit.role === "engineer" && updateEngineer(unit, dt)) return;
+        const immediateRoleThreatCandidate = combatTargetById(unit.nearestThreatId, { includeIncapacitated: true });
+        const immediateRoleThreat = immediateRoleThreatCandidate && !areAllies(immediateRoleThreatCandidate.faction, unit.faction)
+          && canDetectTarget(unit, immediateRoleThreatCandidate) ? immediateRoleThreatCandidate : null;
+        if (!immediateRoleThreat && unit.role === "medic" && updateMedic(unit, dt)) return;
+        if (!immediateRoleThreat && unit.role === "engineer" && updateEngineer(unit, dt)) return;
 
-        const assignedSquad = unit.squadId ? ensureSquadRuntime(squadFor(unit.squadId)) : null;
         unit.sensorCooldown = (unit.sensorCooldown || 0) - dt;
         let target = null;
         const holdingAmbush = assignedSquad?.orderType === "Ambush Route" && assignedSquad.ambushPhase !== "engage";
+        const immediateThreatCandidate = combatTargetById(unit.nearestThreatId, { includeIncapacitated: true });
+        const immediateThreat = immediateThreatCandidate && !areAllies(immediateThreatCandidate.faction, unit.faction)
+          && canDetectTarget(unit, immediateThreatCandidate) ? immediateThreatCandidate : null;
         if (holdingAmbush) {
           unit.cachedTargetId = null;
           unit.targetId = null;
+        } else if (immediateThreat) {
+          target = immediateThreat;
+          unit.cachedTargetId = target.id;
+          unit.sensorCooldown = Math.min(unit.sensorCooldown, 0.08);
         } else if (unit.sensorCooldown <= 0 && sensorWorkBudget.take()) {
           state.sensorBudgetUsed = sensorWorkBudget.used;
-          const sharedTarget = assignedSquad?.orderType === "Regroup" ? null : combatTargetById(assignedSquad?.targetId, { includeIncapacitated: true });
+          const rememberedSquadTarget = assignedSquad?.orderType === "Regroup" ? null : combatTargetById(assignedSquad?.combatContact?.targetId, { includeIncapacitated: true });
+          const assignedSquadTarget = assignedSquad?.orderType === "Regroup" ? null : combatTargetById(assignedSquad?.targetId, { includeIncapacitated: true });
+          const sharedTarget = rememberedSquadTarget && canDetectTarget(unit, rememberedSquadTarget) ? rememberedSquadTarget : assignedSquadTarget;
           const retainedTarget = combatTargetById(unit.cachedTargetId, { includeIncapacitated: true });
           const retainCommitment = retainedTarget
             && unit.combatCommitment?.targetId === retainedTarget.id
@@ -8260,6 +8395,12 @@ import {
             assessedAt: state.time
           };
           unit.targetId = target.id;
+          if (assignedSquad && canDetectTarget(unit, target)) {
+            assignedSquad.combatContact = refreshSquadCombatContact(assignedSquad.combatContact, target, state.time, {
+              confidence: unit.perceptionMemory?.contacts?.[target.id]?.confidence ?? 1,
+              reason: immediateThreat?.id === target.id ? "immediate threat response" : "shared squad engagement"
+            });
+          }
           if (!unit.combatCommitment || unit.combatCommitment.targetId !== target.id || unit.combatCommitment.expiresAt <= state.time) {
             const previousCommitment = unit.combatCommitment;
             const nextCommitment = killCommitmentFor(unit, target);
@@ -8274,6 +8415,27 @@ import {
           commitment.rejected = false;
           unit.killConfidence = Math.round(commitment.confidence);
           unit.combatIntent = commitment.intent;
+          const combatResponse = evaluateCombatResponse({
+            unit,
+            squad: assignedSquad || {},
+            visibleEnemies: [target],
+            context: {
+              confidence: commitment.confidence,
+              explicitHoldFire: holdingAmbush,
+              effectiveRange: unit.range,
+              meleeReach: weaponProfileFor(unit).melee.reach + (unit.collisionRadius || 3) + (target.collisionRadius || 4),
+              hasWeapon: (unit.damage || 0) > 0,
+              hasAmmo: unit.ammo > 0,
+              inCover: terrainAt(unit).cover >= 0.25,
+              finishRecommended: enemyCondition.finishRecommended,
+              distanceTo: distance
+            }
+          });
+          unit.combatResponse = combatResponse.action;
+          if (combatResponse.action === "FINISH") commitment.intent = "Eliminate";
+          else if (["CLOSE_DISTANCE", "FLANK"].includes(combatResponse.action) && commitment.intent === "Contain") commitment.intent = "Force retreat";
+          else if (["KEEP_RANGE", "TAKE_COVER", "CALL_SUPPORT", "CONTAIN"].includes(combatResponse.action)) commitment.intent = "Contain";
+          unit.combatIntent = commitment.intent;
           const assignedRole = SQUAD_ROLE_DEFINITIONS[assignedSquad?.primaryRole];
           const restrictiveOrder = ["Hold Route", "Block Route", "Patrol Route", "Observe Route", "Ambush Route", "Keep Route Open", "Delay Enemy", "Destroy Route if Overrun", "Escort Route", "Regroup", "Defend Base", "Defend Territory", "Capture", "Recon", "Reserve", "Medical Support"].includes(assignedSquad?.orderType)
             || Number.isFinite(assignedRole?.engagementRadius);
@@ -8283,7 +8445,8 @@ import {
           const orderAnchor = assignedSquad?.routeAnchor || assignedSquad?.assignedObjective || assignedSquad?.objective || (orderRoad ? roadMidpoint(orderRoad) : null);
           const outsideOrder = orderAnchor && distance(target, orderAnchor) > orderLeash;
           const outsidePursuit = distance({ x: commitment.originX, y: commitment.originY }, target) > commitment.pursuitRadius;
-          if (commitment.intent === "Ignore" || commitment.intent === "Force retreat" && target.retreating || outsideOrder || outsidePursuit) {
+          const immediateContact = immediateThreat?.id === target.id && distance(unit, target) <= Math.max(48, unit.range * 1.1);
+          if ((commitment.intent === "Force retreat" && target.retreating) || (!immediateContact && (outsideOrder || outsidePursuit))) {
             unit.cachedTargetId = null;
             unit.targetId = null;
             commitment.active = false;
@@ -8319,21 +8482,34 @@ import {
             unit.lastAction = `${commitment.intent} at ${unit.killConfidence}% confidence${Number.isFinite(unit.nearestThreatDistance) ? ` · hostile ${Math.round(unit.nearestThreatDistance)}m away` : ""}.`;
             return;
           } else {
-            unit.cachedTargetId = null;
-            unit.targetId = null;
-            commitment.active = false;
-            commitment.rejected = true;
-            unit.killConfidence = 0;
-            target = null;
+            unit.facing = Math.atan2(target.y - unit.y, target.x - unit.x);
+            unit.status = `Containing contact${alertSuffix(unit)}`;
+            unit.lastAction = `Tracking and reporting ${unitLabel(target)} without abandoning the assigned position.`;
+            return;
           }
         }
 
         unit.targetId = null;
         unit.enemyConditionAssessment = null;
         unit.combatIntent = "Follow objective";
+        unit.combatResponse = "NO_CONTACT";
         unit.killConfidence = 0;
         if (unit.combatCommitment) unit.combatCommitment.active = false;
         unit.aimTime = 0;
+        const rememberedContact = assignedSquad ? combatContactPoint(assignedSquad.combatContact, state.time) : null;
+        if (assignedSquad?.combatContact && !rememberedContact) assignedSquad.combatContact = null;
+        if (rememberedContact && !holdingAmbush && assignedSquad?.orderType !== "Regroup") {
+          unit.combatResponse = rememberedContact.phase;
+          if (distance(unit, rememberedContact) > 16) {
+            moveToward(unit, rememberedContact, dt, rememberedContact.phase === "PURSUE_LAST_KNOWN" ? 1.06 : 0.84);
+            unit.status = rememberedContact.phase === "PURSUE_LAST_KNOWN" ? "Pursuing last known contact" : "Searching contact area";
+          } else {
+            unit.facing += dt * 0.9;
+            unit.status = "Searching last known contact";
+          }
+          unit.lastAction = `${assignedSquad.name} retains contact ${rememberedContact.targetId}; ${rememberedContact.phase === "PURSUE_LAST_KNOWN" ? "closing on its last confirmed position" : "searching the surrounding sector"}.`;
+          return;
+        }
         const endgameDirective = playerFor(unit.faction).endgameDirective;
         const endgameTarget = endgameDirective?.target;
         if (endgameTarget && Number.isFinite(endgameTarget.x) && Number.isFinite(endgameTarget.y)) {

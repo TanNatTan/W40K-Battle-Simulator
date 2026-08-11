@@ -9,7 +9,7 @@ const combatPower = unit => {
   return health * role * clamp(0.4 + (unit.morale ?? 0.6) * 0.6, 0.2, 1);
 };
 
-export function evaluateProximityAwareness(unit, hostiles = [], allies = [], dt = 0.05, awarenessRadius = 160) {
+export function evaluateProximityAwareness(unit, hostiles = [], allies = [], dt = 0.05, awarenessRadius = 160, { usesFear = false } = {}) {
   const previousLevel = clamp(Number(unit?.alertLevel) || 0, 0, 1);
   if (!hostiles.length) {
     const alertLevel = clamp(previousLevel - Math.max(0, dt) * 0.34, 0, 1);
@@ -45,8 +45,8 @@ export function evaluateProximityAwareness(unit, hostiles = [], allies = [], dt 
   const responsiveness = unit?.role === "vehicle" ? 0.55 : supportRole ? 0.82 : 1;
   const alertLevel = clamp(previousLevel + (targetLevel - previousLevel) * clamp(Math.max(0, dt) * responsiveness * 2.2, 0, 1), 0, 1);
   const health = clamp((unit?.hp ?? 1) / Math.max(1, unit?.maxHp ?? unit?.hp ?? 1), 0, 1);
-  const composure = clamp((unit?.courage ?? 0.5) * 0.36 + (unit?.discipline ?? 0.5) * 0.28
-    + (unit?.morale ?? 0.65) * 0.24 + (1 - (unit?.fear ?? 0.5)) * 0.12, 0, 1);
+  const composure = clamp((unit?.courage ?? 0.5) * 0.38 + (unit?.discipline ?? 0.5) * 0.32
+    + (unit?.resolve ?? unit?.morale ?? 0.65) * 0.3, 0, 1);
   const aggression = clamp((unit?.aggression ?? 0.5) * 0.7 + (unit?.vengeance ?? 0.3) * 0.15
     + clamp((localFriendlyPower - localHostilePower) / Math.max(0.1, localFriendlyPower + localHostilePower), -1, 1) * 0.15, 0, 1);
   const stress = clamp(alertLevel * 0.48 + pressure * 0.28 + (1 - health) * 0.14 + (unit?.suppression ?? 0) * 0.22
@@ -54,7 +54,7 @@ export function evaluateProximityAwareness(unit, hostiles = [], allies = [], dt 
 
   let alertState = "Wary";
   if (alertLevel >= 0.18) {
-    if (stress > composure + 0.08) alertState = "Afraid";
+    if (usesFear && stress > composure + 0.08) alertState = "Afraid";
     else if (!supportRole && aggression > composure + 0.04 && alertLevel >= 0.4) alertState = "Aggressive";
     else alertState = "Tense";
   }

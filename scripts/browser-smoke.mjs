@@ -283,6 +283,23 @@ try {
     || simulation.dynamicBehaviors.some(behavior => !behavior || !Number.isFinite(behavior.aggression)) || simulation.error) {
     throw new Error(`Simulation smoke check failed: ${JSON.stringify(simulation)}`);
   }
+  const combatBehaviorProbe = await evaluate(`(() => {
+    const state = document.querySelector('#autonomous-war-theater').awtDebugState;
+    const systems = globalThis.AWTSystems;
+    const unit = { id: 'marine', squadId: 'squad', x: 0, y: 0, range: 100, damage: 12, ammo: 8 };
+    const enemy = { id: 'ork', alive: true, x: 30, y: 0, hp: 100, maxHp: 100, range: 20, role: 'trooper' };
+    return {
+      universalFearProperties: state.units.filter(candidate => Object.hasOwn(candidate, 'fear')).length,
+      marineUsesFear: systems.breakPolicyFor({ race: 'Imperium', faction: 'Space Marines' }).usesFear,
+      guardUsesFear: systems.breakPolicyFor({ race: 'Imperium', faction: 'Imperial Guard' }).usesFear,
+      defensiveResponse: systems.evaluateCombatResponse({ unit, squad: {}, visibleEnemies: [enemy], context: { confidence: 15 } }).action,
+      finishResponse: systems.evaluateCombatResponse({ unit, squad: {}, visibleEnemies: [enemy], context: { confidence: 85, finishRecommended: true } }).action
+    };
+  })()`);
+  if (combatBehaviorProbe.universalFearProperties !== 0 || combatBehaviorProbe.marineUsesFear || !combatBehaviorProbe.guardUsesFear
+    || !["TAKE_COVER", "CONTAIN"].includes(combatBehaviorProbe.defensiveResponse) || combatBehaviorProbe.finishResponse !== "FINISH") {
+    throw new Error(`Combat response / break-policy probe failed: ${JSON.stringify(combatBehaviorProbe)}`);
+  }
 
   const sampleLifecycle = () => evaluate(`(() => {
     const root = document.querySelector('#autonomous-war-theater');
@@ -532,7 +549,7 @@ try {
   }
   const lifecycle = { runningStart, runningEnd, pausedStart, pausedEnd, resumedStart, resumedEnd, faultStart, faultEnd };
 
-  console.log(JSON.stringify({ startup, playerSetup, editor: { ...editor, cameraAfter }, simulation, builderHealth, repairProbe, carrierHarvestProbe, squadRoleProbe, phase20to23, replayTransport: { replayBefore, replayAfter, liveAfterReplay }, lifecycle }, null, 2));
+  console.log(JSON.stringify({ startup, playerSetup, editor: { ...editor, cameraAfter }, simulation, combatBehaviorProbe, builderHealth, repairProbe, carrierHarvestProbe, squadRoleProbe, phase20to23, replayTransport: { replayBefore, replayAfter, liveAfterReplay }, lifecycle }, null, 2));
 } finally {
   socket?.close();
   if (browser && browser.exitCode === null) {
