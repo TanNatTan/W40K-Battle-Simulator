@@ -40,7 +40,7 @@ export function sustainmentProfileFor(player = {}) {
 function buildingImportance(target = {}) {
   if (target.headquarters || target.type === "outpost") return 1;
   if (["mine", "refinery", "farm", "generator", "warehouse", "fueldepot", "ammodepot"].includes(target.type)) return 0.88;
-  if (["barracks", "workshop", "dropbay", "researchcenter"].includes(target.type)) return 0.82;
+  if (["barracks", "workshop", "dropbay", "researchcenter", "signature"].includes(target.type)) return 0.82;
   if (["bunker", "turret", "observationtower"].includes(target.type)) return 0.62;
   return 0.5;
 }
@@ -63,7 +63,7 @@ export function sustainmentRequestFor(target = {}, { now = 0, underFire = false,
   const service = needsMedical ? SUSTAINMENT_SERVICES.MEDICAL
     : isVehicle && (healthRatio < 0.35 || damagedSystems.length >= 2) ? SUSTAINMENT_SERVICES.HEAVY_REPAIR
       : SUSTAINMENT_SERVICES.FIELD_REPAIR;
-  const productionValue = isBuilding && ["mine", "refinery", "farm", "generator", "barracks", "workshop", "dropbay"].includes(target.type) ? 1 : 0;
+  const productionValue = isBuilding && ["mine", "refinery", "farm", "generator", "barracks", "workshop", "dropbay", "signature"].includes(target.type) ? 1 : 0;
   const priority = severity * 35 + strategicValue * 30 + productionValue * 25 + (underFire ? 20 : 0)
     + clamp01(dependencies / 4) * 20;
   const resourcesNeeded = service === SUSTAINMENT_SERVICES.MEDICAL

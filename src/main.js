@@ -50,6 +50,8 @@ import { SUPPLY_TRANSPORT_SPEED, convoyBaseSpeed, convoyEffectiveSpeed, convoyMo
 import { BUILDER_PRODUCTION, builderProducerFor, builderProductionPriority, builderProductionProfileFor, desiredBuilderCount } from "./construction/BuilderProductionSystem.js";
 import { constrainPointToSpawnZone, structureFitsInsideSpawnZone, unitFitsInsideSpawnZone } from "./construction/BuilderContainmentSystem.js";
 import { EMERALD_SUNS, applyChapterBattleAdaptation, chapterMedicalModifiersFor, chapterVisualDefaultsFor, isEmeraldSuns } from "./ai/SpaceMarineChapterSystem.js";
+import { SUBFACTION_BUILDINGS, SUBFACTION_BUILDING_ORDER, SUBFACTION_BUILDING_SLOTS, subfactionBuildingLabelFor, subfactionBuildingProfileFor, subfactionBuildingTypesFor, validateSubfactionBuildingCatalog } from "./factions/SubfactionBuildingSystem.js";
+import { SERVITOR_REPAIR_ASSIGNMENT_TTL, activeRepairCrewCount, claimRepairAssignment, releaseStaleRepairAssignment, servitorRepairCrewLimit, servitorRepairSlotAvailable } from "./construction/RepairCrewSystem.js";
 
 globalThis.AWTSystems = Object.freeze({
   EconomyZoneManager,
@@ -212,7 +214,20 @@ globalThis.AWTSystems = Object.freeze({
   applyChapterBattleAdaptation,
   chapterMedicalModifiersFor,
   chapterVisualDefaultsFor,
-  isEmeraldSuns
+  isEmeraldSuns,
+  SUBFACTION_BUILDINGS,
+  SUBFACTION_BUILDING_ORDER,
+  SUBFACTION_BUILDING_SLOTS,
+  subfactionBuildingLabelFor,
+  subfactionBuildingProfileFor,
+  subfactionBuildingTypesFor,
+  validateSubfactionBuildingCatalog,
+  SERVITOR_REPAIR_ASSIGNMENT_TTL,
+  activeRepairCrewCount,
+  claimRepairAssignment,
+  releaseStaleRepairAssignment,
+  servitorRepairCrewLimit,
+  servitorRepairSlotAvailable
 });
 globalThis.AWTData ||= {};
 try {

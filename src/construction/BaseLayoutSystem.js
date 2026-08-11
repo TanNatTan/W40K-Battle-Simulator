@@ -1,5 +1,5 @@
 const LARGE_PRODUCTION_TYPES = new Set(["outpost", "dropbay"]);
-const PRODUCTION_TYPES = new Set(["barracks", "workshop", "researchcenter", "fieldhospital", "generator", "mine", "refinery", "farm"]);
+const PRODUCTION_TYPES = new Set(["barracks", "workshop", "researchcenter", "fieldhospital", "generator", "mine", "refinery", "farm", "signature"]);
 const STORAGE_TYPES = new Set(["warehouse", "fueldepot", "ammodepot"]);
 const DEFENSE_TYPES = new Set(["bunker", "observationtower"]);
 

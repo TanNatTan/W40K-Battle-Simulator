@@ -15,6 +15,7 @@ export const IDEAL_BUILDERS = Object.freeze({
   workshop: 2,
   researchcenter: 2,
   fieldhospital: 2,
+  signature: 2,
   dropbay: 3,
   outpost: 4
 });

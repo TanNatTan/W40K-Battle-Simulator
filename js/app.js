@@ -106,6 +106,15 @@ import {
   unitFitsInsideSpawnZone
 } from "../src/construction/BuilderContainmentSystem.js";
 import {
+  subfactionBuildingLabelFor,
+  subfactionBuildingTypesFor
+} from "../src/factions/SubfactionBuildingSystem.js";
+import {
+  claimRepairAssignment,
+  releaseStaleRepairAssignment,
+  servitorRepairSlotAvailable
+} from "../src/construction/RepairCrewSystem.js";
+import {
   constructionRefund,
   constructionSiteKey,
   createConstructionState,
@@ -641,7 +650,8 @@ import {
         farm: { label: "Supply Farm", cost: 30, purpose: "Food", military: 0, economic: 5, risk: 1, requires: "outpost", height: 6, light: 18, maxHp: 300, hitbox: { w: 40, h: 30 }, supplyRadius: 80, spriteIndex: 5, produces: { food: 13, medical: 1 }, consumes: { energy: 1 }, storage: { food: 100 } },
         mine: { label: "Material Mine", cost: 38, purpose: "Materials", military: 0, economic: 5, risk: 2, requires: "outpost", height: 8, light: 45, maxHp: 440, hitbox: { w: 36, h: 30 }, supplyRadius: 75, spriteIndex: 2, produces: { materials: 14 }, consumes: { energy: 2 }, storage: { materials: 90 } },
         refinery: { label: "Fuel Refinery", cost: 44, purpose: "Fuel", military: 0, economic: 5, risk: 4, requires: "generator", height: 16, light: 70, maxHp: 450, hitbox: { w: 38, h: 32 }, supplyRadius: 78, spriteIndex: 3, produces: { fuel: 11 }, consumes: { energy: 4, materials: 1 }, storage: { fuel: 90 } },
-        dropbay: { label: "Orbital Launch Bay", cost: 58, purpose: "Reinforcement", military: 4, economic: 3, risk: 3, requires: "generator", height: 17, light: 90, maxHp: 620, hitbox: { w: 42, h: 34 }, supplyRadius: 95, spriteIndex: 1, consumes: { energy: 4, fuel: 2 } }
+        dropbay: { label: "Orbital Launch Bay", cost: 58, purpose: "Reinforcement", military: 4, economic: 3, risk: 3, requires: "generator", height: 17, light: 90, maxHp: 620, hitbox: { w: 42, h: 34 }, supplyRadius: 95, spriteIndex: 1, consumes: { energy: 4, fuel: 2 } },
+        signature: { label: "Signature Facility", cost: 64, purpose: "Doctrine", military: 4, economic: 4, risk: 3, requires: "researchcenter", height: 18, light: 78, maxHp: 600, hitbox: { w: 40, h: 34 }, supplyRadius: 96, spriteIndex: 1, consumes: { energy: 3, materials: 2 } }
       };
 
       const factionProfiles = factionConfig || {
@@ -701,7 +711,9 @@ import {
       }
 
       function factionBuildingLabel(faction, type) {
-        return factionProfile(faction).buildings[type] || buildingCatalog[type]?.label || type;
+        const player = typeof faction === "string" ? playerFor(faction) : faction;
+        const fallback = factionProfile(player).buildings[type] || buildingCatalog[type]?.label || type;
+        return subfactionBuildingLabelFor(player, type, fallback);
       }
 
       function factionUnitName(player, role, index) {
@@ -1442,7 +1454,7 @@ import {
           const audit = [];
           for (const player of state.players) {
             const profile = factionProfile(player);
-            const expectedBuildings = Object.keys(profile.buildings).filter(type => buildingCatalog[type]);
+            const expectedBuildings = subfactionBuildingTypesFor(player).filter(type => buildingCatalog[type]);
             const expectedUnits = [];
             const economy = economyFor(player.id);
             const capacity = economyCapacity(player.id);
@@ -3933,14 +3945,18 @@ import {
           turret: threat > 0.35 ? Math.max(1, Math.ceil(structureCount / 8)) : Math.ceil(structureCount / 16),
           fueldepot: ratio("fuel") > 0.72 ? Math.ceil(structureCount / 12) : 0,
           ammodepot: ratio("ammunition") > 0.72 ? Math.ceil(structureCount / 12) : 0,
-          dropbay: ["astartes", "chaos"].includes(Object.keys(factionProfiles).find(key => factionProfiles[key] === factionProfile(player))) ? 1 : 0
+          dropbay: 1,
+          signature: 1
         };
+        for (const type of subfactionBuildingTypesFor(player)) {
+          if (type !== "outpost" && buildingCatalog[type]) desired[type] = Math.max(1, desired[type] || 0);
+        }
         const shortageNeed = {
           generator: 1 - ratio("energy"), warehouse: Math.max(1 - ratio("materials"), 1 - ratio("parts")),
           mine: 1 - ratio("materials"), farm: 1 - ratio("food"), refinery: 1 - ratio("fuel"),
           barracks: clamp((6 - armyCount) / 6, 0, 1), workshop: 1 - ratio("ammunition"), researchcenter: clamp(1 - (economy.research?.level || 0) / 3, 0.25, 1),
           fieldhospital: 1 - ratio("medical"), observationtower: 0.28, bunker: threat, turret: threat,
-          fueldepot: ratio("fuel"), ammodepot: ratio("ammunition"), dropbay: player.faction === "Space Marines" ? 0.7 : 0.2
+          fueldepot: ratio("fuel"), ammodepot: ratio("ammunition"), dropbay: 0.55, signature: 0.52
         };
         const signals = battleObjectivePlanFor(player).signals;
         const objectiveBonus = {
@@ -3954,7 +3970,8 @@ import {
           farm: (signals.economy || 0) * 18,
           refinery: (signals.economy || 0) * 18,
           researchcenter: (signals.economy || 0) * 30,
-          fieldhospital: (signals.preservation || 0) * 30
+          fieldhospital: (signals.preservation || 0) * 30,
+          signature: ((signals.attack || 0) + (signals.defense || 0) + (signals.economy || 0)) * 10
         };
         const growth = player.strategicPortfolio?.productionPriorities || {};
         const portfolioProductionBonus = {
@@ -3966,11 +3983,12 @@ import {
           turret: (growth.defenses || 0) * 28,
           observationtower: (growth.defenses || 0) * 15,
           fieldhospital: (growth.support || 0) * 24,
-          warehouse: (growth.support || 0) * 16
+          warehouse: (growth.support || 0) * 16,
+          signature: ((growth.heavy || 0) + (growth.support || 0)) * 14
         };
         const behavior = aiBehaviorFor(player);
         const scored = Object.keys(buildingCatalog)
-          .filter(type => type !== "outpost")
+          .filter(type => type !== "outpost" && (type !== "signature" || complete("signature") < 1))
           .map(type => {
             const spec = buildingCatalog[type];
             const dependencyReady = !spec.requires || complete(spec.requires) > 0;
@@ -4208,7 +4226,20 @@ import {
         }
 
         const repairPriority = (battleObjectivePlanFor(unit.faction).signals.preservation || 0) >= 0.7 || aiBehaviorFor(unit.faction).caution >= 70;
-        const selectedBuildingRepairCandidate = selectSustainmentRequest(unit, state.sustainmentRequests, {
+        releaseStaleRepairAssignment(unit, state.time);
+        const availableBuildingRepairs = state.sustainmentRequests.filter(request => {
+          if (request.targetType !== "building") return false;
+          const target = sustainmentTargetById(request.targetId);
+          return target && servitorRepairSlotAvailable({
+            player,
+            unit,
+            request,
+            target,
+            units: state.units,
+            now: state.time
+          });
+        });
+        const selectedBuildingRepairCandidate = selectSustainmentRequest(unit, availableBuildingRepairs, {
           targetById: sustainmentTargetById,
           areAllies,
           maximumRange: 260
@@ -4357,6 +4388,7 @@ import {
 
         const damaged = urgentRepair || (selectedBuildingRepair?.request.targetType === "building" ? selectedBuildingRepair.target : null);
         if (damaged) {
+          claimRepairAssignment(unit, damaged.id, state.time);
           if (distance(unit, damaged) > 13) moveToward(unit, damaged, dt);
           else {
             ensureStructureRuntime(damaged);
@@ -4374,7 +4406,7 @@ import {
             }
           }
           unit.status = "Repairing";
-          unit.lastAction = `Repairing ${buildingCatalog[damaged.type]?.label || "structure"}.`;
+          unit.lastAction = `Repairing ${damaged.displayName || factionBuildingLabel(damaged.faction, damaged.type)}.`;
           return;
         }
 
@@ -4434,7 +4466,7 @@ import {
           buildingType: type,
           reason: builderPlayer.lastConstructionProject?.reason || "headquarters recovery"
         });
-        const advancedOrkProject = builderPlayer.race === "Orks" && ["workshop", "researchcenter", "refinery", "dropbay", "turret"].includes(type);
+        const advancedOrkProject = builderPlayer.race === "Orks" && ["workshop", "researchcenter", "refinery", "dropbay", "turret", "signature"].includes(type);
         const supervisingMek = advancedOrkProject && nearbyCombatObjects(unit, 120).units.find(other => other.alive && other.faction === unit.faction && other.role === "engineer");
         if (advancedOrkProject && !supervisingMek) {
           unit.status = "Haulin' for a Mek";
