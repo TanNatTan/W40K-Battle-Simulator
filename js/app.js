@@ -101,7 +101,6 @@ import {
   desiredBuilderCount
 } from "../src/construction/BuilderProductionSystem.js";
 import {
-  constrainPointToSpawnZone,
   structureFitsInsideSpawnZone,
   unitFitsInsideSpawnZone
 } from "../src/construction/BuilderContainmentSystem.js";
@@ -114,6 +113,8 @@ import {
   releaseStaleRepairAssignment,
   servitorRepairSlotAvailable
 } from "../src/construction/RepairCrewSystem.js";
+import { enforceActiveForceRatio } from "../src/ai/ActiveForceSystem.js";
+import { buildingCapacityClass, constructionCapacityForCell } from "../src/territory/TerritoryConstructionSystem.js";
 import {
   constructionRefund,
   constructionSiteKey,
@@ -421,22 +422,6 @@ import {
         brushFalloffValue: root.querySelector("#awt-brush-falloff-value"),
         brushShape: root.querySelector("#awt-brush-shape"),
         paintMode: root.querySelector("#awt-paint-mode"),
-        territoryControls: root.querySelector("#awt-territory-controls"),
-        territorySelect: root.querySelector("#awt-territory-select"),
-        territoryEditMode: root.querySelector("#awt-territory-edit-mode"),
-        territoryName: root.querySelector("#awt-territory-name"),
-        territoryOwner: root.querySelector("#awt-territory-owner"),
-        territoryResource: root.querySelector("#awt-territory-resource"),
-        territoryStrategic: root.querySelector("#awt-territory-strategic"),
-        territoryDefense: root.querySelector("#awt-territory-defense"),
-        territoryCapture: root.querySelector("#awt-territory-capture"),
-        territoryStructures: root.querySelector("#awt-territory-structures"),
-        territoryMaxStructures: root.querySelector("#awt-territory-max-structures"),
-        territorySupply: root.querySelector("#awt-territory-supply"),
-        territoryAbandon: root.querySelector("#awt-territory-abandon"),
-        territoryShare: root.querySelector("#awt-territory-share"),
-        territoryUnclaimable: root.querySelector("#awt-territory-unclaimable"),
-        territoryLocked: root.querySelector("#awt-territory-locked"),
         resourceControls: root.querySelector("#awt-resource-controls"),
         resourceSelect: root.querySelector("#awt-resource-select"),
         resourceEditMode: root.querySelector("#awt-resource-edit-mode"),
@@ -635,23 +620,23 @@ import {
       const elevationTypes = new Set(brushLayers["Elevation"]);
 
       const buildingCatalog = {
-        outpost: { label: "Headquarters", cost: 20, purpose: "Command", military: 2, economic: 4, risk: 1, height: 12, light: 55, maxHp: 720, hitbox: { w: 40, h: 34 }, supplyRadius: 135, spriteIndex: 0, produces: { requisition: 7, influence: 2 }, consumes: { energy: 1 }, storage: { requisition: 240, materials: 160, food: 120, medical: 80, influence: 100 } },
-        generator: { label: "Generator", cost: 28, purpose: "Energy", military: 0, economic: 5, risk: 2, requires: "outpost", height: 10, light: 80, maxHp: 360, hitbox: { w: 30, h: 28 }, supplyRadius: 70, spriteIndex: 4, produces: { energy: 16 }, consumes: { fuel: 2 }, storage: { energy: 120 } },
-        barracks: { label: "Barracks", cost: 42, purpose: "Production", military: 4, economic: 2, risk: 3, requires: "outpost", height: 14, light: 45, maxHp: 520, hitbox: { w: 36, h: 30 }, supplyRadius: 82, consumes: { energy: 2, food: 2, materials: 1 } },
-        bunker: { label: "Bunker", cost: 34, purpose: "Defense", military: 5, economic: 0, risk: 1, requires: "outpost", height: 7, light: 26, maxHp: 920, hitbox: { w: 34, h: 26 }, supplyRadius: 45, consumes: { ammunition: 1, energy: 1 } },
-        turret: { label: "Automated Turret", cost: 46, purpose: "Defense", military: 6, economic: 0, risk: 2, requires: "generator", height: 16, light: 72, maxHp: 410, hitbox: { w: 22, h: 22 }, supplyRadius: 40, consumes: { ammunition: 2, energy: 2 } },
-        workshop: { label: "Manufactorum", cost: 54, purpose: "Technology", military: 3, economic: 4, risk: 4, requires: "generator", height: 18, light: 60, maxHp: 560, hitbox: { w: 38, h: 32 }, supplyRadius: 90, spriteIndex: 1, produces: { ammunition: 9, parts: 5, materials: 3 }, consumes: { energy: 5, materials: 2 } },
-        researchcenter: { label: "Research Center", cost: 52, purpose: "Research", military: 3, economic: 3, risk: 3, requires: "generator", height: 16, light: 82, maxHp: 470, hitbox: { w: 36, h: 30 }, supplyRadius: 86, spriteIndex: 1, consumes: { energy: 4, materials: 1, influence: 1 } },
-        observationtower: { label: "Observation Tower", cost: 30, purpose: "Intelligence", military: 2, economic: 1, risk: 1, requires: "outpost", height: 28, light: 130, searchlight: true, maxHp: 260, hitbox: { w: 18, h: 18 }, supplyRadius: 55, consumes: { energy: 1 } },
-        fieldhospital: { label: "Medical Depot", cost: 40, purpose: "Medical", military: 2, economic: 2, risk: 2, requires: "generator", height: 13, light: 58, maxHp: 420, hitbox: { w: 32, h: 28 }, supplyRadius: 105, produces: { medical: 6 }, consumes: { energy: 3, food: 1 }, storage: { medical: 150, food: 80 } },
-        warehouse: { label: "Warehouse", cost: 34, purpose: "Storage", military: 0, economic: 5, risk: 1, requires: "outpost", height: 11, light: 34, maxHp: 470, hitbox: { w: 38, h: 30 }, supplyRadius: 125, spriteIndex: 7, storage: { requisition: 180, materials: 240, parts: 160, food: 120 } },
-        fueldepot: { label: "Fuel Depot", cost: 36, purpose: "Storage", military: 0, economic: 4, risk: 5, requires: "outpost", height: 9, light: 42, maxHp: 330, hitbox: { w: 34, h: 28 }, supplyRadius: 105, spriteIndex: 3, storage: { fuel: 260 } },
-        ammodepot: { label: "Ammo Depot", cost: 38, purpose: "Storage", military: 2, economic: 3, risk: 5, requires: "outpost", height: 9, light: 30, maxHp: 350, hitbox: { w: 34, h: 26 }, supplyRadius: 110, spriteIndex: 6, storage: { ammunition: 260 } },
-        farm: { label: "Supply Farm", cost: 30, purpose: "Food", military: 0, economic: 5, risk: 1, requires: "outpost", height: 6, light: 18, maxHp: 300, hitbox: { w: 40, h: 30 }, supplyRadius: 80, spriteIndex: 5, produces: { food: 13, medical: 1 }, consumes: { energy: 1 }, storage: { food: 100 } },
-        mine: { label: "Material Mine", cost: 38, purpose: "Materials", military: 0, economic: 5, risk: 2, requires: "outpost", height: 8, light: 45, maxHp: 440, hitbox: { w: 36, h: 30 }, supplyRadius: 75, spriteIndex: 2, produces: { materials: 14 }, consumes: { energy: 2 }, storage: { materials: 90 } },
-        refinery: { label: "Fuel Refinery", cost: 44, purpose: "Fuel", military: 0, economic: 5, risk: 4, requires: "generator", height: 16, light: 70, maxHp: 450, hitbox: { w: 38, h: 32 }, supplyRadius: 78, spriteIndex: 3, produces: { fuel: 11 }, consumes: { energy: 4, materials: 1 }, storage: { fuel: 90 } },
-        dropbay: { label: "Orbital Launch Bay", cost: 58, purpose: "Reinforcement", military: 4, economic: 3, risk: 3, requires: "generator", height: 17, light: 90, maxHp: 620, hitbox: { w: 42, h: 34 }, supplyRadius: 95, spriteIndex: 1, consumes: { energy: 4, fuel: 2 } },
-        signature: { label: "Signature Facility", cost: 64, purpose: "Doctrine", military: 4, economic: 4, risk: 3, requires: "researchcenter", height: 18, light: 78, maxHp: 600, hitbox: { w: 40, h: 34 }, supplyRadius: 96, spriteIndex: 1, consumes: { energy: 3, materials: 2 } }
+        outpost: { label: "Headquarters", capacityClass: "hq", cost: 20, purpose: "Command", military: 2, economic: 4, risk: 1, height: 12, light: 55, maxHp: 720, hitbox: { w: 40, h: 34 }, supplyRadius: 135, spriteIndex: 0, produces: { requisition: 7, influence: 2 }, consumes: { energy: 1 }, storage: { requisition: 240, materials: 160, food: 120, medical: 80, influence: 100 } },
+        generator: { label: "Generator", capacityClass: "production", cost: 28, purpose: "Energy", military: 0, economic: 5, risk: 2, requires: "outpost", height: 10, light: 80, maxHp: 360, hitbox: { w: 30, h: 28 }, supplyRadius: 70, spriteIndex: 4, produces: { energy: 16 }, consumes: { fuel: 2 }, storage: { energy: 120 } },
+        barracks: { label: "Barracks", capacityClass: "military-production", cost: 42, purpose: "Production", military: 4, economic: 2, risk: 3, requires: "outpost", height: 14, light: 45, maxHp: 520, hitbox: { w: 36, h: 30 }, supplyRadius: 82, consumes: { energy: 2, food: 2, materials: 1 } },
+        bunker: { label: "Bunker", capacityClass: "defense", cost: 34, purpose: "Defense", military: 5, economic: 0, risk: 1, requires: "outpost", height: 7, light: 26, maxHp: 920, hitbox: { w: 34, h: 26 }, supplyRadius: 45, consumes: { ammunition: 1, energy: 1 } },
+        turret: { label: "Automated Turret", capacityClass: "defense", cost: 46, purpose: "Defense", military: 6, economic: 0, risk: 2, requires: "generator", height: 16, light: 72, maxHp: 410, hitbox: { w: 22, h: 22 }, supplyRadius: 40, consumes: { ammunition: 2, energy: 2 } },
+        workshop: { label: "Manufactorum", capacityClass: "military-production", cost: 54, purpose: "Technology", military: 3, economic: 4, risk: 4, requires: "generator", height: 18, light: 60, maxHp: 560, hitbox: { w: 38, h: 32 }, supplyRadius: 90, spriteIndex: 1, produces: { ammunition: 9, parts: 5, materials: 3 }, consumes: { energy: 5, materials: 2 } },
+        researchcenter: { label: "Research Center", capacityClass: "production", cost: 52, purpose: "Research", military: 3, economic: 3, risk: 3, requires: "generator", height: 16, light: 82, maxHp: 470, hitbox: { w: 36, h: 30 }, supplyRadius: 86, spriteIndex: 1, consumes: { energy: 4, materials: 1, influence: 1 } },
+        observationtower: { label: "Observation Tower", capacityClass: "defense", cost: 30, purpose: "Intelligence", military: 2, economic: 1, risk: 1, requires: "outpost", height: 28, light: 130, searchlight: true, maxHp: 260, hitbox: { w: 18, h: 18 }, supplyRadius: 55, consumes: { energy: 1 } },
+        fieldhospital: { label: "Medical Depot", capacityClass: "production", cost: 40, purpose: "Medical", military: 2, economic: 2, risk: 2, requires: "generator", height: 13, light: 58, maxHp: 420, hitbox: { w: 32, h: 28 }, supplyRadius: 105, produces: { medical: 6 }, consumes: { energy: 3, food: 1 }, storage: { medical: 150, food: 80 } },
+        warehouse: { label: "Warehouse", capacityClass: "production", cost: 34, purpose: "Storage", military: 0, economic: 5, risk: 1, requires: "outpost", height: 11, light: 34, maxHp: 470, hitbox: { w: 38, h: 30 }, supplyRadius: 125, spriteIndex: 7, storage: { requisition: 180, materials: 240, parts: 160, food: 120 } },
+        fueldepot: { label: "Fuel Depot", capacityClass: "production", cost: 36, purpose: "Storage", military: 0, economic: 4, risk: 5, requires: "outpost", height: 9, light: 42, maxHp: 330, hitbox: { w: 34, h: 28 }, supplyRadius: 105, spriteIndex: 3, storage: { fuel: 260 } },
+        ammodepot: { label: "Ammo Depot", capacityClass: "production", cost: 38, purpose: "Storage", military: 2, economic: 3, risk: 5, requires: "outpost", height: 9, light: 30, maxHp: 350, hitbox: { w: 34, h: 26 }, supplyRadius: 110, spriteIndex: 6, storage: { ammunition: 260 } },
+        farm: { label: "Supply Farm", capacityClass: "production", cost: 30, purpose: "Food", military: 0, economic: 5, risk: 1, requires: "outpost", height: 6, light: 18, maxHp: 300, hitbox: { w: 40, h: 30 }, supplyRadius: 80, spriteIndex: 5, produces: { food: 13, medical: 1 }, consumes: { energy: 1 }, storage: { food: 100 } },
+        mine: { label: "Material Mine", capacityClass: "production", cost: 38, purpose: "Materials", military: 0, economic: 5, risk: 2, requires: "outpost", height: 8, light: 45, maxHp: 440, hitbox: { w: 36, h: 30 }, supplyRadius: 75, spriteIndex: 2, produces: { materials: 14 }, consumes: { energy: 2 }, storage: { materials: 90 } },
+        refinery: { label: "Fuel Refinery", capacityClass: "production", cost: 44, purpose: "Fuel", military: 0, economic: 5, risk: 4, requires: "generator", height: 16, light: 70, maxHp: 450, hitbox: { w: 38, h: 32 }, supplyRadius: 78, spriteIndex: 3, produces: { fuel: 11 }, consumes: { energy: 4, materials: 1 }, storage: { fuel: 90 } },
+        dropbay: { label: "Orbital Launch Bay", capacityClass: "military-production", cost: 58, purpose: "Reinforcement", military: 4, economic: 3, risk: 3, requires: "generator", height: 17, light: 90, maxHp: 620, hitbox: { w: 42, h: 34 }, supplyRadius: 95, spriteIndex: 1, consumes: { energy: 4, fuel: 2 } },
+        signature: { label: "Signature Facility", capacityClass: "military-production", cost: 64, purpose: "Doctrine", military: 4, economic: 4, risk: 3, requires: "researchcenter", height: 18, light: 78, maxHp: 600, hitbox: { w: 40, h: 34 }, supplyRadius: 96, spriteIndex: 1, consumes: { energy: 3, materials: 2 } }
       };
 
       const factionProfiles = factionConfig || {
@@ -1231,10 +1216,6 @@ import {
           accessibilityPatterns: true
         },
         clock: { running: true, rate: 1, elapsedSeconds: 0 },
-        selectedTerritoryId: null,
-        territoryEditMode: "translate",
-        territoryDragIndex: -1,
-        territoryDragStart: null,
         nextTerritoryId: 1,
         selectedResourceZoneId: null,
         resourceZoneEditMode: "pen",
@@ -1446,8 +1427,7 @@ import {
             strategicValue: 100,
             defensibility: 80,
             claimedAt: -20,
-            reason: "Full-roster performance fixture",
-            maxStructures: 32
+            reason: "Full-roster performance fixture"
           }));
           state.structures = [];
           state.squads = [];
@@ -1508,7 +1488,6 @@ import {
               }
             }
             player.forceCapOverride = state.units.filter(unit => unit.faction === player.id && unit.alive !== false).length;
-            player.structureCapOverride = expectedBuildings.length;
             const rosterUnits = state.units.filter(unit => unit.faction === player.id && unit.stressRosterName);
             const completedBuildings = state.structures.filter(structure => structure.faction === player.id && structure.progress >= 1 && structure.alive !== false);
             audit.push({
@@ -2787,8 +2766,6 @@ import {
           strategicValue: 50,
           defensibility: 50,
           captureDifficulty: 50,
-          allowedStructures: "any",
-          maxStructures: 8,
           supplyRequired: true,
           canAbandon: true,
           shareAllies: false,
@@ -2803,10 +2780,6 @@ import {
         };
         if (territory.cellBacked) syncTerritoryPoints(territory);
         return territory;
-      }
-
-      function selectedTerritory() {
-        return state.territories.find(territory => territory.id === state.selectedTerritoryId) || state.territories[0] || null;
       }
 
       function clampCamera() {
@@ -3556,7 +3529,6 @@ import {
           player.deploymentMethod = factionProfile(player).deployment;
           player.forceState = createForceState();
           player.forceCapOverride = null;
-          player.structureCapOverride = null;
           player.scenarioTags = [];
           player.constructionCooldowns = {};
         });
@@ -3615,10 +3587,8 @@ import {
           strategicValue: 70,
           defensibility: 65,
           claimedAt: -20,
-          reason: "Headquarters supply",
-          maxStructures: state.players.length > 8 ? 14 : state.players.length > 4 ? 18 : 28
+          reason: "Headquarters supply"
         }));
-        state.selectedTerritoryId = state.territories[0]?.id || null;
         state.nextTerritoryTick = 0;
         state.territoryOverlay = true;
         state.squadRoleOverlay = true;
@@ -3901,11 +3871,8 @@ import {
           });
           return territory;
         });
-        state.selectedTerritoryId = state.territories[0]?.id || null;
         rebuildRoadNetwork();
         rebuildStrategicTerritorySystem();
-        state.selectedTerritoryId && rebuildTerritorySelect();
-        loadTerritoryForm();
         els.battleName.textContent = `${seedText} / ${els.randomBiome.selectedOptions[0].text}`;
         els.editorTip.textContent = `${els.randomBiome.selectedOptions[0].text} terrain generated · ${generated.length} objects · authored resources, landmarks, and trade routes preserved`;
         updateUI(true);
@@ -4029,39 +3996,44 @@ import {
 
       function constructionAllowedAt(faction, type, site) {
         const spec = buildingCatalog[type];
+        if (!spec) return false;
         const clearance = buildingClearanceFor(type, spec);
-        if (!spec || structureReservationCollisionAt(site, spec.hitbox, clearance)) return false;
+        if (structureReservationCollisionAt(site, spec.hitbox, clearance)) return false;
         const constructionPlayer = playerFor(faction);
-        if (!structureFitsInsideSpawnZone(site, spec.hitbox, clearance, point => pointInSpawnZone(point, constructionPlayer))) return false;
+        if (type === "outpost" && !structureFitsInsideSpawnZone(site, spec.hitbox, clearance, point => pointInSpawnZone(point, constructionPlayer))) return false;
         if (type !== "outpost" && blocksServiceCorridor({ point: site, hitbox: spec.hitbox, base: baseFor(faction) })) return false;
         const constructionRadius = Math.max(spec.hitbox?.w || 28, spec.hitbox?.h || 24) * 0.48;
         if (environmentCollisionAt(site, { role: "vehicle", collisionRadius: constructionRadius, maxHp: 80, strength: 0.5 }, constructionRadius)) return false;
         const terrain = terrainAt(site);
         if (["deepwater", "lava", "cliff", "mountain"].includes(terrain.type)) return false;
-        const territory = territoryAt(site);
-        if (!territory) return type === "outpost";
-        const territoryStructures = state.structures.filter(structure => structure.alive !== false && pointInTerritory(structure, territory)).length;
-        return territory.owner === faction
-          && (territory.connected || !territory.supplyRequired || type === "outpost")
-          && territory.allowedStructures !== "none"
-          && (territory.allowedStructures === "any"
-            || territory.allowedStructures === "military" && spec.military >= spec.economic
-            || territory.allowedStructures === "economic" && spec.economic >= spec.military)
-          && territoryStructures < territory.maxStructures;
+        const territory = primaryTerritoryFor(faction);
+        if (!territory) return false;
+        const cellKey = territoryCellKey(site.x, site.y);
+        if (!territory.claimedCells.has(cellKey) || territory.contestedCells?.has(cellKey) || territory.disconnectedCells?.has(cellKey)) return false;
+        return constructionCapacityForCell({
+          type,
+          spec,
+          structures: state.structures,
+          faction,
+          cellKey,
+          cellKeyFor: structure => territoryCellKey(structure.x, structure.y),
+          specFor: buildingType => buildingCatalog[buildingType]
+        }).available;
       }
 
       function buildingSite(faction, type) {
         const base = baseFor(faction);
         const count = state.structures.filter(item => item.faction === faction).length;
         const spec = buildingCatalog[type];
+        const capacityClass = buildingCapacityClass(type, spec);
         const startAngle = (count * 2.31 + playerFor(faction).index * 0.7) % (Math.PI * 2);
         const candidates = [];
         if (type === "outpost") candidates.push({ x: Math.round(base.x / 16) * 16, y: Math.round(base.y / 16) * 16 });
+        const primary = primaryTerritoryFor(faction);
         const desiredResource = extractorResourceType[type];
         if (desiredResource) {
           for (const node of strategicResourceNodes(desiredResource)) {
-            const territory = territoryAt(node);
-            if (!territory || territory.owner !== faction) continue;
+            if (!primary?.claimedCells.has(territoryCellKey(node.x, node.y))) continue;
             const nodeRadius = node.r || Math.max(18, Math.sqrt(Math.max(1, node.capacity || node.maxReserve || 600)) * 0.9);
             for (let index = 0; index < 8; index += 1) {
               const angle = index * Math.PI / 4;
@@ -4072,13 +4044,27 @@ import {
             }
           }
         }
-        for (let ring = 0; ring < 5; ring += 1) {
-          const radius = 44 + ring * 34;
-          for (let index = 0; index < 12; index += 1) {
-            const candidateAngle = startAngle + index * Math.PI / 6 + ring * 0.19;
+        const claimedKeys = [...(primary?.claimedCells || [])]
+          .filter(key => !primary.contestedCells?.has(key) && !primary.disconnectedCells?.has(key));
+        const preferredKeys = claimedKeys.sort((a, b) => {
+          const pointA = territoryCellCenter(a);
+          const pointB = territoryCellCenter(b);
+          const distanceA = distance(pointA, base);
+          const distanceB = distance(pointB, base);
+          const frontierA = primary?.frontierCells?.has(a) ? 1 : 0;
+          const frontierB = primary?.frontierCells?.has(b) ? 1 : 0;
+          if (capacityClass === "defense") return frontierB - frontierA || distanceB - distanceA;
+          if (capacityClass === "production") return frontierA - frontierB || distanceA - distanceB;
+          const targetBand = Math.max(100, Math.sqrt(Math.max(1, claimedKeys.length)) * TERRITORY_CELL_SIZE * 0.65);
+          return Math.abs(distanceA - targetBand) - Math.abs(distanceB - targetBand);
+        });
+        const keyStride = Math.max(1, Math.ceil(preferredKeys.length / 40));
+        for (let keyIndex = 0; keyIndex < preferredKeys.length; keyIndex += keyStride) {
+          const center = territoryCellCenter(preferredKeys[keyIndex]);
+          for (const [offsetX, offsetY] of [[0, 0], [11, 0], [-11, 0], [0, 11], [0, -11]]) {
             candidates.push({
-              x: clamp(Math.round((base.x + Math.cos(candidateAngle) * radius) / 16) * 16, 34, worldWidth() - 34),
-              y: clamp(Math.round((base.y + Math.sin(candidateAngle) * radius) / 16) * 16, 34, worldHeight() - 34)
+              x: clamp(Math.round((center.x + offsetX) / 8) * 8, 34, worldWidth() - 34),
+              y: clamp(Math.round((center.y + offsetY) / 8) * 8, 34, worldHeight() - 34)
             });
           }
         }
@@ -4095,17 +4081,33 @@ import {
           const defensibility = (territory?.defensibility || 40) / 100 + terrain.cover;
           const supplyConnectivity = insideSupplyRadius(candidate, faction) ? 1 : type === "outpost" ? 0.8 : 0.25;
           const constructionSuitability = clamp(1 - Math.abs(terrain.elevation || 0) * 0.08, 0, 1);
-          const expansionValue = clamp(distance(base, candidate) / 220, 0, 1);
+          const expansionValue = clamp(distance(base, candidate) / Math.max(220, Math.hypot(worldWidth(), worldHeight()) * 0.35), 0, 1);
           const terrainRisk = ["water", "river", "swamp", "mud"].includes(terrain.type) ? 0.65 : 0;
-          const economicBias = spec.economic >= spec.military ? resourceValue * 32 + supplyConnectivity * 38 : defensibility * 34;
-          const score = economicBias + constructionSuitability * 26 + expansionValue * 10 - enemyThreat * 30 - terrainRisk * 28 + light.shadowed * 4;
+          const cellKey = territoryCellKey(candidate.x, candidate.y);
+          const localStructures = state.structures.filter(structure => structure.alive !== false && structure.faction === faction && territoryCellKey(structure.x, structure.y) === cellKey);
+          const localDefenseSaturation = localStructures.filter(structure => buildingCatalog[structure.type]?.capacityClass === "defense").length;
+          const localProductionValue = localStructures.filter(structure => buildingCatalog[structure.type]?.capacityClass !== "defense").length;
+          const frontier = primary?.frontierCells?.has(cellKey) ? 1 : 0;
+          const roadAccess = nearestRoadSegment(candidate, TERRITORY_CELL_SIZE * 0.7) ? 1 : 0;
+          const classBias = capacityClass === "defense"
+            ? enemyThreat * 40 + frontier * 30 + localProductionValue * 8 + roadAccess * 12 - localDefenseSaturation * 28
+            : capacityClass === "military-production"
+              ? roadAccess * 28 + supplyConnectivity * 30 + expansionValue * 18 - enemyThreat * 22 - frontier * 8
+              : resourceValue * 32 + supplyConnectivity * 38 + roadAccess * 12 - enemyThreat * 30 - frontier * 12;
+          const score = classBias + defensibility * (capacityClass === "defense" ? 28 : 8) + constructionSuitability * 26
+            - terrainRisk * 28 + light.shadowed * 4;
           return { candidate, score };
         }).sort((a, b) => b.score - a.score)[0].candidate;
       }
 
       function builderTaskPointAllowed(unit, point, padding = 0) {
-        const player = playerFor(unit.faction);
-        return unitFitsInsideSpawnZone(point, Math.max(unit.collisionRadius || 3, Number(padding) || 0), candidate => pointInSpawnZone(candidate, player));
+        const territory = primaryTerritoryFor(unit.faction);
+        const radius = Math.max(unit.collisionRadius || 3, Number(padding) || 0);
+        if (!territory) return pointInSpawnZone(point, playerFor(unit.faction));
+        return unitFitsInsideSpawnZone(point, radius, candidate => {
+          const key = territoryCellKey(candidate.x, candidate.y);
+          return territory.claimedCells.has(key) && !territory.contestedCells?.has(key) && !territory.disconnectedCells?.has(key);
+        });
       }
 
       function recoverBuilderInsideSpawnZone(unit) {
@@ -4130,8 +4132,8 @@ import {
         if (!destination && !fallback) return false;
         unit.x = (destination || fallback).x;
         unit.y = (destination || fallback).y;
-        unit.status = "Returned to construction zone";
-        unit.lastAction = "Builder containment restored it to a collision-free point inside its authored spawn zone.";
+        unit.status = "Returned to controlled territory";
+        unit.lastAction = "Builder recovery returned it to a collision-free spawn ring after leaving controlled territory.";
         return true;
       }
 
@@ -4423,17 +4425,6 @@ import {
           }
           unit.status = "Repairing route";
           unit.lastAction = `Restoring ${damagedRoad.road.name || damagedRoad.road.id} for allied traffic.`;
-          return;
-        }
-
-        const factionStructureCount = state.structures.filter(item => item.faction === unit.faction && item.alive !== false).length;
-        const owningPlayer = playerFor(unit.faction);
-        const structureCap = Number.isFinite(owningPlayer?.structureCapOverride)
-          ? owningPlayer.structureCapOverride
-          : state.players.length > 8 ? 22 : state.players.length > 4 ? 30 : 42;
-        if (factionStructureCount >= structureCap) {
-          unit.status = "Maintaining base";
-          unit.lastAction = `Simulation safety cap ${structureCap} reached; repairs and supply continue.`;
           return;
         }
 
@@ -4742,6 +4733,7 @@ import {
       function handleNavigationRecovery(unit, objective, stage) {
         const monitor = ensureNavigationMonitor(unit, state.time);
         const failedPath = unit.navigationPath || [];
+        unit.status = "Stalled — Navigation recovery";
         if (stage === 1) {
           const detour = chooseRecoveryPoint(unit, objective, {
             radii: [Math.max(18, (unit.collisionRadius || 3) * 2.5), 32, 48],
@@ -4790,11 +4782,9 @@ import {
       function moveToward(unit, point, dt, speedFactor = 1) {
         const radius = unit.collisionRadius || (unit.role === "vehicle" ? 14 : 3);
         if (unit.role === "builder") {
-          const player = playerFor(unit.faction);
-          const constrained = constrainPointToSpawnZone(point, baseFor(unit.faction), radius, candidate => pointInSpawnZone(candidate, player));
-          point = constrained || baseFor(unit.faction);
-          if (unit.navigationPath?.some(candidate => !unitFitsInsideSpawnZone(candidate, radius, sample => pointInSpawnZone(sample, player)))
-            || unit.detour && !unitFitsInsideSpawnZone(unit.detour, radius, sample => pointInSpawnZone(sample, player))) {
+          point = builderTaskPointAllowed(unit, point, radius) ? point : baseFor(unit.faction);
+          if (unit.navigationPath?.some(candidate => !builderTaskPointAllowed(unit, candidate, radius))
+            || unit.detour && !builderTaskPointAllowed(unit, unit.detour, radius)) {
             clearNavigationState(unit);
           }
         }
@@ -5982,9 +5972,23 @@ import {
         const assignedTargetId = squad.assignedCaptureTargetId || squad.assignedResourceZoneId;
         const assignedResource = state.resourceZones.find(zone => zone.id === assignedTargetId);
         const assignedLandmark = state.economicNodes.find(node => node.id === assignedTargetId);
+        const assignedTerritoryKey = squad.assignedCaptureTargetKind === "territory-cell"
+          ? String(assignedTargetId || "").replace(/^territory-cell:/, "")
+          : null;
+        const assignedTerritoryOwner = assignedTerritoryKey ? territoryOwnerForCell(assignedTerritoryKey) : null;
         let captureTarget = battle.captureTargets.find(target => target.id === assignedTargetId)
           || (assignedResource ? { kind: "resource-zone", id: assignedResource.id, name: assignedResource.name, ...resourceZoneCenter(assignedResource), owner: assignedResource.owner, resourceType: assignedResource.resourceType, exports: { [assignedResource.resourceType]: assignedResource.gatherRate || 1 }, source: assignedResource } : null)
-          || (assignedLandmark ? { kind: "landmark", id: assignedLandmark.id, name: assignedLandmark.name, x: assignedLandmark.x, y: assignedLandmark.y, owner: assignedLandmark.owner, exports: assignedLandmark.exports || {}, source: assignedLandmark } : null);
+          || (assignedLandmark ? { kind: "landmark", id: assignedLandmark.id, name: assignedLandmark.name, x: assignedLandmark.x, y: assignedLandmark.y, owner: assignedLandmark.owner, exports: assignedLandmark.exports || {}, source: assignedLandmark } : null)
+          || (assignedTerritoryKey ? {
+              kind: "territory-cell",
+              id: `territory-cell:${assignedTerritoryKey}`,
+              key: assignedTerritoryKey,
+              name: `Frontier sector ${assignedTerritoryKey}`,
+              ...territoryCellCenter(assignedTerritoryKey),
+              owner: assignedTerritoryOwner?.owner || "",
+              source: { owner: assignedTerritoryOwner?.owner || "" },
+              reason: "Secure the assigned frontier through physical occupation"
+            } : null);
         let captureHolding = false;
         if (captureTarget?.source?.owner && areAllies(captureTarget.source.owner, player.id)) {
           squad.captureSecuredAt ??= state.time;
@@ -6002,6 +6006,27 @@ import {
         const assignedTargetIds = new Set(state.squads
           .filter(other => other.id !== squad.id && other.faction === player.id && other.primaryRole === "capture" && other.assignedCaptureTargetId)
           .map(other => other.assignedCaptureTargetId));
+        if (!squad.captureMissionComplete && !captureTarget && role === "capture") {
+          const frontier = territoryExpansionDecision(player, primaryTerritoryFor(player.id), {
+            fromPoint: center,
+            forMission: true,
+            excludedKeys: assignedTargetIds
+          });
+          if (frontier) {
+            const owner = territoryOwnerForCell(frontier.key)?.owner || "";
+            captureTarget = {
+              kind: "territory-cell",
+              id: `territory-cell:${frontier.key}`,
+              key: frontier.key,
+              name: `Frontier sector ${frontier.key}`,
+              x: frontier.point.x,
+              y: frontier.point.y,
+              owner,
+              source: { owner },
+              reason: frontier.reason
+            };
+          }
+        }
         if (!squad.captureMissionComplete) captureTarget ||= selectCaptureTarget({
           player,
           squadCenter: center,
@@ -6030,7 +6055,7 @@ import {
           "territory-defense": { orderType: "Defend Territory", objective: territory ? territoryCenter(territory) : player.base, zone: territory?.name || "Claimed territory", text: territory?.status?.startsWith("contested") ? `Stabilize ${territory.name}` : "Patrol claimed territory and strategic resources" },
           reinforcement: { orderType: "Reinforce", objective: threatened || player.base, targetId: battle.baseThreats[0]?.id || null, zone: threatened?.name || threatened?.displayName || "Threatened sector", text: threatened ? `Assist ${threatened.name || threatened.displayName || "threatened allied force"}` : "Remain mobile for emergency reinforcement" },
           offensive: { orderType: "Advance", objective: enemyStructure || targetBase, targetId: nearestEnemy?.id || enemyStructure?.id || null, zone: enemyPlayer ? `${enemyPlayer.faction} front` : "Enemy front", text: enemyStructure ? `Break defenses around ${enemyStructure.displayName || factionBuildingLabel(enemyStructure.faction, enemyStructure.type)}` : "Advance with the main attack force" },
-          capture: { orderType: "Capture", objective: captureTarget || targetBase, zone: captureTarget?.name || "Forward objective", text: captureTarget ? captureHolding ? `Hold ${captureTarget.name} until logistics and garrison handoff` : captureTarget.kind === "landmark" ? `Capture economic landmark ${captureTarget.name}` : `Capture ${captureTarget.name} for needed ${captureTarget.resourceType}` : "Secure the nearest strategic location" },
+          capture: { orderType: "Capture", objective: captureTarget || targetBase, zone: captureTarget?.name || "Forward objective", text: captureTarget ? captureHolding ? `Hold ${captureTarget.name} until logistics and garrison handoff` : captureTarget.kind === "territory-cell" ? captureTarget.reason : captureTarget.kind === "landmark" ? `Capture economic landmark ${captureTarget.name}` : `Capture ${captureTarget.name} for needed ${captureTarget.resourceType}` : "Secure the nearest strategic location" },
           reconnaissance: { orderType: "Recon", objective: { x: clamp(player.base.x + (targetBase.x - player.base.x) * 0.65 + reconOffset, 30, worldWidth() - 30), y: clamp(player.base.y + (targetBase.y - player.base.y) * 0.65 - reconOffset, 30, worldHeight() - 30) }, zone: "Unobserved approach", text: "Reveal routes, ambushes, and enemy strength" },
           "route-security": { orderType: friendlyRoad && ["Blocked", "Mined", "Flooded", "Damaged"].includes(friendlyRoad.status) ? "Keep Route Open" : friendlyRoad?.status === "Contested" ? "Hold Route" : "Patrol Route", road: friendlyRoad, objective: friendlyRoad ? roadMidpoint(friendlyRoad) : player.base, zone: friendlyRoad?.name || "Supply network", text: friendlyRoad ? `Secure ${friendlyRoad.name || friendlyRoad.id}` : "Protect the supply network" },
           ambush: { orderType: "Ambush Route", road: enemyRoad, objective: enemyRoad ? roadMidpoint(enemyRoad) : targetBase, zone: enemyRoad?.name || "Enemy approach", text: enemyRoad ? `Ambush valuable traffic on ${enemyRoad.name || enemyRoad.id}` : "Screen for isolated hostile traffic" },
@@ -6087,9 +6112,18 @@ import {
           }
           let demands = roleDemandScores(battle.context, assignedStrength);
           const armyAllocation = allocateArmyRoles({ squads, membersBySquad, context: battle.context, demands, commanderPreference: preference });
+          const activeForcePlan = enforceActiveForceRatio({
+            player,
+            behavior: aiBehaviorFor(player),
+            squads,
+            assignments: armyAllocation.assignments,
+            baseThreat: battle.context.baseThreat,
+            preserveBaseDefense: armyAllocation.budget["base-defense"]?.min || 0,
+            preserveEconomyDefense: armyAllocation.budget["economy-defense"]?.min || 0
+          });
           for (const squad of [...squads].sort((a, b) => b.readiness - a.readiness)) {
             const members = membersBySquad.get(squad.id) || [];
-            const allocatedRole = armyAllocation.assignments.get(squad.id);
+            const allocatedRole = activeForcePlan.assignments.get(squad.id);
             const allocationRequiresChange = allocatedRole && allocatedRole !== squad.primaryRole;
             if (squad.needsRoleAssignment || allocationRequiresChange) {
               const previousRole = squad.primaryRole;
@@ -6138,6 +6172,9 @@ import {
           player.squadRoleDemand = roleDemandScores(battle.context, assignedStrength);
           player.squadRoleComposition = Object.fromEntries(Object.keys(SQUAD_ROLE_DEFINITIONS).map(role => [role, squads.filter(squad => squad.primaryRole === role).length]));
           player.armyRoleBudget = armyAllocation.budget;
+          player.activeForceRatio = activeForcePlan.ratio;
+          player.activeForceCount = activeForcePlan.active;
+          player.activeForceRequired = activeForcePlan.required;
         }
         state.aiDiagnostics.routeOrders = state.squads.filter(squad => membersBySquad.has(squad.id) && routeOrderTypes.includes(squad.orderType)).length;
         state.aiDiagnostics.ambushRoads = state.squads.filter(squad => membersBySquad.has(squad.id) && squad.orderType === "Ambush Route").length;
@@ -8323,12 +8360,12 @@ import {
             ? `${unit.alertState} · hostile contact ${Math.round(unit.nearestThreatDistance)}m away while moving through ${terrainAt(unit).name}.`
             : `${baseLabel} through ${terrainAt(unit).name}.`;
         } else {
-          const baseLabel = holdingAmbush ? "Ambush waiting" : "Holding";
+          const baseLabel = holdingAmbush ? "Ambush waiting" : "Holding — Ordered";
           unit.status = holdingAmbush ? baseLabel : alertFlavorLabel(unit, baseLabel);
           unit.lastAction = holdingAmbush ? "Holding fire discipline for a valuable target on the route."
             : (unit.alertLevel || 0) > 0.16 && unit.nearestThreatId
               ? `${unit.alertState} · tracking hostile contact ${Math.round(unit.nearestThreatDistance)}m away.`
-              : "Watching assigned sector.";
+              : "Holding assigned sector by commander order.";
           unit.fatigue = clamp(unit.fatigue - dt * 0.0015, 0, 1);
         }
       }
@@ -10335,8 +10372,8 @@ import {
         territory.connected = territory.disconnectedCells.size === 0;
       }
 
-      function territoryExpansionDecision(player, territory) {
-        if (!territory.frontierCells.size) return null;
+      function territoryExpansionDecision(player, territory, { fromPoint = null, forMission = false, excludedKeys = new Set() } = {}) {
+        if (!territory?.frontierCells?.size) return null;
         const candidates = new Set();
         for (const frontier of territory.frontierCells) {
           for (const neighbor of neighboringTerritoryCells(frontier)) if (!territory.claimedCells.has(neighbor)) candidates.add(neighbor);
@@ -10348,11 +10385,12 @@ import {
         const usableActiveResources = new Set(economyFor(player.id).activeResources || []);
         const options = [];
         for (const key of candidates) {
+          if (excludedKeys.has(key) || excludedKeys.has(`territory-cell:${key}`)) continue;
           const point = territoryCellCenter(key);
           const terrain = terrainAt(point);
           if (["deepwater", "lava", "cliff", "mountain"].includes(terrain.type)) continue;
           const road = nearestRoadSegment(point, TERRITORY_CELL_SIZE * 0.78);
-          const resourceNodes = [];
+          const resourceNodes = strategicCellIndex.resourcesNear(point, TERRITORY_CELL_SIZE * 0.9);
           const economicNodes = strategicCellIndex.landmarksNear(point, TERRITORY_CELL_SIZE * 0.9);
           const localStructures = strategicCellIndex.structuresNear(point, TERRITORY_CELL_SIZE * 0.8);
           const localUnits = strategicCellIndex.unitsNear(point, TERRITORY_CELL_SIZE);
@@ -10364,7 +10402,7 @@ import {
             + (localStructures.some(structure => structure.faction === player.id) ? 34 : localStructures.length ? 26 : 0);
           const routeValue = road ? 28 + (road.road?.supplyImportance || 0) * 28 : 0;
           const resources = resourceNodes.length
-            ? resourceNodes.reduce((sum, node) => sum + resourceNeedScore(player, node.resourceType) * node.richness + (node.strategicObjective ? 24 : 0), 0)
+            ? resourceNodes.reduce((sum, node) => sum + resourceNeedScore(player, node.resourceType) * (Number(node.richness) || 1) + (node.strategicObjective ? 24 : 0), 0)
             : 0;
           const landmarkResources = economicNodes.reduce((sum, node) => sum + Object.keys(node.exports || {})
             .filter(resource => usableActiveResources.has(resource))
@@ -10372,7 +10410,8 @@ import {
           const defensibility = terrain.cover * 55 + Math.max(0, terrain.elevation || 0) * 5;
           const connection = neighboringTerritoryCells(key).filter(neighbor => territory.claimedCells.has(neighbor)).length * 18;
           const threat = hostile.reduce((sum, unit) => sum + (unit.role === "vehicle" ? 2.4 : unit.role === "commander" ? 1.7 : 1), 0) * 18;
-          const maintenance = territory.claimedCells.size * 0.38 + distance(point, player.base) / 210;
+          const travelCost = distance(point, fromPoint || player.base) * (forMission ? 0.04 : 0.012);
+          const maintenance = territory.claimedCells.size * 0.38 + distance(point, player.base) / 210 + travelCost;
           let reason = null;
           let culture = 0;
           if (road) reason = "Secure a road and supply route";
@@ -10408,12 +10447,13 @@ import {
           if (race === "Imperium" && player.faction === "Space Marines") {
             const threatenedAlly = friendly.some(unit => unit.hp < unit.maxHp * 0.65) && hostile.length;
             if (threatenedAlly) reason = "Fortify a threatened allied position";
-            if (!reason || (!road && !objective && !resourceNodes.length && !economicNodes.length && !threatenedAlly)) continue;
+            if (!forMission && (!reason || (!road && !objective && !resourceNodes.length && !economicNodes.length && !threatenedAlly))) continue;
             culture -= 20;
           }
           const behavior = aiBehaviorFor(player);
           if (!reason && behavior.expansion >= 62 && resources + landmarkResources >= 20) reason = "Reach a map-authored economic asset";
           if (!reason && connection >= 36 && territory.disconnectedCells.size) reason = "Reconnect isolated territory";
+          if (!reason && forMission) reason = hostile.length ? "Contest a hostile frontier cell" : "Extend controlled territory through physical occupation";
           if (!reason) continue;
           const value = resources + landmarkResources + objective + routeValue + defensibility + connection + culture
             + (behavior.expansion - 50) * 0.5 + (behavior.aggression - 50) * (hostile.length ? 0.25 : 0)
@@ -10432,7 +10472,8 @@ import {
         const behavior = aiBehaviorFor(player);
         const culturalThreshold = player.faction === "Space Marines" ? 68 : player.race === "Tyranids" ? 48 : player.race === "Orks" ? 42 : 50;
         const threshold = clamp(culturalThreshold - (behavior.expansion - 50) * 0.28 + (behavior.caution - 50) * 0.12, 28, 82);
-        return options.sort((a, b) => b.value - a.value).find(option => option.value >= threshold) || null;
+        const ranked = options.sort((a, b) => b.value - a.value);
+        return forMission ? ranked[0] || null : ranked.find(option => option.value >= threshold) || null;
       }
 
       function resourceZoneCaptureRadius(zone) {
@@ -10576,6 +10617,31 @@ import {
           const culturalCooldown = player.faction === "Space Marines" ? 30 : player.race === "Tyranids" ? 12 : player.race === "Orks" ? 10 : 20;
           const cooldown = clamp(culturalCooldown - (behavior.expansion - 50) * 0.16 + (behavior.caution - 50) * 0.08, 7, 38);
           if (state.time - (player.lastTerritoryClaim || 0) < cooldown) continue;
+          const physicallyOccupiedFrontier = [...new Set([...territory.frontierCells]
+            .flatMap(key => neighboringTerritoryCells(key)))]
+            .filter(key => !territory.claimedCells.has(key) && !territoryOwnerForCell(key))
+            .map(key => {
+              const groups = occupantsByCell.get(key) || new Map();
+              const friendlyPower = groups.get(player.id) || 0;
+              const hostilePower = [...groups.entries()]
+                .filter(([faction]) => !areAllies(faction, player.id))
+                .reduce((maximum, [, power]) => Math.max(maximum, power), 0);
+              return { key, friendlyPower, hostilePower };
+            })
+            .filter(candidate => candidate.friendlyPower >= 1 && candidate.friendlyPower > candidate.hostilePower)
+            .sort((a, b) => b.friendlyPower - a.friendlyPower || a.hostilePower - b.hostilePower)[0];
+          if (physicallyOccupiedFrontier && transferTerritoryCell(
+            physicallyOccupiedFrontier.key,
+            player.id,
+            "Captured by a physically present combat force"
+          )) {
+            player.lastTerritoryClaim = state.time;
+            territory.lastExpansionReason = "Physical frontier occupation";
+            economyFor(player.id).inventory.influence = Math.max(0, (economyFor(player.id).inventory.influence || 0) - 1);
+            incident(`${player.faction} physically occupied and captured frontier cell ${physicallyOccupiedFrontier.key}.`, null, "info");
+            changed = true;
+            continue;
+          }
           const decision = territoryExpansionDecision(player, territory);
           if (!decision) continue;
           if (decision.resourceDriven) {
@@ -10626,7 +10692,6 @@ import {
         if (changed) {
           for (const territory of state.territories.filter(item => item.cellBacked)) syncTerritoryPoints(territory);
           state.minimapMarkerDirty = true;
-          rebuildTerritorySelect();
         }
         if (state.strategicTerritory && !state.strategicTerritory.gameOver) {
           const physicalForces = state.units.filter(unit => unit.alive && !unit.incapacitated && !unit.embarkedInId).map(unit => ({
@@ -10751,7 +10816,7 @@ import {
           changed = true;
           incident(`${player.faction} expanded its territory toward active forces.`, candidate.id, "info");
         }
-        if (changed) rebuildTerritorySelect(); */
+        if (changed) state.minimapMarkerDirty = true; */
       }
 
       function updateEnvironment(dt) {
@@ -12216,17 +12281,6 @@ import {
           ctx.font = `${10 / state.camera.zoom}px system-ui, sans-serif`;
           ctx.textAlign = "center";
           ctx.fillText(`${territory.name} · ${status}`, center.x, center.y);
-          if (state.mode === "editor" && state.editorTool === "territory" && territory.id === state.selectedTerritoryId) {
-            ctx.fillStyle = color;
-            ctx.globalAlpha = 0.96;
-            for (const point of territory.points) {
-              ctx.beginPath();
-              ctx.arc(point.x, point.y, 4.5 / state.camera.zoom, 0, Math.PI * 2);
-              ctx.fill();
-              ctx.strokeStyle = colors.foreground;
-              ctx.stroke();
-            }
-          }
           ctx.restore();
         }
       }
@@ -14181,9 +14235,8 @@ import {
         state.nextTerritoryId = 1;
         state.territories = state.players.map(player => createTerritory(player.id, player.base, spawnZoneFor(player).size, {
           name: `${player.faction} heartland`, status: "controlled", resourceValue: 55, strategicValue: 70,
-          defensibility: 65, claimedAt: -20, reason: "Loaded headquarters supply", maxStructures: 28
+          defensibility: 65, claimedAt: -20, reason: "Loaded headquarters supply"
         }));
-        state.selectedTerritoryId = state.territories[0]?.id || null;
         rebuildRoadNetwork();
         rebuildSpatialGrid();
         state.minimapTerrainDirty = true;
@@ -14326,157 +14379,22 @@ import {
         ];
       }
 
-      function populateTerritoryOwners() {
-        const previous = els.territoryOwner.value;
-        els.territoryOwner.textContent = "";
-        const neutral = document.createElement("option");
-        neutral.value = "";
-        neutral.textContent = "Neutral";
-        els.territoryOwner.append(neutral);
-        for (const player of state.players) {
-          const option = document.createElement("option");
-          option.value = player.id;
-          option.textContent = `P${player.index + 1} · ${player.faction}`;
-          els.territoryOwner.append(option);
-        }
-        if ([...els.territoryOwner.options].some(option => option.value === previous)) els.territoryOwner.value = previous;
-        const resourcePrevious = els.resourceOwner.value;
-        els.resourceOwner.textContent = "";
-        for (const option of els.territoryOwner.options) els.resourceOwner.append(option.cloneNode(true));
-        if ([...els.resourceOwner.options].some(option => option.value === resourcePrevious)) els.resourceOwner.value = resourcePrevious;
-        const nodePrevious = els.economicNodeOwner.value;
-        els.economicNodeOwner.textContent = "";
-        for (const option of els.territoryOwner.options) els.economicNodeOwner.append(option.cloneNode(true));
-        if ([...els.economicNodeOwner.options].some(option => option.value === nodePrevious)) els.economicNodeOwner.value = nodePrevious;
-      }
-
-      function rebuildTerritorySelect() {
-        const previous = state.selectedTerritoryId;
-        els.territorySelect.textContent = "";
-        for (const territory of state.territories) {
-          const option = document.createElement("option");
-          option.value = territory.id;
-          option.textContent = territory.name;
-          els.territorySelect.append(option);
-        }
-        state.selectedTerritoryId = state.territories.some(territory => territory.id === previous)
-          ? previous
-          : state.territories[0]?.id || null;
-        els.territorySelect.value = state.selectedTerritoryId || "";
-      }
-
-      function loadTerritoryForm() {
-        const territory = selectedTerritory();
-        if (!territory) return;
-        els.territorySelect.value = territory.id;
-        els.territoryEditMode.value = state.territoryEditMode;
-        els.territoryName.value = territory.name;
-        els.territoryOwner.value = territory.owner || "";
-        els.territoryResource.value = String(territory.resourceValue);
-        els.territoryStrategic.value = String(territory.strategicValue);
-        els.territoryDefense.value = String(territory.defensibility);
-        els.territoryCapture.value = String(territory.captureDifficulty);
-        els.territoryStructures.value = territory.allowedStructures;
-        els.territoryMaxStructures.value = String(territory.maxStructures);
-        els.territorySupply.checked = territory.supplyRequired;
-        els.territoryAbandon.checked = territory.canAbandon;
-        els.territoryShare.checked = territory.shareAllies;
-        els.territoryUnclaimable.checked = territory.unclaimable;
-        els.territoryLocked.checked = territory.locked;
-      }
-
-      function saveTerritoryForm() {
-        const territory = selectedTerritory();
-        if (!territory) return;
-        territory.name = els.territoryName.value.trim() || territory.name;
-        if (territory.cellBacked) {
-          const requestedOwner = els.territoryOwner.value;
-          const duplicatePrimary = state.territories.some(other => other !== territory && other.cellBacked && other.owner === requestedOwner);
-          if (requestedOwner && !duplicatePrimary) territory.owner = requestedOwner;
-          els.territoryOwner.value = territory.owner;
-        } else {
-          territory.owner = "";
-          els.territoryOwner.value = "";
-        }
-        territory.startingOwner = territory.owner;
-        territory.status = territory.owner ? territory.status === "neutral" ? "controlled" : territory.status : "neutral";
-        territory.resourceValue = clamp(Number(els.territoryResource.value) || 0, 0, 100);
-        territory.strategicValue = clamp(Number(els.territoryStrategic.value) || 0, 0, 100);
-        territory.defensibility = clamp(Number(els.territoryDefense.value) || 0, 0, 100);
-        territory.captureDifficulty = clamp(Number(els.territoryCapture.value) || 0, 0, 100);
-        territory.allowedStructures = els.territoryStructures.value;
-        territory.maxStructures = clamp(Number(els.territoryMaxStructures.value) || 0, 0, 24);
-        territory.supplyRequired = els.territorySupply.checked;
-        territory.canAbandon = els.territoryAbandon.checked;
-        territory.shareAllies = els.territoryShare.checked;
-        territory.unclaimable = els.territoryUnclaimable.checked;
-        territory.locked = els.territoryLocked.checked;
-        state.minimapMarkerDirty = true;
-        rebuildTerritorySelect();
-        draw();
-      }
-
-      function nearestTerritoryAnchor(territory, point, limit = 22 / state.camera.zoom) {
-        let best = -1;
-        let bestDistance = limit;
-        territory.points.forEach((anchor, index) => {
-          const d = distance(anchor, point);
-          if (d < bestDistance) {
-            best = index;
-            bestDistance = d;
+      function populateEconomicOwners() {
+        for (const select of [els.resourceOwner, els.economicNodeOwner]) {
+          const previous = select.value;
+          select.textContent = "";
+          const neutral = document.createElement("option");
+          neutral.value = "";
+          neutral.textContent = "Neutral";
+          select.append(neutral);
+          for (const player of state.players) {
+            const option = document.createElement("option");
+            option.value = player.id;
+            option.textContent = `P${player.index + 1} · ${player.faction}`;
+            select.append(option);
           }
-        });
-        return best;
-      }
-
-      function editTerritoryAtPoint(point) {
-        const territory = selectedTerritory();
-        if (!territory || territory.locked || territory.cellBacked) {
-          if (territory?.cellBacked) {
-            els.editorTip.textContent = `${territory.name} is cell-backed; its single primary shape changes through AI expansion and capture decisions.`;
-            return;
-          }
-          els.editorTip.textContent = "Select an unlocked territory before editing anchors.";
-          return;
+          if ([...select.options].some(option => option.value === previous)) select.value = previous;
         }
-        const mode = state.territoryEditMode;
-        if (mode === "translate") {
-          if (!pointInTerritory(point, territory)) {
-            els.editorTip.textContent = `Click inside ${territory.name}, then drag to move the whole territory.`;
-            return;
-          }
-          state.territoryDragStart = {
-            point: { ...point },
-            points: territory.points.map(anchor => ({ ...anchor }))
-          };
-          els.editorTip.textContent = `Moving ${territory.name} · drag anywhere inside its border.`;
-          return;
-        }
-        if (mode === "delete") {
-          const index = nearestTerritoryAnchor(territory, point);
-          if (index >= 0) territory.points.splice(index, 1);
-        } else if (mode === "move") {
-          state.territoryDragIndex = nearestTerritoryAnchor(territory, point);
-        } else if (mode === "bend" && territory.points.length >= 2) {
-          let insertAt = territory.points.length;
-          let best = Infinity;
-          for (let index = 0; index < territory.points.length; index += 1) {
-            const a = territory.points[index];
-            const b = territory.points[(index + 1) % territory.points.length];
-            const midpoint = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-            const d = distance(midpoint, point);
-            if (d < best) {
-              best = d;
-              insertAt = index + 1;
-            }
-          }
-          territory.points.splice(insertAt, 0, { x: Math.round(point.x), y: Math.round(point.y) });
-        } else {
-          territory.points.push({ x: Math.round(point.x), y: Math.round(point.y) });
-        }
-        state.minimapMarkerDirty = true;
-        els.editorTip.textContent = `${territory.name} · ${territory.points.length} anchors · ${mode}`;
-        draw();
       }
 
       function selectedResourceZone() {
@@ -15133,13 +15051,11 @@ import {
         els.zoneSize.value = String(zone.size);
         els.zoneSizeValue.textContent = String(zone.size);
         const terrainMode = state.editorTool === "terrain";
-        const territoryMode = state.editorTool === "territory";
         const resourceMode = state.editorTool === "resource";
         const tradeRouteMode = state.editorTool === "trade-route";
         const economicNodeMode = state.editorTool === "economic-node";
         const lightingMode = state.editorTool === "lighting";
         els.paintControls.hidden = !terrainMode;
-        els.territoryControls.hidden = !territoryMode;
         els.resourceControls.hidden = !resourceMode;
         els.tradeRouteControls.hidden = !tradeRouteMode;
         els.economicNodeControls.hidden = !economicNodeMode;
@@ -15152,7 +15068,6 @@ import {
         els.spawnPlayer.disabled = !["spawn", "zone"].includes(state.editorTool);
         els.zoneShape.disabled = !["spawn", "zone"].includes(state.editorTool);
         els.clearZone.hidden = state.editorTool !== "zone" || zone.shape !== "custom";
-        if (territoryMode) loadTerritoryForm();
         if (resourceMode) loadResourceZoneForm();
         if (tradeRouteMode) loadTradeRouteForm();
         if (economicNodeMode) loadEconomicNodeForm();
@@ -15230,8 +15145,7 @@ import {
         els.brushShape.value = "circle";
         els.paintMode.value = "replace";
         populateSpawnPlayers();
-        populateTerritoryOwners();
-        rebuildTerritorySelect();
+        populateEconomicOwners();
         rebuildResourceZoneSelect();
         rebuildEconomicNodeSelect();
         rebuildTradeRouteSelect();
@@ -15505,8 +15419,6 @@ import {
             moveSpawn(player, point);
           } else if (state.editorTool === "zone" && player) {
             addCustomZonePoint(player, point);
-          } else if (state.editorTool === "territory") {
-            editTerritoryAtPoint(point);
           } else if (state.editorTool === "resource") {
             editResourceZoneAtPoint(point);
           } else if (state.editorTool === "trade-route") {
@@ -15561,26 +15473,6 @@ import {
           if (state.editorTool === "terrain") {
             pixelProbe(state.hover);
             if (state.brushDown) applyBrush(state.hover);
-          } else if (state.editorTool === "territory") {
-            const territory = selectedTerritory();
-            if (territory && state.territoryDragStart && (event.buttons & 1)) {
-              const dx = state.hover.x - state.territoryDragStart.point.x;
-              const dy = state.hover.y - state.territoryDragStart.point.y;
-              territory.points = state.territoryDragStart.points.map(anchor => ({
-                x: clamp(anchor.x + dx, 0, worldWidth()),
-                y: clamp(anchor.y + dy, 0, worldHeight())
-              }));
-              const center = territoryCenter(territory);
-              state.minimapMarkerDirty = true;
-              els.editorTip.textContent = `Moving ${territory.name} · center (${Math.round(center.x)}, ${Math.round(center.y)})`;
-              draw();
-            } else if (territory && state.territoryDragIndex >= 0 && (event.buttons & 1)) {
-              territory.points[state.territoryDragIndex] = { x: Math.round(state.hover.x), y: Math.round(state.hover.y) };
-              state.minimapMarkerDirty = true;
-              draw();
-            } else {
-              els.editorTip.textContent = `${territory?.name || "Territory"} · ${state.territoryEditMode} · world (${Math.floor(state.hover.x)}, ${Math.floor(state.hover.y)})`;
-            }
           } else if (state.editorTool === "resource") {
             const zone = selectedResourceZone();
             if (zone && state.resourceZoneDragStart && (event.buttons & 1)) {
@@ -15619,8 +15511,6 @@ import {
         state.brushDown = false;
         state.lastBrushPoint = null;
         compactFeatureEdits();
-        state.territoryDragIndex = -1;
-        state.territoryDragStart = null;
         state.resourceZoneDragIndex = -1;
         state.resourceZoneDragStart = null;
       });
@@ -15629,14 +15519,11 @@ import {
         state.brushDown = false;
         state.lastBrushPoint = null;
         compactFeatureEdits();
-        state.territoryDragIndex = -1;
-        state.territoryDragStart = null;
         state.resourceZoneDragIndex = -1;
         state.resourceZoneDragStart = null;
       });
       canvas.addEventListener("pointerleave", () => {
         state.brushDown = false;
-        state.territoryDragStart = null;
         state.resourceZoneDragStart = null;
         state.hover = null;
         compactFeatureEdits();
@@ -15914,8 +15801,6 @@ import {
           ? `Terrain paint · ${brushNames[state.brush] || state.brush} · ${Math.round(state.brushOpacity * 100)}%`
           : state.editorTool === "spawn"
             ? `Click the map to move P${(player?.index ?? 0) + 1}'s spawn.`
-            : state.editorTool === "territory"
-              ? "Territory anchors ready · choose Pen, Add, Delete, Move, or Bend."
             : state.editorTool === "resource"
               ? "Resource zones ready · draw the polygon and configure capacity, gathering, regeneration, ownership, and collectors."
             : state.editorTool === "trade-route"
@@ -16143,90 +16028,6 @@ import {
         }
       });
 
-      els.territorySelect.addEventListener("change", () => {
-        state.selectedTerritoryId = els.territorySelect.value;
-        loadTerritoryForm();
-        draw();
-      });
-      els.territoryEditMode.addEventListener("change", () => {
-        state.territoryEditMode = els.territoryEditMode.value;
-        if (state.territoryEditMode === "translate") {
-          els.editorTip.textContent = "Move territory · drag from anywhere inside the selected border.";
-          return;
-        }
-        els.editorTip.textContent = `Territory anchor tool · ${state.territoryEditMode}`;
-      });
-      const territoryPropertyControls = [
-        els.territoryName, els.territoryOwner, els.territoryResource, els.territoryStrategic,
-        els.territoryDefense, els.territoryCapture, els.territoryStructures, els.territoryMaxStructures,
-        els.territorySupply, els.territoryAbandon, els.territoryShare, els.territoryUnclaimable, els.territoryLocked
-      ];
-      territoryPropertyControls.forEach(control => control.addEventListener("change", saveTerritoryForm));
-      root.querySelector("#awt-new-territory").addEventListener("click", () => {
-        const center = state.cameraFocus || worldCenter();
-        const territory = createTerritory("", center, 64, {
-          name: `Territory ${state.nextTerritoryId - 1}`,
-          points: [],
-          status: "neutral",
-          reason: "Map creator"
-        });
-        state.territories.push(territory);
-        state.minimapMarkerDirty = true;
-        state.selectedTerritoryId = territory.id;
-        state.territoryEditMode = "pen";
-        rebuildTerritorySelect();
-        loadTerritoryForm();
-        els.editorTip.textContent = "New territory · click the map to add anchor points.";
-        draw();
-      });
-      root.querySelector("#awt-close-territory").addEventListener("click", () => {
-        const territory = selectedTerritory();
-        if (!territory) return;
-        els.editorTip.textContent = territory.points.length >= 3
-          ? `${territory.name} closed with ${territory.points.length} anchors.`
-          : `${territory.name} needs at least 3 anchors.`;
-        draw();
-      });
-      root.querySelector("#awt-duplicate-territory").addEventListener("click", () => {
-        const territory = selectedTerritory();
-        if (!territory) return;
-        const copy = createTerritory(territory.owner, territoryCenter(territory), 60, {
-          ...territory,
-          id: `territory-${state.nextTerritoryId - 1}`,
-          name: `${territory.name} copy`,
-          owner: "",
-          startingOwner: "",
-          cellBacked: false,
-          claimedCells: new Set(),
-          frontierCells: new Set(),
-          influencedCells: new Set(),
-          controlledCells: new Set(),
-          contestedCells: new Set(),
-          disconnectedCells: new Set(),
-          cellPressure: new Map(),
-          points: territory.points.map(point => ({ x: clamp(point.x + 18, 0, worldWidth()), y: clamp(point.y + 18, 0, worldHeight()) })),
-          locked: false
-        });
-        state.territories.push(copy);
-        state.minimapMarkerDirty = true;
-        state.selectedTerritoryId = copy.id;
-        rebuildTerritorySelect();
-        loadTerritoryForm();
-        draw();
-      });
-      root.querySelector("#awt-delete-territory").addEventListener("click", () => {
-        const territory = selectedTerritory();
-        if (!territory || territory.locked || territory.cellBacked) {
-          if (territory?.cellBacked) els.editorTip.textContent = "Primary army territories cannot be deleted; edit their cells through simulation control.";
-          return;
-        }
-        state.territories = state.territories.filter(item => item.id !== territory.id);
-        state.minimapMarkerDirty = true;
-        state.selectedTerritoryId = state.territories[0]?.id || null;
-        rebuildTerritorySelect();
-        loadTerritoryForm();
-        draw();
-      });
       els.resourceSelect.addEventListener("change", () => {
         state.selectedResourceZoneId = els.resourceSelect.value;
         loadResourceZoneForm();

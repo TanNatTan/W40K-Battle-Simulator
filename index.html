@@ -161,7 +161,6 @@
           <button type="button" class="awt-editor-tab" data-editor-layer="Elevation" data-editor-brush="raise">Elevation</button>
           <button type="button" class="awt-editor-tab" data-editor-layer="Vegetation" data-editor-brush="trees">Objects</button>
           <button type="button" class="awt-editor-tab" data-editor-layer="Roads" data-editor-brush="dirtroad">Roads</button>
-          <button type="button" class="awt-editor-tab" data-editor-tool-target="territory">Territories</button>
           <button type="button" class="awt-editor-tab" data-editor-tool-target="resource" hidden disabled aria-hidden="true">Legacy Resources</button>
           <button type="button" class="awt-editor-tab" data-editor-tool-target="trade-route">Trade Routes</button>
           <button type="button" class="awt-editor-tab" data-editor-tool-target="economic-node">Economic Nodes</button>
@@ -176,7 +175,6 @@
             <option value="terrain">Paint terrain</option>
             <option value="spawn">Move spawn</option>
             <option value="zone">Custom spawn zone</option>
-            <option value="territory">Territory anchors</option>
             <option value="trade-route">Trade routes</option>
             <option value="economic-node">Economic nodes</option>
             <option value="lighting">Lighting &amp; shadows</option>
@@ -293,35 +291,6 @@
             Advanced brush
             <select class="form-select" id="awt-brush-type"></select>
           </label>
-        </div>
-      </div>
-
-      <div id="awt-territory-controls" hidden>
-        <div class="awt-panel-title">Territory editor</div>
-        <div class="awt-territory-properties">
-          <label class="form-label text-small" for="awt-territory-select">Territory<select class="form-select" id="awt-territory-select"></select></label>
-          <label class="form-label text-small" for="awt-territory-edit-mode">Territory tool<select class="form-select" id="awt-territory-edit-mode"><option value="translate">Move territory</option><option value="move">Move anchor</option><option value="pen">Pen tool</option><option value="add">Add anchor</option><option value="delete">Delete anchor</option><option value="bend">Bend edge</option></select></label>
-          <label class="form-label text-small" for="awt-territory-name">Territory name<input class="form-control" id="awt-territory-name" type="text" value="New territory"></label>
-          <label class="form-label text-small" for="awt-territory-owner">Starting owner<select class="form-select" id="awt-territory-owner"><option value="">Neutral</option></select></label>
-          <label class="form-label text-small" for="awt-territory-resource">Resource value<input class="form-control" id="awt-territory-resource" type="number" min="0" max="100" value="40"></label>
-          <label class="form-label text-small" for="awt-territory-strategic">Strategic value<input class="form-control" id="awt-territory-strategic" type="number" min="0" max="100" value="50"></label>
-          <label class="form-label text-small" for="awt-territory-defense">Defensibility<input class="form-control" id="awt-territory-defense" type="number" min="0" max="100" value="50"></label>
-          <label class="form-label text-small" for="awt-territory-capture">Capture difficulty<input class="form-control" id="awt-territory-capture" type="number" min="0" max="100" value="50"></label>
-          <label class="form-label text-small" for="awt-territory-structures">Allowed structures<select class="form-select" id="awt-territory-structures"><option value="any">Any</option><option value="military">Military only</option><option value="economic">Economic only</option><option value="none">None</option></select></label>
-          <label class="form-label text-small" for="awt-territory-max-structures">Maximum structures<input class="form-control" id="awt-territory-max-structures" type="number" min="0" max="24" value="8"></label>
-        </div>
-        <div class="viz-row">
-          <label class="form-check"><input class="form-check-input" id="awt-territory-supply" type="checkbox" checked><span class="form-check-label">Supply required</span></label>
-          <label class="form-check"><input class="form-check-input" id="awt-territory-abandon" type="checkbox" checked><span class="form-check-label">Can be abandoned</span></label>
-          <label class="form-check"><input class="form-check-input" id="awt-territory-share" type="checkbox"><span class="form-check-label">Share with allies</span></label>
-          <label class="form-check"><input class="form-check-input" id="awt-territory-unclaimable" type="checkbox"><span class="form-check-label">Unclaimable</span></label>
-          <label class="form-check"><input class="form-check-input" id="awt-territory-locked" type="checkbox"><span class="form-check-label">Locked</span></label>
-        </div>
-        <div class="viz-row">
-          <button type="button" class="btn btn-primary" id="awt-new-territory">New territory</button>
-          <button type="button" class="btn" id="awt-close-territory">Close shape</button>
-          <button type="button" class="btn" id="awt-duplicate-territory">Duplicate</button>
-          <button type="button" class="btn btn-ghost" id="awt-delete-territory">Delete</button>
         </div>
       </div>
 

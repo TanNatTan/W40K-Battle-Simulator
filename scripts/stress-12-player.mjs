@@ -194,6 +194,10 @@ try {
   await delay(1500);
   await evaluate(`(() => {
     globalThis.awtStressMetrics = { frames: 0, maxFrameGapMs: 0, gapsOver500Ms: 0, longTasks: 0, maxLongTaskMs: 0, totalLongTaskMs: 0 };
+    const state = document.querySelector('#autonomous-war-theater').awtDebugState;
+    globalThis.awtStressStartPositions = Object.fromEntries(state.units
+      .filter(unit => unit.alive && !unit.incapacitated && !['builder', 'supply'].includes(unit.role))
+      .map(unit => [unit.id, { x: unit.x, y: unit.y }]));
     document.querySelector('[data-speed="${simulationSpeed}"]').click();
   })()`);
   const samples = [];
@@ -206,6 +210,11 @@ try {
     const sample = await evaluate(`(() => {
       const root = document.querySelector('#autonomous-war-theater');
       const state = root.awtDebugState;
+      const trackedCombatUnits = state.units.filter(unit => unit.alive && globalThis.awtStressStartPositions?.[unit.id]);
+      const combatDisplacements = trackedCombatUnits.map(unit => {
+        const start = globalThis.awtStressStartPositions[unit.id];
+        return Math.hypot(unit.x - start.x, unit.y - start.y);
+      });
       return {
         wallTime: performance.now(), simulationTime: state.time, frameCount: state.frameCount,
         lastSuccessfulSimulationAt: state.lastSuccessfulSimulationAt, paused: state.paused, ended: state.ended,
@@ -218,6 +227,11 @@ try {
         sensorBudgetUsed: state.sensorBudgetUsed,
         preset: state.performancePreset.id, workerProcessed: state.distantCombatSummary?.processed || 0,
         failures: state.frameFailures, error: root.dataset.runtimeError || null,
+        movement: {
+          trackedCombatUnits: trackedCombatUnits.length,
+          movedCombatUnits: combatDisplacements.filter(value => value >= 12).length,
+          maximumDisplacement: Math.max(0, ...combatDisplacements)
+        },
         frameMonitor: { ...globalThis.awtStressMetrics },
         simulationFrame: { ...(state.lastSimulationFrame || {}) }
       };
@@ -252,7 +266,8 @@ try {
   };
   const frozen = !last || last.paused || last.failures > 0 || last.error
     || report.simulationSecondsAdvanced <= 1 || report.framesAdvanced <= 5
-    || maximumStagnantSamples >= 4 || maximumProbeLatencyMs >= 1000 || report.maxFrameGapMs >= 500;
+    || maximumStagnantSamples >= 4 || maximumProbeLatencyMs >= 1000 || report.maxFrameGapMs >= 500
+    || last.movement.trackedCombatUnits > 0 && last.movement.movedCombatUnits < Math.max(1, Math.floor(last.movement.trackedCombatUnits * 0.05));
   console.log(JSON.stringify(report, null, 2));
   if (last.speed !== simulationSpeed) throw new Error(`Expected ${simulationSpeed}x simulation speed, received ${last.speed}x.`);
   if (frozen) throw new Error(`12-player 1920x1080 simulation froze or became unresponsive: ${JSON.stringify(report)}`);

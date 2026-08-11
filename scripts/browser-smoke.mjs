@@ -236,7 +236,7 @@ try {
       error: root.dataset.runtimeError || null
     };
   })()`);
-  if (!editor.editing || !editor.editorVisible || !editor.inspectorVisible || editor.tabs !== 9 || editor.resourceZones !== 0
+  if (!editor.editing || !editor.editorVisible || !editor.inspectorVisible || editor.tabs !== 8 || editor.resourceZones !== 0
     || editor.resourceType !== null || editor.economicNodes !== 2 || editor.tradeRoutes !== 1 || editor.generatedTradeRoutes !== 0
     || editor.landmarkFlowRows < 4 || editor.landmarkFlowControls < 12 || editor.legacyLandmarkTextInputs !== 0
     || editor.refineryFuelRate < 30 || editor.landmarkValidation !== "true" || editor.error) {

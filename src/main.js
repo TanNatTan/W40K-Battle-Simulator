@@ -52,6 +52,8 @@ import { constrainPointToSpawnZone, structureFitsInsideSpawnZone, unitFitsInside
 import { EMERALD_SUNS, applyChapterBattleAdaptation, chapterMedicalModifiersFor, chapterVisualDefaultsFor, isEmeraldSuns } from "./ai/SpaceMarineChapterSystem.js";
 import { SUBFACTION_BUILDINGS, SUBFACTION_BUILDING_ORDER, SUBFACTION_BUILDING_SLOTS, subfactionBuildingLabelFor, subfactionBuildingProfileFor, subfactionBuildingTypesFor, validateSubfactionBuildingCatalog } from "./factions/SubfactionBuildingSystem.js";
 import { SERVITOR_REPAIR_ASSIGNMENT_TTL, activeRepairCrewCount, claimRepairAssignment, releaseStaleRepairAssignment, servitorRepairCrewLimit, servitorRepairSlotAvailable } from "./construction/RepairCrewSystem.js";
+import { ACTIVE_FORCE_ROLES, PASSIVE_FORCE_ROLES, desiredActiveForceRatio, enforceActiveForceRatio } from "./ai/ActiveForceSystem.js";
+import { BUILDING_CAPACITY_CLASSES, TERRITORY_BUILD_CAPS, buildingCapacityClass, constructionCapacityForCell, countBuildingsByCapacityClass, territoryCapacityAvailable } from "./territory/TerritoryConstructionSystem.js";
 
 globalThis.AWTSystems = Object.freeze({
   EconomyZoneManager,
@@ -227,7 +229,17 @@ globalThis.AWTSystems = Object.freeze({
   claimRepairAssignment,
   releaseStaleRepairAssignment,
   servitorRepairCrewLimit,
-  servitorRepairSlotAvailable
+  servitorRepairSlotAvailable,
+  ACTIVE_FORCE_ROLES,
+  PASSIVE_FORCE_ROLES,
+  desiredActiveForceRatio,
+  enforceActiveForceRatio,
+  BUILDING_CAPACITY_CLASSES,
+  TERRITORY_BUILD_CAPS,
+  buildingCapacityClass,
+  constructionCapacityForCell,
+  countBuildingsByCapacityClass,
+  territoryCapacityAvailable
 });
 globalThis.AWTData ||= {};
 try {
