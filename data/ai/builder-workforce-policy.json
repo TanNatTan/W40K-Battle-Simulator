@@ -1,0 +1,184 @@
+{
+  "version": 1,
+  "principle": "Each completed building has persistent builder caretakers. Caretakers may perform secondary work while their home structure is healthy, but home repair is their first non-survival priority.",
+  "profiles": {
+    "space_marines": {
+      "builder": "Servitor",
+      "perBuilding": 1,
+      "heavyBonus": 0,
+      "heavyTypes": [],
+      "reserveBase": 2,
+      "reserveEvery": 4,
+      "repairReserve": 1,
+      "gatherReserve": 1,
+      "constructionReserve": 1
+    },
+    "imperial_guard": {
+      "builder": "Combat Engineer",
+      "perBuilding": 1,
+      "heavyBonus": 0,
+      "heavyTypes": [],
+      "reserveBase": 3,
+      "reserveEvery": 4,
+      "repairReserve": 2,
+      "gatherReserve": 2,
+      "constructionReserve": 2
+    },
+    "adeptus_mechanicus": {
+      "builder": "Servitor / Tech-Adept",
+      "perBuilding": 1,
+      "heavyBonus": 1,
+      "heavyTypes": [
+        "workshop",
+        "researchcenter",
+        "refinery",
+        "generator",
+        "signature"
+      ],
+      "reserveBase": 3,
+      "reserveEvery": 3,
+      "repairReserve": 2,
+      "gatherReserve": 2,
+      "constructionReserve": 2
+    },
+    "chaos": {
+      "builder": "Dark Servitor / Cult Laborer",
+      "perBuilding": 1,
+      "heavyBonus": 0,
+      "heavyTypes": [],
+      "reserveBase": 3,
+      "reserveEvery": 4,
+      "repairReserve": 1,
+      "gatherReserve": 2,
+      "constructionReserve": 2
+    },
+    "orks": {
+      "builder": "Gretchin",
+      "perBuilding": 2,
+      "heavyBonus": 1,
+      "heavyTypes": [
+        "workshop",
+        "refinery",
+        "generator",
+        "dropbay",
+        "signature"
+      ],
+      "reserveBase": 5,
+      "reserveEvery": 2,
+      "repairReserve": 3,
+      "gatherReserve": 4,
+      "constructionReserve": 4
+    },
+    "necrons": {
+      "builder": "Canoptek Scarab",
+      "perBuilding": 2,
+      "heavyBonus": 1,
+      "heavyTypes": [
+        "outpost",
+        "workshop",
+        "fieldhospital",
+        "researchcenter",
+        "signature"
+      ],
+      "reserveBase": 5,
+      "reserveEvery": 3,
+      "repairReserve": 4,
+      "gatherReserve": 3,
+      "constructionReserve": 3
+    },
+    "tau": {
+      "builder": "Earth Caste Engineer",
+      "perBuilding": 1,
+      "heavyBonus": 0,
+      "heavyTypes": [],
+      "reserveBase": 2,
+      "reserveEvery": 4,
+      "repairReserve": 2,
+      "gatherReserve": 1,
+      "constructionReserve": 1
+    },
+    "tyranids": {
+      "builder": "Ripper Tendril",
+      "perBuilding": 2,
+      "heavyBonus": 1,
+      "heavyTypes": [
+        "workshop",
+        "refinery",
+        "farm",
+        "mine",
+        "fieldhospital",
+        "signature"
+      ],
+      "reserveBase": 4,
+      "reserveEvery": 3,
+      "repairReserve": 2,
+      "gatherReserve": 4,
+      "constructionReserve": 3
+    }
+  },
+  "subfactionOverrides": {
+    "Iron Hands": {
+      "reserveBaseBonus": 1,
+      "repairReserveBonus": 1
+    },
+    "Salamanders": {
+      "repairReserveBonus": 1
+    },
+    "Imperial Fists": {
+      "constructionReserveBonus": 1
+    },
+    "Steel Legion": {
+      "repairReserveBonus": 1
+    },
+    "Death Korps of Krieg": {
+      "constructionReserveBonus": 1
+    },
+    "Mars Forge": {
+      "heavyBonusAdd": 1,
+      "repairReserveBonus": 1
+    },
+    "Ryza Forge": {
+      "heavyBonusAdd": 1
+    },
+    "Graia Forge": {
+      "repairReserveBonus": 1
+    },
+    "Speed Freeks": {
+      "repairReserveBonus": 2,
+      "gatherReserveBonus": 1
+    },
+    "Deathskull Mob": {
+      "gatherReserveBonus": 2,
+      "repairReserveBonus": 1
+    },
+    "Repair Cohort": {
+      "perBuildingAdd": 1,
+      "repairReserveBonus": 3
+    },
+    "Hydra": {
+      "gatherReserveBonus": 2,
+      "constructionReserveBonus": 1
+    },
+    "Spore Web": {
+      "perBuildingAdd": 1,
+      "constructionReserveBonus": 1
+    },
+    "Iron Warriors": {
+      "constructionReserveBonus": 1,
+      "repairReserveBonus": 1
+    },
+    "Death Guard": {
+      "repairReserveBonus": 1
+    }
+  },
+  "priorityOrder": [
+    "self-preservation",
+    "repair-home-building",
+    "finish-current-construction",
+    "repair-critical-building",
+    "harvest-gather-salvage",
+    "assist-construction",
+    "routine-maintenance",
+    "idle-near-home"
+  ]
+}

@@ -179,6 +179,10 @@ try {
       speedRequested: ${simulationSpeed},
       spawnRadii: root.awtDebugState.players.map(player => player.spawnZone?.size || 0),
       fixture,
+      fixtureUnits: fixture ? fixture.players.reduce((sum, player) => sum + player.expectedUnitCount, 0) : 0,
+      fixtureBuildings: fixture ? fixture.players.reduce((sum, player) => sum + player.expectedBuildingCount, 0) : 0,
+      actualStressRosterUnits: root.awtDebugState.units.filter(unit => unit.stressRosterName).length,
+      completedStructures: root.awtDebugState.structures.filter(structure => structure.progress >= 1 && structure.alive !== false).length,
       viewport: { width: innerWidth, height: innerHeight },
       error: root.dataset.runtimeError || null
     };
@@ -188,7 +192,11 @@ try {
     || setup.value.preset !== "total" || setup.value.viewport.width !== 1920 || setup.value.viewport.height !== 1080
     || setup.value.spawnRadii.some(radius => radius !== spawnRadius)
     || (fullRoster && setup.value.fixture.players.some(player => player.missingUnits.length || player.missingBuildings.length
+      || player.missingBranchUnits.length || player.expectedBuildingCount !== 13 || player.constructionOrder.length !== 13
+      || player.productionScheduleLength < 1 || player.caretakerUnfilled !== 0 || player.caretakerAssigned < player.caretakerRequirement
       || player.unitsOutsideSpawnZone.length || player.buildingsOutsideSpawnZone.length))
+    || (fullRoster && (setup.value.actualStressRosterUnits !== setup.value.fixtureUnits
+      || setup.value.completedStructures !== setup.value.fixtureBuildings))
     || setup.value.error) throw new Error(`Invalid stress setup: ${JSON.stringify(setup.value)}`);
 
   await delay(1500);
@@ -223,6 +231,7 @@ try {
         casualties: Object.values(state.casualties).reduce((sum, value) => sum + value, 0),
         activeBuilders: state.units.filter(unit => unit.alive && unit.role === 'builder' && unit.buildProject).length,
         speed: state.speed,
+        lastFrameFailure: state.lastFrameFailure || null,
         awarenessBudgetUsed: state.awarenessBudgetUsed,
         sensorBudgetUsed: state.sensorBudgetUsed,
         preset: state.performancePreset.id, workerProcessed: state.distantCombatSummary?.processed || 0,

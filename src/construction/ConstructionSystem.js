@@ -55,6 +55,10 @@ export function evaluateConstructionCancellation(structure = {}, context = {}) {
   if (context.placementConflict) return { cancel: true, reason: "reserved footprint conflict" };
   if (context.territoryLost && progress < 0.7) return { cancel: true, reason: "construction territory lost" };
   if (context.parentMissing && progress < 0.65) return { cancel: true, reason: "required parent structure lost" };
+  // A commander-approved foundation may legitimately wait while its producer
+  // raises the requested workforce. Do not treat that planned wait as builder
+  // abandonment; placement, territory, and dependency failures still cancel it.
+  if (structure.construction?.state === "planned" && context.activeBuilders === 0 && stalledFor <= 75) return { cancel: false, reason: null };
   if (progress < 0.35 && stalledFor > 8 && failedApproaches >= 3) return { cancel: true, reason: "site unreachable" };
   if (progress < 0.2 && stalledFor > 12 && context.activeBuilders === 0) return { cancel: true, reason: "abandoned stalled foundation" };
   if (progress < 0.22 && context.duplicateLowPriority) return { cancel: true, reason: "duplicate low-priority project" };

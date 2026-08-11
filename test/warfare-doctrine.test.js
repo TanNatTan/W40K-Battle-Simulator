@@ -83,7 +83,7 @@ test("accumulator cadence supports non-divisible rates and immediate local reeva
 
 test("browser runtime uses the PDF cadence layer and precision combat substeps", async () => {
   const app = await readFile(new URL("../js/app.js", import.meta.url), "utf8");
-  assert.match(app, /const simulationStep = 1 \/ 30/);
+  assert.match(app, /const simulationStep = state\.performancePreset\.id === "total" \? 1 \/ 20 : 1 \/ 30/);
   assert.match(app, /queueDoctrineCadences\(dt\)/);
   assert.match(app, /requestImmediate\(`squad:\$\{unit\.faction\}`\)/);
   assert.match(app, /activeCombatSubsteps[^]*updateProjectiles\(combatDt\)/);

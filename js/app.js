@@ -96,18 +96,27 @@ import { blocksServiceCorridor, buildingClearanceFor, placementRectsOverlap } fr
 import { chooseBuilderAssignment } from "../src/construction/BuilderAssignmentSystem.js";
 import {
   builderProducerFor,
+  builderProducersFor,
   builderProductionPriority,
   builderProductionProfileFor,
   desiredBuilderCount
 } from "../src/construction/BuilderProductionSystem.js";
 import {
+  builderHomeStatus,
+  builderWorkforceDemand,
+  reconcileBuilderHomes
+} from "../src/construction/BuilderWorkforceSystem.js";
+import {
   structureFitsInsideSpawnZone,
   unitFitsInsideSpawnZone
 } from "../src/construction/BuilderContainmentSystem.js";
 import {
-  subfactionBuildingLabelFor,
-  subfactionBuildingTypesFor
+  subfactionBuildingLabelFor
 } from "../src/factions/SubfactionBuildingSystem.js";
+import { analyzeProductionDemand } from "../src/ai/ProductionDemandAnalyzer.js";
+import { chooseSubfactionBuildProject, buildingPrerequisitesSatisfied } from "../src/ai/SubfactionBuildPlanner.js";
+import { chooseMilitaryProduction } from "../src/ai/MilitaryProductionPlanner.js";
+import { buildingTypeForOperationalRole, operationalRoleForBuildingType, planConstructionRoles, subfactionProductionPlanFor } from "../src/ai/SubfactionProductionPlans.js";
 import {
   builderRepairSlotAvailable,
   claimRepairAssignment,
@@ -122,6 +131,7 @@ import {
   desiredBuildersFor,
   evaluateConstructionCancellation
 } from "../src/construction/ConstructionSystem.js";
+import { constructionQueueSnapshot } from "../src/construction/ConstructionQueueSystem.js";
 import {
   REPAIR_BALANCE,
   buildingRepairRate,
@@ -867,17 +877,17 @@ import {
 
       const setupPlayers = [
         { id: "a", index: 0, race: "Imperium", faction: "Space Marines", subfaction: "Ultramarines", team: "1", color: defaultColors[0], battleObjective: "stronghold_assault" },
-        { id: "b", index: 1, race: "Orks", faction: "Redfang Horde", subfaction: "Ironjaw Mob", team: "2", color: defaultColors[1], battleObjective: "annihilation" },
+        { id: "b", index: 1, race: "Orks", faction: "Orks", subfaction: "Goff Mob", team: "2", color: defaultColors[1], battleObjective: "annihilation" },
         { id: "c", index: 2, race: "T'au", faction: "Frontier Cadre", subfaction: "T'au Sept", team: "3", color: defaultColors[2], battleObjective: "strategic_point_control" },
         { id: "d", index: 3, race: "Necrons", faction: "Dynastic Host", subfaction: "Sautekh", team: "4", color: defaultColors[3], battleObjective: "territorial_domination" },
         { id: "e", index: 4, race: "Tyranids", faction: "Hive Fleet", subfaction: "Leviathan", team: "1", color: defaultColors[4], battleObjective: "resource_supremacy" },
         { id: "f", index: 5, race: "Imperium", faction: "Imperial Guard", subfaction: "Cadian 8th", team: "2", color: defaultColors[5], battleObjective: "stronghold_defense" },
-        { id: "g", index: 6, race: "Orks", faction: "Scrap Legion", subfaction: "Goff Mob", team: "3", color: defaultColors[6], battleObjective: "annihilation" },
-        { id: "h", index: 7, race: "T'au", faction: "Drone Collective", subfaction: "Recon Swarm", team: "4", color: defaultColors[7], battleObjective: "convoy_escort" },
-        { id: "i", index: 8, race: "Necrons", faction: "Canoptek Swarm", subfaction: "Tomb Watch", team: "1", color: defaultColors[8], battleObjective: "stronghold_defense" },
-        { id: "j", index: 9, race: "Tyranids", faction: "Vanguard Organisms", subfaction: "Lictor Brood", team: "2", color: defaultColors[9], battleObjective: "assassination" },
-        { id: "k", index: 10, race: "Imperium", faction: "Machine Cult", subfaction: "Mars Forge", team: "3", color: defaultColors[10], battleObjective: "relic_recovery" },
-        { id: "l", index: 11, race: "T'au", faction: "Frontier Cadre", subfaction: "Vior'la Sept", team: "4", color: defaultColors[11], battleObjective: "breakthrough" }
+        { id: "g", index: 6, race: "Chaos", faction: "Chaos Space Marines", subfaction: "Black Legion", team: "3", color: defaultColors[6], battleObjective: "annihilation" },
+        { id: "h", index: 7, race: "Imperium", faction: "Machine Cult", subfaction: "Mars Forge", team: "4", color: defaultColors[7], battleObjective: "relic_recovery" },
+        { id: "i", index: 8, race: "Imperium", faction: "Space Marines", subfaction: "White Scars", team: "1", color: defaultColors[8], battleObjective: "breakthrough" },
+        { id: "j", index: 9, race: "Orks", faction: "Orks", subfaction: "Speed Freeks", team: "2", color: defaultColors[9], battleObjective: "annihilation" },
+        { id: "k", index: 10, race: "T'au", faction: "Frontier Cadre", subfaction: "Farsight Enclaves", team: "3", color: defaultColors[10], battleObjective: "stronghold_assault" },
+        { id: "l", index: 11, race: "Chaos", faction: "Chaos Space Marines", subfaction: "Iron Warriors", team: "4", color: defaultColors[11], battleObjective: "stronghold_assault" }
       ];
       const identificationPatterns = ["solid", "vertical", "diagonal", "split", "checker", "border", "quartered"];
       setupPlayers.forEach((player, index) => {
@@ -1445,11 +1455,15 @@ import {
             reason: "Full-roster performance fixture"
           }));
           state.structures = [];
+          state.units = [];
           state.squads = [];
           const audit = [];
           for (const player of state.players) {
             const profile = factionProfile(player);
-            const expectedBuildings = subfactionBuildingTypesFor(player).filter(type => buildingCatalog[type]);
+            const authoredPlan = subfactionProductionPlanFor(player);
+            const constructionRoles = authoredPlan ? planConstructionRoles(authoredPlan) : [];
+            const expectedBuildings = constructionRoles.map(buildingTypeForOperationalRole).filter(type => buildingCatalog[type]);
+            player.productionBranchDoctrine = authoredPlan;
             const expectedUnits = [];
             const economy = economyFor(player.id);
             const capacity = economyCapacity(player.id);
@@ -1487,22 +1501,59 @@ import {
               state.structures.push(structure);
             });
             let rosterIndex = 0;
+            const deployedUnits = [];
+            const stressPlacementFor = (unit, ordinal) => {
+              const unitRadius = unit.collisionRadius || (unit.role === "vehicle" ? 14 : 3);
+              for (let attempt = 0; attempt < 420; attempt += 1) {
+                const sequence = ordinal + attempt * 0.73 + 1;
+                const angle = sequence * 2.399963229728653 + player.index * 0.11;
+                const placementRadius = 24 + Math.sqrt((sequence % 97) / 96) * Math.max(24, radius - unitRadius - 28);
+                const candidate = {
+                  x: clamp(player.base.x + Math.cos(angle) * placementRadius, 24, worldWidth() - 24),
+                  y: clamp(player.base.y + Math.sin(angle) * placementRadius, 24, worldHeight() - 24)
+                };
+                if (!unitFitsInsideSpawnZone(candidate, unitRadius, point => pointInSpawnZone(point, player))) continue;
+                const structureBlocked = state.structures.some(structure => Math.abs(candidate.x - structure.x) < (structure.hitbox?.w || 28) / 2 + unitRadius + 3
+                  && Math.abs(candidate.y - structure.y) < (structure.hitbox?.h || 24) / 2 + unitRadius + 3);
+                if (structureBlocked || deployedUnits.some(other => distance(candidate, other) < unitRadius + (other.collisionRadius || 3) + 2)) continue;
+                return candidate;
+              }
+              return { x: player.base.x, y: player.base.y };
+            };
             for (const [role, names] of Object.entries(profile.roster)) {
               for (const rosterName of names) {
                 const unit = makeUnit(player.id, role, "Full-roster performance fixture · authored spawn zone");
-                const angle = rosterIndex * 2.399963229728653 + player.index * 0.11;
-                const placementRadius = 112 + rosterIndex % 3 * 18;
-                unit.x = clamp(player.base.x + Math.cos(angle) * placementRadius, 24, worldWidth() - 24);
-                unit.y = clamp(player.base.y + Math.sin(angle) * placementRadius, 24, worldHeight() - 24);
+                const placement = stressPlacementFor(unit, rosterIndex);
+                unit.x = placement.x;
+                unit.y = placement.y;
                 unit.name = `${rosterName} ${unit.index + 1}`;
                 unit.stressRosterName = rosterName;
                 unit.status = "Full roster deployed";
                 state.units.push(unit);
+                deployedUnits.push(unit);
                 expectedUnits.push({ role, name: rosterName });
                 rosterIndex += 1;
               }
             }
-            player.forceCapOverride = state.units.filter(unit => unit.faction === player.id && unit.alive !== false).length;
+            const minimumBuilders = desiredBuilderCount(player, state.structures, player.builderTarget);
+            while (state.units.filter(unit => unit.faction === player.id && unit.role === "builder").length < minimumBuilders) {
+              const builderName = profile.roster.builder[rosterIndex % profile.roster.builder.length];
+              const unit = makeUnit(player.id, "builder", "Full-roster support complement");
+              const placement = stressPlacementFor(unit, rosterIndex);
+              unit.x = placement.x;
+              unit.y = placement.y;
+              unit.name = `${builderName} ${unit.index + 1}`;
+              unit.stressSupportTopUp = true;
+              unit.status = "Full support complement deployed";
+              state.units.push(unit);
+              deployedUnits.push(unit);
+              rosterIndex += 1;
+            }
+            const fixtureBuilders = state.units.filter(unit => unit.faction === player.id && unit.role === "builder");
+            const fixtureWorkforce = builderWorkforceDemand({ player, structures: state.structures, configuredTarget: player.builderTarget });
+            const fixtureHomeAssignments = reconcileBuilderHomes({ player, structures: state.structures, builders: fixtureBuilders });
+            player.forceCapOverride = state.units.filter(unit => unit.faction === player.id && unit.alive !== false
+              && !["builder", "supply"].includes(unit.role)).length;
             const rosterUnits = state.units.filter(unit => unit.faction === player.id && unit.stressRosterName);
             const completedBuildings = state.structures.filter(structure => structure.faction === player.id && structure.progress >= 1 && structure.alive !== false);
             audit.push({
@@ -1511,9 +1562,18 @@ import {
               spawnRadius: radius,
               expectedUnitCount: expectedUnits.length,
               expectedBuildingCount: expectedBuildings.length,
+              branchId: authoredPlan?.name || player.subfaction,
+              branchArchetype: authoredPlan?.productionStyle || "adaptive",
+              constructionOrder: [...expectedBuildings],
+              productionScheduleLength: [...Object.values(profile.roster)].flat().length,
+              workforceDesired: fixtureWorkforce.desired,
+              caretakerRequirement: fixtureWorkforce.caretakerRequirement,
+              caretakerAssigned: fixtureHomeAssignments.assigned,
+              caretakerUnfilled: fixtureHomeAssignments.unfilled,
               missingUnits: expectedUnits.filter(expected => !rosterUnits.some(unit => unit.role === expected.role && unit.stressRosterName === expected.name)),
+              missingBranchUnits: expectedUnits.filter(expected => !rosterUnits.some(unit => unit.role === expected.role && unit.stressRosterName === expected.name)),
               missingBuildings: expectedBuildings.filter(type => !completedBuildings.some(structure => structure.type === type)),
-              unitsOutsideSpawnZone: rosterUnits.filter(unit => !pointInSpawnZone(unit, player)).map(unit => unit.id),
+              unitsOutsideSpawnZone: state.units.filter(unit => unit.faction === player.id && !pointInSpawnZone(unit, player)).map(unit => unit.id),
               buildingsOutsideSpawnZone: completedBuildings.filter(structure => !pointInSpawnZone(structure, player)).map(structure => structure.id)
             });
           }
@@ -2046,6 +2106,10 @@ import {
         const impactKey = `${state.roadRevision}:${feature.collisionState}:${feature.type}`;
         if (feature.roadImpactState === impactKey) return;
         const roadHit = nearestRoadSegment(feature, Math.max(18, (feature.r || 12) * 0.7));
+        // Remember negative lookups as well. Most scenery is nowhere near a road;
+        // repeatedly searching every road for every tree each environment tick was
+        // one of the largest Total Battlefield main-thread stalls.
+        feature.roadImpactState = impactKey;
         if (!roadHit?.segment) return;
         const hard = featureBlocksUnit(feature, { role: "vehicle" });
         if (!hard) return;
@@ -2055,7 +2119,6 @@ import {
         flags.add("damaged");
         roadHit.segment.operationalFlags = [...flags];
         roadHit.segment.condition = clamp(roadHit.segment.condition - 0.08, 0, 1);
-        feature.roadImpactState = impactKey;
       }
 
       function damageEnvironmentFeature(feature, damage, attacker = null) {
@@ -3709,7 +3772,7 @@ import {
               ? { biomass: 24, adaptation: 0, synapseCoverage: 0, lastGestationAt: -30 }
               : {};
           state.strategicOutcomes[player.id] = { status: "Building operational capability", defeated: false, surrendered: false };
-          player.productionCycle = 0;
+          player.productionSequence = 0;
           player.hasEstablishedCapability = false;
           player.hasEstablishedMilitaryForce = false;
           const team = String(player.team);
@@ -3901,6 +3964,29 @@ import {
         draw();
       }
 
+      function productionDemandFor(player, force = false) {
+        const cached = player.productionDemandCache;
+        if (!force && cached && state.time - cached.at < 2
+          && cached.unitCount === state.units.length && cached.structureCount === state.structures.length) return cached.demand;
+        const economy = economyFor(player.id);
+        const ownUnits = state.units.filter(unit => unit.alive && !unit.incapacitated && unit.faction === player.id);
+        const enemyUnits = state.units.filter(unit => unit.alive && !unit.incapacitated
+          && !areAllies(unit.faction, player.id) && objectVisibleToFog(unit, player.id));
+        const structures = state.structures.filter(structure => structure.faction === player.id && structure.alive !== false);
+        const demand = analyzeProductionDemand({
+          player,
+          ownUnits,
+          enemyUnits,
+          structures,
+          economy,
+          objectiveSignals: battleObjectivePlanFor(player).signals,
+          forceState: player.forceState || {},
+          casualties: state.casualties[player.id] || 0
+        });
+        player.productionDemandCache = { at: state.time, unitCount: state.units.length, structureCount: state.structures.length, demand };
+        return demand;
+      }
+
       function chooseBuilding(faction) {
         const player = playerFor(faction);
         const economy = economyFor(faction);
@@ -3910,7 +3996,25 @@ import {
           return approved;
         }
         const complete = type => state.structures.filter(item => item.faction === faction && item.type === type && item.progress >= 1 && item.alive !== false).length;
+        const committed = type => state.structures.filter(item => item.faction === faction && item.type === type && item.alive !== false
+          && item.construction?.state !== "cancelled").length;
         if (!complete("outpost")) return "outpost";
+        const productionDoctrine = subfactionProductionPlanFor(player);
+        const constructionBranch = productionDoctrine ? planConstructionRoles(productionDoctrine).map(buildingTypeForOperationalRole).filter(type => buildingCatalog[type]) : [];
+        const demand = productionDemandFor(player);
+        const capacitySnapshot = economyCapacity(faction);
+        const activeCapacityRatios = economy.activeResources.map(resource => (economy.inventory[resource] || 0) / Math.max(1, capacitySnapshot[resource] || 1));
+        const resourceSurplus = activeCapacityRatios.length ? activeCapacityRatios.reduce((sum, value) => sum + Math.min(1, value), 0) / activeCapacityRatios.length : 0;
+        const recommendedProject = chooseSubfactionBuildProject({ player, structures: state.structures, demand, forceState: player.forceState || {}, resourceSurplus });
+        const nextBranchType = recommendedProject?.buildingType || null;
+        player.constructionBranch = {
+          id: productionDoctrine?.name || player.subfaction,
+          order: constructionBranch,
+          next: nextBranchType,
+          stage: recommendedProject?.stage || null,
+          reason: recommendedProject?.reason || "No operational branch currently justified",
+          completed: constructionBranch.filter(type => complete(type) > 0).length
+        };
         const activeResources = new Set(economy.activeResources);
         const firstExtractor = economy.producibleResources.map(resource => resourceExtractorType[resource]).find(Boolean);
 
@@ -3920,26 +4024,24 @@ import {
         const armyCount = state.units.filter(unit => unit.alive && unit.faction === faction && !["builder", "supply"].includes(unit.role)).length;
         const threat = clamp(state.units.filter(unit => unit.alive && !areAllies(unit.faction, faction) && distance(unit, baseFor(faction)) < 210).length / 5, 0, 1);
         const desired = {
-          generator: activeResources.has("energy") ? Math.max(1, Math.ceil(structureCount / 6)) : 0,
-          warehouse: Math.max(1, Math.ceil(structureCount / 7)),
+          generator: activeResources.has("energy") && (nextBranchType === "generator" || ratio("energy") < 0.42) ? Math.max(1, Math.ceil(structureCount / 8)) : 0,
+          warehouse: nextBranchType === "warehouse" || Math.min(ratio("materials"), ratio("parts")) < 0.42 ? Math.max(1, Math.ceil(structureCount / 9)) : 0,
           mine: activeResources.has("materials") || activeResources.has("scrap") ? Math.max(1, Math.ceil(structureCount / 8)) : 0,
           farm: activeResources.has("food") || activeResources.has("biomass") ? Math.max(1, Math.ceil(armyCount / 8)) : 0,
-          refinery: activeResources.has("fuel") ? Math.max(1, Math.ceil(armyCount / 10)) : 0,
-          barracks: Math.max(1, Math.ceil(armyCount / 7)),
-          workshop: Math.max(1, Math.ceil(armyCount / 9)),
-          researchcenter: Math.max(1, Math.ceil(Math.max(1, armyCount) / 8)),
-          fieldhospital: activeResources.has("medical") || player.race === "Tyranids" || player.race === "Necrons" ? Math.max(1, Math.ceil(armyCount / 10)) : 0,
-          observationtower: Math.max(1, Math.ceil(structureCount / 10)),
-          bunker: threat > 0.2 ? Math.max(2, Math.ceil(structureCount / 6)) : Math.ceil(structureCount / 12),
-          turret: threat > 0.35 ? Math.max(1, Math.ceil(structureCount / 8)) : Math.ceil(structureCount / 16),
+          refinery: activeResources.has("fuel") && (nextBranchType === "refinery" || ratio("fuel") < 0.36) ? Math.max(1, Math.ceil(armyCount / 12)) : 0,
+          barracks: nextBranchType === "barracks" || demand.signals.infantryDeficit > 0.38 ? Math.max(1, Math.ceil(armyCount / 9)) : 0,
+          workshop: nextBranchType === "workshop" || demand.constructionNeeds["War Forge"] >= 68 ? Math.max(1, Math.ceil(armyCount / 12)) : 0,
+          researchcenter: nextBranchType === "researchcenter" || demand.constructionNeeds.Doctrine >= 68 ? 1 : 0,
+          fieldhospital: nextBranchType === "fieldhospital" || demand.constructionNeeds.Sustainment >= 58 ? Math.max(1, Math.ceil(armyCount / 12)) : 0,
+          observationtower: nextBranchType === "observationtower" || demand.constructionNeeds.Intel >= 68 ? Math.max(1, Math.ceil(structureCount / 12)) : 0,
+          bunker: nextBranchType === "bunker" ? 1 : threat > 0.2 ? Math.max(2, Math.ceil(structureCount / 7)) : 0,
+          turret: nextBranchType === "turret" ? 1 : threat > 0.35 ? Math.max(1, Math.ceil(structureCount / 9)) : 0,
           fueldepot: ratio("fuel") > 0.72 ? Math.ceil(structureCount / 12) : 0,
           ammodepot: ratio("ammunition") > 0.72 ? Math.ceil(structureCount / 12) : 0,
-          dropbay: 1,
-          signature: 1
+          dropbay: nextBranchType === "dropbay" || demand.constructionNeeds.Deployment >= 72 ? 1 : 0,
+          signature: nextBranchType === "signature" ? 1 : 0
         };
-        for (const type of subfactionBuildingTypesFor(player)) {
-          if (type !== "outpost" && buildingCatalog[type]) desired[type] = Math.max(1, desired[type] || 0);
-        }
+        if (nextBranchType) desired[nextBranchType] = Math.max(1, desired[nextBranchType] || 0);
         const shortageNeed = {
           generator: 1 - ratio("energy"), warehouse: Math.max(1 - ratio("materials"), 1 - ratio("parts")),
           mine: 1 - ratio("materials"), farm: 1 - ratio("food"), refinery: 1 - ratio("fuel"),
@@ -3978,9 +4080,14 @@ import {
         const behavior = aiBehaviorFor(player);
         const scored = Object.keys(buildingCatalog)
           .filter(type => type !== "outpost" && (type !== "signature" || complete("signature") < 1))
+          .filter(type => type === nextBranchType || (desired[type] || 0) > committed(type))
           .map(type => {
             const spec = buildingCatalog[type];
-            const dependencyReady = !spec.requires || complete(spec.requires) > 0;
+            const completedRoles = new Set(state.structures.filter(item => item.faction === faction && item.progress >= 1 && item.alive !== false)
+              .map(item => operationalRoleForBuildingType(item.type)).filter(Boolean));
+            const operationalRole = operationalRoleForBuildingType(type);
+            const dependencyReady = (!operationalRole || buildingPrerequisitesSatisfied(operationalRole, completedRoles))
+              && (!spec.requires || complete(spec.requires) > 0);
             const missing = Math.max(0, (desired[type] || 0) - complete(type));
             const buildCost = calculateCost({ type: "construction", player, baseCost: spec.cost });
             const resources = clamp(Math.min(...Object.entries(buildCost).map(([resource, amount]) => (economy.inventory[resource] || 0) / Math.max(1, amount))), 0, 1.4);
@@ -3993,16 +4100,18 @@ import {
               ? type === "researchcenter" ? -500 : ["barracks", "workshop", "bunker", "turret", "dropbay"].includes(type) ? 95 : -35
               : 0;
             const chaosConstructionBias = player.chaosStrategy?.constructionBias?.[type] || 0;
+            const branchIndex = constructionBranch.indexOf(type);
+            const branchBonus = type === nextBranchType ? 150 : 0;
             const bootstrapBonus = type === "generator" && activeResources.has("energy") && !complete("generator") ? 90
               : type === "warehouse" && !complete("warehouse") ? 76
                 : type === firstExtractor && !complete(firstExtractor) ? 58 : 0;
-            const score = missing * 38 + need * 55 + resources * 24 + bootstrapBonus + (objectiveBonus[type] || 0)
+            const score = missing * 38 + need * 55 + resources * 24 + bootstrapBonus + branchBonus + (objectiveBonus[type] || 0)
               + (portfolioProductionBonus[type] || 0) + behaviorBias + commitmentBias + clamp(chaosConstructionBias, -18, 18) - spec.risk * (threat * 5 + 1);
             const production = productionDefinitionsFor(player).find(definition => definition.buildingType === type);
             return {
               buildingType: type,
               utility: score,
-              reason: bootstrapBonus ? "bootstrap production chain" : `${spec.purpose.toLowerCase()} need and battlefield utility`,
+              reason: branchBonus >= 100 ? recommendedProject.reason : bootstrapBonus ? "bootstrap production chain" : `${spec.purpose.toLowerCase()} need and battlefield utility`,
               prerequisitesSatisfied: dependencyReady,
               dependenciesCanEverBeSatisfied: !spec.requires || Object.hasOwn(buildingCatalog, spec.requires),
               affordableNow: canAffordCost(economy.inventory, buildCost),
@@ -4013,7 +4122,7 @@ import {
         const temperature = player.race === "Orks" ? 24 : behavior.aggression >= 70 ? 18 : 11;
         const project = selectConstructionProject(scored, { random: battleRandom, temperature, top: 3 });
         player.lastConstructionProject = project;
-        return project?.buildingType || "warehouse";
+        return project?.buildingType || null;
       }
 
       function constructionAllowedAt(faction, type, site) {
@@ -4165,70 +4274,51 @@ import {
         return true;
       }
 
-      function tryStartBuilderConstruction(unit) {
-        if (unit.buildCd > 0) return false;
-        const type = chooseBuilding(unit.faction);
-        if (!type) {
-          unit.status = "Evaluating";
-          unit.lastAction = "No valid economy, research, army, or gathering project is currently available.";
-          unit.buildCd = 1;
-          return false;
-        }
-        const typeCooldownUntil = playerFor(unit.faction).constructionCooldowns?.[`type:${type}`] || 0;
+      function approveConstructionProject(player, type) {
+        if (!player || !type) return null;
+        const typeCooldownUntil = player.constructionCooldowns?.[`type:${type}`] || 0;
         if (typeCooldownUntil > state.time) {
-          unit.status = "Replanning construction";
-          unit.lastAction = `${factionBuildingLabel(unit.faction, type)} was recently cancelled; waiting ${Math.ceil(typeCooldownUntil - state.time)}s before reconsidering it.`;
-          unit.buildCd = Math.min(2, typeCooldownUntil - state.time);
-          return false;
+          player.constructionQueueStatus = `${factionBuildingLabel(player.id, type)} cooling down after cancellation`;
+          return null;
         }
         const spec = buildingCatalog[type];
-        const economy = economyFor(unit.faction);
-        const builderPlayer = playerFor(unit.faction);
-        const telemetryKey = `builder:${unit.id}`;
+        if (!spec) return null;
+        const economy = economyFor(player.id);
+        const telemetryKey = `construction-director:${player.id}`;
         constructionTelemetry.record(telemetryKey, "selected", state.time, {
-          faction: unit.faction,
+          faction: player.id,
           buildingType: type,
-          reason: builderPlayer.lastConstructionProject?.reason || "headquarters recovery"
+          reason: player.lastConstructionProject?.reason || "headquarters recovery"
         });
-        const advancedOrkProject = builderPlayer.race === "Orks" && ["workshop", "researchcenter", "refinery", "dropbay", "turret", "signature"].includes(type);
-        const supervisingMek = advancedOrkProject && nearbyCombatObjects(unit, 120).units.find(other => other.alive && other.faction === unit.faction && other.role === "engineer");
-        if (advancedOrkProject && !supervisingMek) {
-          unit.status = "Haulin' for a Mek";
-          unit.lastAction = `${factionBuildingLabel(unit.faction, type)} needs a Mekboy; this Gretchin is gathering scrap and waiting for supervision.`;
-          unit.buildCd = 2;
-          return false;
-        }
-        const buildCost = calculateCost({ type: "construction", player: builderPlayer, baseCost: spec.cost });
-        const dependencyReady = !spec.requires || state.structures.some(item => item.faction === unit.faction && item.type === spec.requires && item.progress >= 1);
+        const buildCost = calculateCost({ type: "construction", player, baseCost: spec.cost });
+        const dependencyReady = !spec.requires || state.structures.some(item => item.faction === player.id && item.type === spec.requires && item.progress >= 1);
         if (!dependencyReady || !canAffordCost(economy.inventory, buildCost)) {
           constructionTelemetry.record(telemetryKey, dependencyReady ? "funding-wait" : "dependency-wait", state.time, {
-            faction: unit.faction,
+            faction: player.id,
             buildingType: type,
             blockedReason: dependencyReady ? "insufficient-resources" : `requires-${spec.requires}`
           });
-          unit.status = "Gathering";
-          unit.lastAction = dependencyReady ? `Awaiting ${Object.entries(buildCost).filter(([resource, amount]) => (economy.inventory[resource] || 0) < amount).map(([resource, amount]) => `${Math.ceil(amount - (economy.inventory[resource] || 0))} ${economyResourceLabels[resource] || resource}`).join(" and ")} for ${spec.label}.` : `Waiting for ${buildingCatalog[spec.requires]?.label || spec.requires}.`;
-          unit.buildCd = Math.max(unit.buildCd, 0.5);
-          return false;
+          player.constructionQueueStatus = dependencyReady ? `Reserving resources for ${spec.label}` : `Waiting for ${buildingCatalog[spec.requires]?.label || spec.requires}`;
+          return null;
         }
 
-        const site = buildingSite(unit.faction, type);
-        if (!site || !constructionAllowedAt(unit.faction, type, site)) {
-          constructionTelemetry.record(telemetryKey, "site-wait", state.time, { faction: unit.faction, buildingType: type, blockedReason: "no-connected-valid-site" });
-          unit.status = "Supply blocked";
-          unit.lastAction = "Waiting for a connected, collision-free construction site or expanded territory.";
-          unit.buildCd = 2;
-          return false;
+        const site = buildingSite(player.id, type);
+        if (!site || !constructionAllowedAt(player.id, type, site)) {
+          constructionTelemetry.record(telemetryKey, "site-wait", state.time, { faction: player.id, buildingType: type, blockedReason: "no-connected-valid-site" });
+          player.constructionQueueStatus = "Waiting for connected territory and a collision-free construction site";
+          return null;
         }
         for (const [resource, amount] of Object.entries(buildCost)) economy.inventory[resource] -= amount;
-        syncLegacyResources(unit.faction);
+        syncLegacyResources(player.id);
         let structureId;
         do structureId = `building-${state.nextBuildingId++}`;
         while (structureById(structureId));
+        const construction = createConstructionState({ committedResources: buildCost, now: state.time });
+        construction.state = "planned";
         const structure = {
           id: structureId,
           type,
-          faction: unit.faction,
+          faction: player.id,
           x: site.x,
           y: site.y,
           progress: 0,
@@ -4236,29 +4326,87 @@ import {
           maxHp: spec.maxHp || 400,
           hp: spec.maxHp || 400,
           hitbox: { ...(spec.hitbox || { w: 28, h: 24 }) },
-          displayName: factionBuildingLabel(unit.faction, type),
-          biological: builderPlayer.race === "Tyranids",
-          constructionMethod: builderPlayer.race === "Tyranids" ? "grown bio-organism" : builderPlayer.race === "Orks" ? "scrap-built" : "constructed",
+          displayName: factionBuildingLabel(player.id, type),
+          biological: player.race === "Tyranids",
+          constructionMethod: player.race === "Tyranids" ? "grown bio-organism" : player.race === "Orks" ? "scrap-built" : "constructed",
           inventory: {},
           alive: true,
           createdAt: state.time,
-          leadBuilderId: unit.id,
-          contributors: { [unit.id]: 0 },
-          construction: createConstructionState({ committedResources: buildCost, now: state.time }),
+          leadBuilderId: null,
+          contributors: {},
+          desiredBuilders: desiredBuildersFor(type, spec),
+          construction,
           completedAt: null
         };
         state.structures.push(structure);
-        constructionTelemetry.record(telemetryKey, "construction", state.time, { faction: unit.faction, buildingType: type, structureId: structure.id });
+        constructionTelemetry.record(telemetryKey, "planned", state.time, {
+          faction: player.id,
+          buildingType: type,
+          structureId: structure.id,
+          desiredBuilders: structure.desiredBuilders
+        });
         rebuildSpatialGrid();
         state.navigationRevision += 1;
         navigationPlanner.clear();
-        claimRepairAssignment(unit, null, state.time);
-        unit.buildProject = structure.id;
-        unit.status = builderPlayer.race === "Tyranids" ? "Growing bio-structure" : builderPlayer.race === "Orks" ? "Lashin' scrap together" : "Constructing";
-        addUnitLog(unit, builderPlayer.race === "Tyranids"
-          ? `The Hive Mind selected ${structure.displayName}; feeder tendrils began growing a stationary organism.`
-          : `AI selected ${structure.displayName}: ${spec.purpose} utility outweighed cost, threat, and collision risk.`);
-        incident(`${playerFor(unit.faction).faction} ${builderPlayer.race === "Tyranids" ? "began growing" : "funded"} ${structure.displayName} (${spec.purpose}).`, unit.id, "info");
+        player.constructionQueueStatus = `${structure.displayName} funded; requesting ${structure.desiredBuilders} ${structure.desiredBuilders === 1 ? "builder" : "builders"}`;
+        incident(`${player.faction} ${player.race === "Tyranids" ? "seeded" : "funded"} ${structure.displayName}; its foundation now requests ${structure.desiredBuilders} workers.`, structure.id, "info");
+        return structure;
+      }
+
+      function planFactionConstruction(player) {
+        const territory = primaryTerritoryFor(player.id);
+        let snapshot = constructionQueueSnapshot({
+          player,
+          structures: state.structures,
+          claimedTerritoryCells: territory?.claimedCells?.size || 0,
+          specFor: type => buildingCatalog[type]
+        });
+        let approved = 0;
+        const availableAtStart = snapshot.available;
+        while (approved < availableAtStart) {
+          const type = chooseBuilding(player.id);
+          if (!type) break;
+          const project = approveConstructionProject(player, type);
+          if (!project) break;
+          approved += 1;
+        }
+        snapshot = constructionQueueSnapshot({
+          player,
+          structures: state.structures,
+          claimedTerritoryCells: territory?.claimedCells?.size || 0,
+          specFor: type => buildingCatalog[type]
+        });
+        player.constructionQueue = { ...snapshot, projects: snapshot.projects.map(project => project.id), updatedAt: state.time };
+        if (!snapshot.projects.length && !player.constructionQueueStatus) player.constructionQueueStatus = "No justified construction project currently affordable";
+        return player.constructionQueue;
+      }
+
+      function performBuilderBuildingRepair(unit, damaged, request, dt, homeDuty = false) {
+        if (!damaged || damaged.alive === false || damaged.hp >= damaged.maxHp) return false;
+        claimRepairAssignment(unit, damaged.id, state.time);
+        const repairRange = repairInteractionRange(unit, damaged);
+        if (distance(unit, damaged) > repairRange) moveToward(unit, damaged, dt);
+        else {
+          ensureStructureRuntime(damaged);
+          const supplied = insideSupplyRadius(damaged, unit.faction);
+          const profile = sustainmentProfileFor(playerFor(unit.faction));
+          const repairRequest = request || state.sustainmentByTarget.get(damaged.id) || {
+            targetId: damaged.id,
+            targetType: "building",
+            severity: 1 - damaged.hp / Math.max(1, damaged.maxHp)
+          };
+          const restored = Math.min(damaged.maxHp - damaged.hp, dt * buildingRepairRate(unit, damaged, profile, supplied));
+          if (restored > 0 && spendSustainmentResources(unit.faction, repairRequest, restored, profile)) {
+            damaged.hp = clamp(damaged.hp + restored, 0, damaged.maxHp);
+            damaged.condition = damaged.hp / damaged.maxHp;
+          } else if (restored > 0) {
+            unit.status = "Awaiting repair materials";
+            unit.lastAction = `Repair request for ${buildingCatalog[damaged.type]?.label || "structure"} is waiting for parts and materials.`;
+            return true;
+          }
+        }
+        unit.status = homeDuty ? "Maintaining home structure" : "Repairing";
+        unit.lastAction = `${homeDuty ? "Returned to resident post and is repairing" : "Repairing"} ${damaged.displayName || factionBuildingLabel(damaged.faction, damaged.type)}.`;
         return true;
       }
 
@@ -4341,6 +4489,9 @@ import {
 
         const player = playerFor(unit.faction);
         const repairPriority = (battleObjectivePlanFor(unit.faction).signals.preservation || 0) >= 0.7 || aiBehaviorFor(unit.faction).caution >= 70;
+        const continuingRepairTarget = unit.repairTargetId ? structureById(unit.repairTargetId) : null;
+        const continuingRepair = continuingRepairTarget?.alive !== false && continuingRepairTarget?.faction === unit.faction
+          && continuingRepairTarget.hp < continuingRepairTarget.maxHp ? continuingRepairTarget : null;
         releaseStaleRepairAssignment(unit, state.time);
         const availableBuildingRepairs = state.sustainmentRequests.filter(request => {
           if (request.targetType !== "building") return false;
@@ -4365,10 +4516,28 @@ import {
         const urgentRepair = selectedBuildingRepair?.request.targetType === "building"
           && (selectedBuildingRepair.request.severity >= 0.18 || repairPriority && selectedBuildingRepair.request.severity >= 0.08)
           ? selectedBuildingRepair.target : null;
+        const homeStatus = builderHomeStatus(unit, state.structures);
+        if (homeStatus.needsRepair) {
+          if (unit.buildProject) {
+            const interrupted = structureById(unit.buildProject);
+            unit.buildProject = null;
+            unit.buildStall = 0;
+            if (interrupted) unit.lastAction = `Resident duty recalled this builder from ${interrupted.displayName || factionBuildingLabel(unit.faction, interrupted.type)}.`;
+          }
+          const homeRequest = state.sustainmentByTarget.get(homeStatus.home.id) || {
+            targetId: homeStatus.home.id,
+            targetType: "building",
+            severity: 1 - homeStatus.condition
+          };
+          if (performBuilderBuildingRepair(unit, homeStatus.home, homeRequest, dt, true)) return;
+        }
+        if (!unit.buildProject && continuingRepair
+          && performBuilderBuildingRepair(unit, continuingRepair, state.sustainmentByTarget.get(continuingRepair.id), dt,
+            unit.homeStructureId === continuingRepair.id)) return;
         if (!unit.buildProject && unit.builderDecisionCd <= 0) {
           const alliedProjects = state.structures
             .filter(item => item.alive !== false && item.progress < 1 && item.faction === unit.faction
-              && item.construction?.state !== "cancelled" && distance(unit, item) < 260
+              && item.construction?.state !== "cancelled"
               && builderTaskPointAllowed(unit, item, Math.max(item.hitbox?.w || 0, item.hitbox?.h || 0) * 0.5))
             .map(item => ({
               ...item,
@@ -4390,6 +4559,8 @@ import {
             alliedProject.contributors ||= {};
             alliedProject.contributors[unit.id] ||= 0;
             alliedProject.construction ||= createConstructionState({ now: alliedProject.createdAt || state.time });
+            alliedProject.construction.state = "active";
+            alliedProject.leadBuilderId ||= unit.id;
             const lead = unitById(alliedProject.leadBuilderId);
             if (lead) recordRelationshipEvent(unit, lead, "completedTogether", "joined an allied construction project", { cooldown: 30, reciprocal: 0.7 });
             unit.lastAction = `Joined ${alliedProject.displayName || factionBuildingLabel(unit.faction, alliedProject.type)} as builder ${assignment.project.assignedBuilders + 1}/${assignment.project.desiredBuilders}.`;
@@ -4499,34 +4670,11 @@ import {
           return;
         }
 
-        // Construction is every builder's primary duty. Repair and route work are
-        // fallbacks only when no active or immediately startable project exists.
-        if (tryStartBuilderConstruction(unit)) return;
+        // Builders execute commander-approved foundations. They never decide what
+        // the faction should build; idle labor becomes repair/gather reserve.
 
         const damaged = urgentRepair || (selectedBuildingRepair?.request.targetType === "building" ? selectedBuildingRepair.target : null);
-        if (damaged && damaged.hp < damaged.maxHp) {
-          claimRepairAssignment(unit, damaged.id, state.time);
-          const repairRange = repairInteractionRange(unit, damaged);
-          if (distance(unit, damaged) > repairRange) moveToward(unit, damaged, dt);
-          else {
-            ensureStructureRuntime(damaged);
-            const supplied = insideSupplyRadius(damaged, unit.faction);
-            const profile = sustainmentProfileFor(playerFor(unit.faction));
-            const request = state.sustainmentByTarget.get(damaged.id) || selectedBuildingRepair?.request;
-            const restored = Math.min(damaged.maxHp - damaged.hp, dt * buildingRepairRate(unit, damaged, profile, supplied));
-            if (request && restored > 0 && spendSustainmentResources(unit.faction, request, restored, profile)) {
-              damaged.hp = clamp(damaged.hp + restored, 0, damaged.maxHp);
-              damaged.condition = damaged.hp / damaged.maxHp;
-            } else if (restored > 0) {
-              unit.status = "Awaiting repair materials";
-              unit.lastAction = `Repair request for ${buildingCatalog[damaged.type]?.label || "structure"} is waiting for parts and materials.`;
-              return;
-            }
-          }
-          unit.status = "Repairing";
-          unit.lastAction = `Repairing ${damaged.displayName || factionBuildingLabel(damaged.faction, damaged.type)}.`;
-          return;
-        }
+        if (performBuilderBuildingRepair(unit, damaged, selectedBuildingRepair?.request, dt)) return;
 
         let damagedRoad = nearestRoadSegment(unit, 180, candidate => areAllies(candidate.road.controllerFaction || candidate.road.faction, unit.faction)
           && (candidate.segment.condition < 0.72 || candidate.segment.operationalFlags?.some(flag => ["wreck", "fallen tree", "obstructed", "partially obstructed", "collapsed", "cratered", "blocked", "damaged", "mined", "flooded"].includes(flag))));
@@ -4577,6 +4725,11 @@ import {
         if (unit.buildCd > 0) {
           unit.status = "Evaluating";
           unit.lastAction = "Comparing economy, military value, risk, and dependencies before the next construction attempt.";
+        } else if (homeStatus.home) {
+          const homeDistance = Math.max(16, (homeStatus.home.hitbox?.w || 24) * 0.65);
+          if (distance(unit, homeStatus.home) > homeDistance + 20) moveToward(unit, homeStatus.home, dt, 0.8);
+          unit.status = "Resident maintenance";
+          unit.lastAction = `No urgent work remains; returning near ${homeStatus.home.displayName || factionBuildingLabel(unit.faction, homeStatus.home.type)}.`;
         }
       }
 
@@ -4727,7 +4880,7 @@ import {
         let path = cachedPath;
         if (!path) {
           const normalVisitLimit = navigationPlanner.maxVisited;
-          if (state.performancePreset.id === "total" && profile === "vehicle") navigationPlanner.maxVisited = Math.min(normalVisitLimit, 96);
+          if (state.performancePreset.id === "total") navigationPlanner.maxVisited = Math.min(normalVisitLimit, profile === "vehicle" ? 24 : 64);
           try {
             path = profiler.profile(`navigation.${profile}`, () => navigationPlanner.findPath({
               ...request,
@@ -4914,17 +5067,19 @@ import {
         if (progress.recoveryStage && handleNavigationRecovery(unit, point, progress.recoveryStage)) return;
         const step = effectiveSpeed * dt;
         const next = { x: clamp(unit.x + dx / d * step, 24, worldWidth() - 24), y: clamp(unit.y + dy / d * step, 24, worldHeight() - 24) };
-        const blockedAt = candidate => unit.role === "builder" && !builderTaskPointAllowed(unit, candidate)
-          || structureCollisionAt(candidate, radius, ignoreId)
-          || environmentCollisionAt(candidate, unit, radius);
+        const blockedAt = candidate => {
+          if (unit.role === "builder" && !builderTaskPointAllowed(unit, candidate)) return { boundary: true };
+          return structureCollisionAt(candidate, radius, ignoreId)
+            || environmentCollisionAt(candidate, unit, radius);
+        };
         let collision = blockedAt(next);
         if (collision?.feature) state.aiDiagnostics.environmentCollisions += 1;
         if (collision?.feature && unit.role === "vehicle" && collision.feature.crushable && (unit.maxHp >= 190 || unit.strength > 0.72)) {
           damageEnvironmentFeature(collision.feature, collision.feature.maxHp || 100, unit);
           collision = blockedAt(next);
         }
-        if (collision && (unit.nextNavigationPlanAt || 0) <= state.time && planAutonomousRoute(unit, point)) {
-          unit.lastAction = `Navigation grid rerouted around ${collision.feature ? brushNames[collision.feature.type] || collision.feature.type : unitLabel(collision)}.`;
+        if (collision && !collision.boundary && (unit.nextNavigationPlanAt || 0) <= state.time && planAutonomousRoute(unit, point)) {
+          unit.lastAction = `Navigation grid rerouted around ${collision.boundary ? "the controlled-territory boundary" : collision.feature ? brushNames[collision.feature.type] || collision.feature.type : unitLabel(collision)}.`;
           return;
         }
         if (!collision) {
@@ -4969,6 +5124,19 @@ import {
               unit.lastAction = `Repathing around ${brushNames[collision.feature.type] || collision.feature.type}.`;
               unit.stuckTime = 0;
             }
+          } else if (collision.boundary) {
+            const base = baseFor(unit.faction);
+            const inwardX = base.x - unit.x;
+            const inwardY = base.y - unit.y;
+            const inwardLength = Math.hypot(inwardX, inwardY) || 1;
+            const inward = {
+              x: clamp(unit.x + inwardX / inwardLength * Math.max(12, step * 2), 24, worldWidth() - 24),
+              y: clamp(unit.y + inwardY / inwardLength * Math.max(12, step * 2), 24, worldHeight() - 24)
+            };
+            unit.detour = builderTaskPointAllowed(unit, inward) ? inward : null;
+            unit.navigationPath = [];
+            unit.navigationDestination = null;
+            unit.lastAction = "Construction movement stayed inside controlled territory and replanned inward.";
           } else {
             ensureStructureRuntime(collision);
             const marginX = collision.hitbox.w / 2 + radius + 7;
@@ -7625,6 +7793,7 @@ import {
           for (const resource of economy.shortages) memory.observe("resource-shortage", { resource }, { visible: true, observedAt: state.time });
           player.nextShortageMemoryAt = state.time + 45;
         }
+        return { ownUnits, observedEnemies };
       }
 
       function persistBattleMemory(reason = "interval") {
@@ -7653,13 +7822,16 @@ import {
 
       function updateFactionAI(players = state.players) {
         for (const player of players) {
-          updateSharedFactionBranch(player);
+          const sharedObservation = updateSharedFactionBranch(player);
           if (player.race === "Orks") updateOrkCulture(player);
           else if (player.race === "Tyranids") updateTyranidSwarm(player);
           const branch = state.factionAIProfiles[player.id]?.branch || "Space Marines";
           const branchState = state.factionGameplay[player.id] ||= createFactionGameplayState(branch);
-          const ownUnits = state.units.filter(unit => unit.alive && unit.faction === player.id);
-          const observedEnemies = observedEnemiesFor(player);
+          // updateSharedFactionBranch already paid for visibility and ownership
+          // queries during this same strategic job. Reuse that snapshot instead of
+          // performing the expensive sensor sweep twice.
+          const ownUnits = sharedObservation?.ownUnits || state.units.filter(unit => unit.alive && unit.faction === player.id);
+          const observedEnemies = sharedObservation?.observedEnemies || observedEnemiesFor(player);
           const ecology = state.factionEcology[player.id] || {};
           updateFactionGameplay(branchState, {
             nearbyMob: branch === "Orks" ? ownUnits.filter(unit => distance(unit, player.base) < 420).length : 0,
@@ -9160,7 +9332,7 @@ import {
       function updatePlayerForceCommitment(player) {
         const context = forceCommitmentContext(player);
         player.forceState = updateForceState(player.forceState || createForceState(), context);
-        const living = state.units.filter(unit => unit.alive && unit.faction === player.id).length;
+        const living = state.units.filter(unit => unit.alive && unit.faction === player.id && !["builder", "supply"].includes(unit.role)).length;
         player.forceState.fieldedStrength = living;
         player.forceState.reinforcementCapacity = unitCapFor(player);
         player.forceState.reserveStrength = Math.max(0, player.forceState.reinforcementCapacity - living);
@@ -9436,44 +9608,48 @@ import {
       }
 
       function productionManifestFor(player, availableSlots) {
-        const cycle = player.productionCycle || 0;
-        let manifest;
-        const vehicleRoster = factionProfile(player).roster?.vehicle || [];
-        if (cycle > 0 && cycle % 5 === 4 && vehicleRoster.length) {
-          manifest = [{ name: vehicleRoster[Math.floor(cycle / 5) % vehicleRoster.length], role: "vehicle" }];
-        } else if (player.faction === "Space Marines") {
-          if (cycle > 0 && cycle % 6 === 5 && ["major", "decisive", "all-in"].includes(player.forceState?.commitmentStage)) {
-            manifest = [{ name: commandPresenceFor(player, player.forceState.commitmentStage, player.scenarioTags || []), role: "commander" }];
-          } else {
-            const size = 5;
-            manifest = [{ name: "Sergeant", role: "commander" }, ...Array.from({ length: size - 1 }, () => ({ name: cycle % 2 ? "Intercessor" : "Tactical Marine", role: "trooper" }))];
-          }
-        } else if (player.race === "Chaos") {
-          if (player.pendingChaosManifestCycle !== cycle) {
-            player.pendingChaosManifestCycle = cycle;
-            player.pendingChaosManifestSize = 3 + Math.floor(battleRandom() * 4);
-          }
-          const size = player.pendingChaosManifestSize;
-          const troopCycle = ["Chaos Space Marine", "Chaos Space Marine", "Havoc", "Chosen", "Cultist"];
-          const troopType = troopCycle[cycle % troopCycle.length];
-          manifest = [{ name: "Aspiring Champion", role: "commander" }, ...Array.from({ length: size - 1 }, () => ({ name: troopType, role: "trooper" }))];
-        } else if (player.race === "Orks") {
-          if (cycle % 6 === 5) manifest = [{ name: "Mekboy", role: "engineer" }];
-          else if (cycle % 4 === 3) manifest = [{ name: "Runtherd", role: "commander" }, ...Array.from({ length: 15 }, () => ({ name: "Gretchin", role: "trooper" }))];
-          else {
-            const kind = cycle % 3 === 1 ? "Shoota Boy" : cycle % 3 === 2 ? "Slugga Boy" : "Boy";
-            const count = kind === "Boy" ? 9 : 11;
-            manifest = [{ name: "Nob", role: "commander" }, ...Array.from({ length: count - 1 }, () => ({ name: kind, role: "trooper" }))];
-          }
-        } else if (player.race === "Tyranids") {
-          manifest = cycle > 0 && cycle % 6 === 5 ? [{ name: commandPresenceFor(player, player.forceState?.commitmentStage || "contact", player.scenarioTags || []), role: "commander" }] : cycle % 3 === 2
-            ? Array.from({ length: 3 }, () => ({ name: "Tyranid Warrior", role: "trooper" }))
-            : Array.from({ length: 10 }, () => ({ name: cycle % 2 ? "Hormagaunt" : "Termagant", role: "trooper" }));
-        } else if (player.race === "Necrons") {
-          manifest = cycle % 4 === 3 ? [{ name: commandPresenceFor(player, player.forceState?.commitmentStage || "contact", player.scenarioTags || []), role: "commander" }] : Array.from({ length: cycle % 3 === 2 ? 5 : 10 }, () => ({ name: cycle % 3 === 2 ? "Immortal" : "Warrior", role: "trooper" }));
-        } else if (player.race === "T'au") {
-          manifest = cycle % 4 === 3 ? [{ name: "Crisis Battlesuit", role: "trooper" }] : [{ name: "Shas'ui", role: "commander" }, ...Array.from({ length: 9 }, () => ({ name: "Fire Warrior", role: "trooper" }))];
-        } else manifest = [{ name: factionUnitName(player, trainingRoles[cycle % trainingRoles.length], cycle), role: trainingRoles[cycle % trainingRoles.length] }];
+        const roster = factionProfile(player).roster;
+        const ownUnits = state.units.filter(unit => unit.alive && !unit.incapacitated && unit.faction === player.id);
+        const availableProducerTypes = [...new Set(state.structures.filter(structure => structure.faction === player.id
+          && structure.alive !== false && structure.progress >= 1 && structure.condition >= 0.35).map(structure => structure.type))];
+        const directive = chooseMilitaryProduction({
+          player,
+          roster,
+          demand: productionDemandFor(player),
+          ownUnits,
+          availableProducerTypes,
+          sequence: player.productionSequence || 0
+        });
+        if (!directive || availableSlots < 1) return [];
+        if (player.race === "Chaos" && player.pendingChaosManifestSequence !== (player.productionSequence || 0)) {
+          player.pendingChaosManifestSequence = player.productionSequence || 0;
+          player.pendingChaosManifestSize = 3 + Math.floor(battleRandom() * 4);
+        }
+        const groupSize = directive.role === "trooper"
+          ? player.race === "Chaos" ? player.pendingChaosManifestSize
+            : player.race === "Orks" || player.race === "Tyranids" ? 10
+            : player.race === "Necrons" || player.race === "T'au" ? 8
+              : player.faction === "Space Marines" ? 5 : 6
+          : directive.role === "scout"
+            ? player.race === "Orks" || player.race === "Tyranids" || player.race === "Necrons" || player.race === "T'au" ? 5 : 3
+            : 1;
+        const memberCount = Math.max(1, Math.min(groupSize, Math.floor(availableSlots)));
+        let manifest = Array.from({ length: memberCount }, () => ({
+          name: directive.name,
+          role: directive.role,
+          producerTypes: directive.producerTypes,
+          productionBranchId: directive.productionPlan
+        }));
+        player.productionBranchId = directive.productionPlan;
+        player.lastProductionDirective = {
+          name: directive.name,
+          role: directive.role,
+          producerTypes: directive.producerTypes,
+          score: directive.score,
+          scoreBreakdown: directive.scoreBreakdown,
+          productionStyle: directive.productionStyle,
+          sequence: player.productionSequence || 0
+        };
         if (player.faction === "Space Marines") {
           const enemyUnits = state.units.filter(unit => unit.alive && !areAllies(unit.faction, player.id));
           const armored = enemyUnits.filter(unit => unit.role === "vehicle" || (unit.armorProtection || 0) >= 14).length;
@@ -9489,14 +9665,15 @@ import {
         return manifest.length <= availableSlots ? manifest : [];
       }
 
-      function spawnProductionGroup(player, barracks, manifest) {
+      function spawnProductionGroup(player, producer, manifest) {
         if (!manifest.length) return [];
-        const source = player.race === "Tyranids" ? `Brood gestated beneath the ${factionBuildingLabel(player.id, "barracks")}`
-          : player.race === "Orks" ? `Mob mustered at the ${factionBuildingLabel(player.id, "barracks")}`
-            : `${factionBuildingLabel(player.id, "barracks")} formation deployment`;
+        const sourceLabel = factionBuildingLabel(player.id, producer.type);
+        const source = player.race === "Tyranids" ? `Brood gestated beneath the ${sourceLabel}`
+          : player.race === "Orks" ? `Mob mustered at the ${sourceLabel}`
+            : `${sourceLabel} formation deployment`;
         const units = manifest.map((member, index) => {
           const unit = makeUnit(player.id, member.role, {
-            sourceId: barracks.id,
+            sourceId: producer.id,
             sourceType: "building",
             label: source
           });
@@ -9514,8 +9691,8 @@ import {
           if (unit.role === "vehicle") unit.vehicleState = createVehicleState(unit);
           const angle = index / Math.max(1, manifest.length) * Math.PI * 2;
           const ring = 20 + Math.floor(index / 10) * 10;
-          unit.x = clamp(barracks.x + Math.cos(angle) * ring, 24, worldWidth() - 24);
-          unit.y = clamp(barracks.y + Math.sin(angle) * ring, 24, worldHeight() - 24);
+          unit.x = clamp(producer.x + Math.cos(angle) * ring, 24, worldWidth() - 24);
+          unit.y = clamp(producer.y + Math.sin(angle) * ring, 24, worldHeight() - 24);
           return unit;
         });
         const leader = units.find(unit => unit.role === "commander") || units[0];
@@ -9524,8 +9701,8 @@ import {
         for (const unit of units) unit.squadId = squad.id;
         state.units.push(...units);
         seedSquadRelationships(units, leader);
-        player.productionCycle = (player.productionCycle || 0) + 1;
-        player.pendingChaosManifestCycle = null;
+        player.productionSequence = (player.productionSequence || 0) + 1;
+        player.pendingChaosManifestSequence = null;
         player.pendingChaosManifestSize = null;
         incident(`${player.faction} deployed ${template} atomically with ${units.length} members.`, leader.id, "info");
         rebuildUnitSelect();
@@ -9548,10 +9725,10 @@ import {
         if (!hasType("barracks")) addEconomyRequest(player.id, "build-barracks", "build", "Build barracks", 74, { buildType: "barracks" });
         if (economy.shortages.includes("food") && !hasType("farm")) addEconomyRequest(player.id, "build-farm", "build", "Build supply farm", 86, { buildType: "farm" });
         if (economy.shortages.includes("materials") && !hasType("mine")) addEconomyRequest(player.id, "build-mine", "build", "Build material mine", 88, { buildType: "mine" });
-        const living = state.units.filter(unit => unit.alive && unit.faction === player.id).length;
+        const living = state.units.filter(unit => unit.alive && unit.faction === player.id && !["builder", "supply"].includes(unit.role)).length;
         const unitCap = desiredFieldStrengthFor(player);
         const livingBuilders = state.units.filter(unit => unit.alive && !unit.incapacitated && unit.faction === player.id && unit.role === "builder").length;
-        const desiredBuilders = desiredBuilderCount(player, state.structures, player.builderTarget);
+        const desiredBuilders = player.builderWorkforce?.desired || desiredBuilderCount(player, state.structures, player.builderTarget);
         const builderPriority = builderProductionPriority(livingBuilders, desiredBuilders);
         if (builderPriority > 0) {
           const production = builderProductionProfileFor(player);
@@ -9584,12 +9761,13 @@ import {
         const terrain = terrainAt(point);
         if (["deepwater", "river", "lava", "cliff", "mountain"].includes(terrain.type)) return null;
         if (structureCollisionAt(point, 16) || environmentCollisionAt(point, { role: "vehicle", collisionRadius: 12, maxHp: 80, strength: 0.5 }, 12)) return null;
-        const allies = state.units.filter(unit => unit.alive && areAllies(unit.faction, player.id) && distance(point, unit) < 105);
+        const localActors = nearbyCombatObjects(point, 210);
+        const allies = localActors.units.filter(unit => unit.alive && areAllies(unit.faction, player.id) && distance(point, unit) < 105);
         const closeAllies = allies.filter(unit => distance(point, unit) < 28);
         if (closeAllies.length > 2) return null;
-        const enemies = state.units.filter(unit => unit.alive && !areAllies(unit.faction, player.id) && distance(point, unit) < 170);
+        const enemies = localActors.units.filter(unit => unit.alive && !areAllies(unit.faction, player.id) && distance(point, unit) < 170);
         const immediate = enemies.filter(unit => distance(point, unit) < 48);
-        const antiAir = state.structures.filter(structure => structure.alive !== false && !areAllies(structure.faction, player.id) && ["turret", "observationtower"].includes(structure.type) && distance(point, structure) < 210).length
+        const antiAir = localActors.structures.filter(structure => structure.alive !== false && !areAllies(structure.faction, player.id) && ["turret", "observationtower"].includes(structure.type)).length
           + enemies.filter(unit => unit.role === "vehicle" && distance(point, unit) < 150).length * 0.7;
         const road = nearestRoadSegment(point, 80);
         const hostileStructure = state.structures.find(structure => structure.alive !== false && !areAllies(structure.faction, player.id) && distance(point, structure) < 130);
@@ -9632,7 +9810,7 @@ import {
           if (seen.has(key)) continue;
           seen.add(key);
           boundedCandidates.push(point);
-          if (boundedCandidates.length >= 180) break;
+          if (boundedCandidates.length >= (state.performancePreset.id === "total" ? 48 : state.performancePreset.id === "major" ? 96 : 180)) break;
         }
         const evaluated = boundedCandidates.map(point => dropPodLandingScore(player, point)).filter(Boolean).sort((a, b) => b.score - a.score);
         const landing = evaluated[0] || dropPodLandingScore(player, player.base) || { point: { ...player.base }, score: 0, ownership: player.id };
@@ -9726,7 +9904,7 @@ import {
             }
             if (!economy.approvedBuilds.includes(request.buildType)) economy.approvedBuilds.push(request.buildType);
             const buildCost = calculateCost({ type: "construction", player, baseCost: buildingCatalog[request.buildType]?.cost || reserve });
-            request.status = canAffordCost(economy.inventory, buildCost) ? "Approved · builder assigned" : "Delayed · reserve protected";
+            request.status = canAffordCost(economy.inventory, buildCost) ? "Approved · queued for commander placement" : "Delayed · reserve protected";
           } else if (request.type === "resupply") {
             const unitCandidate = unitById(request.targetId);
             const unit = unitCandidate?.alive ? unitCandidate : null;
@@ -10071,17 +10249,44 @@ import {
         return unit;
       }
 
+      function refreshBuilderWorkforce(player) {
+        const builders = state.units.filter(unit => unit.alive && !unit.incapacitated && unit.faction === player.id && unit.role === "builder");
+        const ownStructures = state.structures.filter(structure => structure.faction === player.id && structure.alive !== false);
+        const damagedStructures = ownStructures.filter(structure => structure.progress >= 1 && structure.hp < structure.maxHp * 0.98).length;
+        const activeProjects = ownStructures.filter(structure => structure.progress < 1 && structure.construction?.state !== "cancelled");
+        const harvestSourceCount = state.resourceZones.filter(zone => zone.active !== false && (!zone.owner || areAllies(zone.owner, player.id))).length
+          + state.economicNodes.filter(node => node.active !== false && node.owner && areAllies(node.owner, player.id) && Object.keys(node.exports || {}).length).length;
+        const demand = builderWorkforceDemand({
+          player,
+          structures: ownStructures,
+          configuredTarget: player.builderTarget,
+          damagedStructures,
+          activeProjects,
+          harvestSourceCount,
+          emergency: Boolean(player.economySecurity?.hqEmergency)
+        });
+        const previousHomes = new Map(builders.map(builder => [builder.id, builder.homeStructureId || null]));
+        const assignment = reconcileBuilderHomes({ player, structures: ownStructures, builders });
+        for (const builder of builders) if (builder.homeStructureId && previousHomes.get(builder.id) !== builder.homeStructureId) {
+          builder.homeAssignedAt = state.time;
+          builder.lastAction = `Assigned as resident ${demand.profile.builder} caretaker for ${factionBuildingLabel(player.id, structureById(builder.homeStructureId)?.type || "outpost")}.`;
+        }
+        player.builderWorkforce = { ...demand, ...assignment, builderLabel: demand.profile.builder, living: builders.length, updatedAt: state.time };
+        return player.builderWorkforce;
+      }
+
       function updateBuilderProduction(player) {
         const request = economyFor(player.id).queue.find(item => item.type === "train-builder" && !["Delivered", "Denied", "Complete"].includes(item.status));
         if (!request || state.time < (state.nextBuilderTrain[player.id] || 0)) return;
         const builders = state.units.filter(unit => unit.alive && !unit.incapacitated && unit.faction === player.id && unit.role === "builder").length;
-        const desiredBuilders = desiredBuilderCount(player, state.structures, request.desiredBuilders ?? player.builderTarget);
+        const desiredBuilders = player.builderWorkforce?.desired || desiredBuilderCount(player, state.structures, request.desiredBuilders ?? player.builderTarget);
         if (builders >= desiredBuilders) {
           request.status = "Complete";
           state.nextBuilderTrain[player.id] = state.time + 8;
           return;
         }
-        const producer = builderProducerFor(player, state.structures);
+        const producers = builderProducersFor(player, state.structures);
+        const producer = producers[(player.nextBuilderProducerCursor || 0) % Math.max(1, producers.length)] || null;
         if (!producer) {
           request.status = `Delayed · ${builderProductionProfileFor(player).producerLabel} unavailable`;
           state.nextBuilderTrain[player.id] = state.time + 6;
@@ -10096,10 +10301,14 @@ import {
         }
         for (const [resource, amount] of Object.entries(cost)) economy.inventory[resource] = Math.max(0, (economy.inventory[resource] || 0) - amount);
         const builder = spawnHeadquartersSupportUnit(player, producer, "builder");
-        request.status = "Complete";
+        player.nextBuilderProducerCursor = (player.nextBuilderProducerCursor || 0) + 1;
+        request.status = builders + 1 >= desiredBuilders ? "Complete" : `Approved · ${desiredBuilders - builders - 1} workforce posts remain`;
         request.producedUnitId = builder.id;
         const raceDelay = player.race === "Orks" ? 14 : player.race === "Necrons" || player.race === "Tyranids" ? 18 : 22;
-        state.nextBuilderTrain[player.id] = state.time + raceDelay;
+        const infrastructureFactor = Math.max(1, Math.sqrt(Math.max(1, producers.length)));
+        const deficitFactor = Math.max(1, Math.min(2.4, (desiredBuilders - builders) / 4));
+        state.nextBuilderTrain[player.id] = state.time + raceDelay / infrastructureFactor / deficitFactor;
+        refreshBuilderWorkforce(player);
       }
 
       function updateHeadquartersSupportProduction(player) {
@@ -10129,6 +10338,10 @@ import {
       }
 
       function refreshSupplyNetwork() {
+        const denseNetwork = state.performancePreset?.id === "total";
+        const refreshInterval = denseNetwork ? 2 : 0.5;
+        if (!state.supplyNetwork.dirty && state.time < (state.nextSupplyNetworkRefreshAt || 0)) return false;
+        state.nextSupplyNetworkRefreshAt = state.time + refreshInterval;
         for (const structure of state.structures) {
           const definition = productionDefinitionForStructure(playerFor(structure.faction), structure);
           if (!definition) continue;
@@ -10152,6 +10365,7 @@ import {
           tradeRoutes: state.tradeRoutes,
           players: state.players
         });
+        return true;
       }
 
       function economyTick(players = state.players) {
@@ -10160,16 +10374,19 @@ import {
           updatePlayerForceCommitment(player);
           const unitCap = desiredFieldStrengthFor(player);
           const economy = economyFor(player.id);
-          refreshEconomyRequests(player);
-          processEconomyRequests(player);
-          updateAuthoredResourceZones(player);
-          updateBuilderProduction(player);
-          updateHeadquartersSupportProduction(player);
-          for (const structure of state.structures.filter(item => item.faction === player.id)) dispatchStructureLogistics(player, structure);
-          updateUnitConsumption(player);
-          dispatchTradeConvoys(player);
-          const barracks = state.structures.find(item => item.faction === player.id && item.type === "barracks" && item.progress >= 1 && item.alive !== false);
-          const living = state.units.filter(unit => unit.alive && unit.faction === player.id).length;
+          profiler.profile("economy.constructionQueue", () => planFactionConstruction(player));
+          profiler.profile("economy.builderWorkforce", () => refreshBuilderWorkforce(player));
+          profiler.profile("economy.requests", () => refreshEconomyRequests(player));
+          profiler.profile("economy.processRequests", () => processEconomyRequests(player));
+          profiler.profile("economy.resourceZones", () => updateAuthoredResourceZones(player));
+          profiler.profile("economy.builderProduction", () => updateBuilderProduction(player));
+          profiler.profile("economy.supportProduction", () => updateHeadquartersSupportProduction(player));
+          profiler.profile("economy.structureLogistics", () => {
+            for (const structure of state.structures.filter(item => item.faction === player.id)) dispatchStructureLogistics(player, structure);
+          });
+          profiler.profile("economy.consumption", () => updateUnitConsumption(player));
+          profiler.profile("economy.tradeConvoys", () => dispatchTradeConvoys(player));
+          const living = state.units.filter(unit => unit.alive && unit.faction === player.id && !["builder", "supply"].includes(unit.role)).length;
           let trainingRequest = economy.queue.find(item => item.key === "train-line" && !["Delivered", "Denied", "Complete"].includes(item.status));
           if (trainingRequest?.targetSquadId && !squadFor(trainingRequest.targetSquadId)) {
             trainingRequest.status = "Denied";
@@ -10206,19 +10423,23 @@ import {
           }
           const groupManifest = guardPlayer ? [] : productionManifestFor(player, unitCap - living);
           if (!guardTraining) guardBatchSize = guardPlayer ? 0 : groupManifest.length;
+          const producerTypes = guardPlayer ? ["barracks"] : groupManifest[0]?.producerTypes || ["barracks"];
+          const producer = producerTypes
+            .map(type => state.structures.find(item => item.faction === player.id && item.type === type && item.progress >= 1 && item.alive !== false))
+            .find(Boolean) || null;
           const trainCost = guardTraining ? guardTrainingCost(guardTraining.templateKey, guardBatchSize) : costForManifest(player, groupManifest);
-          const canTrain = barracks && Object.entries(trainCost).every(([key, value]) => (barracks.inventory[key] || 0) >= value);
+          const canTrain = producer && Object.entries(trainCost).every(([key, value]) => (producer.inventory[key] || 0) >= value);
           const batchFits = living + guardBatchSize <= unitCap;
-          if (barracks && living < unitCap && canTrain && batchFits && (!guardPlayer || guardTraining) && state.time >= state.nextTrain[player.id]) {
+          if (producer && living < unitCap && canTrain && batchFits && (!guardPlayer || guardTraining) && state.time >= state.nextTrain[player.id]) {
             let trainingSucceeded = false;
             if (guardTraining) {
-              const spawned = spawnGuardSquad(player, barracks, guardTraining.templateKey, guardTraining.targetSquadId, guardBatchSize);
+              const spawned = spawnGuardSquad(player, producer, guardTraining.templateKey, guardTraining.targetSquadId, guardBatchSize);
               trainingSucceeded = spawned.length === guardBatchSize;
               if (!trainingSucceeded && trainingRequest) trainingRequest.status = "Delayed · replacement manifest could not deploy atomically";
-            } else trainingSucceeded = spawnProductionGroup(player, barracks, groupManifest).length === groupManifest.length && groupManifest.length > 0;
+            } else trainingSucceeded = spawnProductionGroup(player, producer, groupManifest).length === groupManifest.length && groupManifest.length > 0;
             if (trainingSucceeded) {
-              spendCost(barracks.inventory, trainCost);
-              const hasSupply = insideSupplyRadius(barracks, player.id);
+              spendCost(producer.inventory, trainCost);
+              const hasSupply = insideSupplyRadius(producer, player.id);
               state.nextTrain[player.id] = state.time + (guardTraining ? 18 + guardBatchSize * 1.2 : trainingDelayFor(player, groupManifest)) + (hasSupply ? 0 : 6);
               if (trainingRequest) trainingRequest.status = "Complete";
             }
@@ -11050,7 +11271,8 @@ import {
           if (structure.progress >= 1 && structure.alive !== false) {
             const maintained = (structure.inventory.parts || 0) > 0;
             structure.hp = clamp(structure.hp - dt * (maintained ? 0.002 : 0.018), 1, structure.maxHp);
-            const nearbyEngineer = state.units.find(unit => unit.alive && areAllies(unit.faction, structure.faction) && unit.role === "engineer" && distance(unit, structure) < 22);
+            const nearbyEngineer = nearbyCombatObjects(structure, 22).units.find(unit => unit.alive
+              && areAllies(unit.faction, structure.faction) && unit.role === "engineer");
             if (nearbyEngineer) structure.hp = clamp(structure.hp + dt * 4, 1, structure.maxHp);
             structure.condition = clamp(structure.hp / structure.maxHp, 0.04, 1);
             if (["generator", "observationtower", "fieldhospital"].includes(structure.type) && structure.condition <= 0.18 && !structure.powerOutageReported) {
@@ -11362,7 +11584,7 @@ import {
 
       function updateBattle(dt) {
         state.time += dt;
-        rebuildEntityIdIndex();
+        profiler.profile("simulation.entityIndex", rebuildEntityIdIndex);
         state.performancePreset = scalePresetFor(state.units.length, state.performanceRequested);
         const staggerHeavySystems = state.players.length > 4 && ["major", "total"].includes(state.performancePreset.id);
         let heavySystemRan = false;
@@ -11377,9 +11599,9 @@ import {
         state.navigationBudgetUsed = 0;
         state.awarenessBudgetUsed = 0;
         state.sensorBudgetUsed = 0;
-        queueDoctrineCadences(dt);
+        profiler.profile("ai.doctrineQueue", () => queueDoctrineCadences(dt));
         profiler.profile("economy.convoys", () => updateConvoys(dt));
-        updateDropPods();
+        profiler.profile("simulation.deployments", updateDropPods);
         if (state.time >= state.nextTerritoryTick) {
           profiler.profile("territory.update", territoryTick);
           profiler.profile("economy.resourceZones", resourceZoneCaptureTick);
@@ -11388,7 +11610,7 @@ import {
         }
         state.environmentAccumulator += dt;
         if (state.environmentAccumulator >= 0.5) {
-          updateEnvironment(state.environmentAccumulator);
+          profiler.profile("simulation.environment", () => updateEnvironment(state.environmentAccumulator));
           state.environmentAccumulator = 0;
         }
         if (state.time >= state.nextEconomy && heavySystemAvailable()) {
@@ -11406,7 +11628,7 @@ import {
         state.spatialAccumulator += dt;
         const spatialInterval = 0.2 * Math.max(1, state.speed);
         if (state.spatialAccumulator >= spatialInterval || !state.spatialGrid.size) {
-          rebuildSpatialGrid();
+          profiler.profile("simulation.spatialIndex", rebuildSpatialGrid);
           state.spatialAccumulator = 0;
         }
         state.sustainmentAccumulator += dt;
@@ -11423,7 +11645,7 @@ import {
         }
         state.roadAIAccumulator += dt;
         if (state.roadAIAccumulator >= 3) {
-          updateRoadDynamics(state.roadAIAccumulator);
+          profiler.profile("logistics.roads", () => updateRoadDynamics(state.roadAIAccumulator));
           state.roadAIAccumulator = 0;
         }
         state.armyAIAccumulator += dt;
@@ -11486,12 +11708,12 @@ import {
           // one camera radius. Amortize their tactical thinking further while the
           // normal Total Battlefield schedule remains unchanged for sparse views.
           const entityUpdatePreset = denseTotalBattle && state.units.length >= 320
-            ? { ...state.performancePreset, nearStride: 10, nearEngagedStride: 8, distantStride: 24 }
+            ? { ...state.performancePreset, nearStride: 64, nearEngagedStride: 32, distantStride: 96 }
             : state.performancePreset;
           state.units.forEach((unit, index) => {
             unit.deferredSimulationDt = (unit.deferredSimulationDt || 0) + dt;
             const supportUnit = ["builder", "supply"].includes(unit.role);
-            const supportStride = state.performancePreset.id === "total" ? 6 : state.performancePreset.id === "major" ? 3 : state.performancePreset.id === "battle" ? 2 : 1;
+            const supportStride = state.performancePreset.id === "total" ? 48 : state.performancePreset.id === "major" ? 3 : state.performancePreset.id === "battle" ? 2 : 1;
             const supportUpdateDue = !supportUnit || unit.targetId || unit.id === state.selectedId
               || (index + state.performanceFrame) % supportStride === 0;
             if (!supportUpdateDue) return;
@@ -11512,7 +11734,7 @@ import {
           });
         });
         state.separationAccumulator += dt;
-        if (state.separationAccumulator >= 0.08) {
+        if (state.separationAccumulator >= (denseTotalBattle ? 0.24 : 0.08)) {
           profiler.profile("physics.separation", separateUnits);
           state.separationAccumulator = 0;
         }
@@ -11521,8 +11743,8 @@ import {
           const combatDt = dt / activeCombatSubsteps;
           for (let step = 0; step < activeCombatSubsteps; step += 1) updateProjectiles(combatDt);
         });
-        cleanupCompletedDeathAnimations();
-        updateExploration(dt);
+        profiler.profile("simulation.cleanup", cleanupCompletedDeathAnimations);
+        profiler.profile("simulation.exploration", () => updateExploration(dt));
         if (state.time >= state.nextSnapshot) {
           captureSnapshot();
           state.nextSnapshot += Math.max(state.speed >= 8 ? 6 : 1.5, state.performancePreset.snapshotSeconds);
@@ -12851,6 +13073,44 @@ import {
         for (const unit of detailed) drawUnit(unit);
       }
 
+      function drawDenseStructureBatches(visibleStructures) {
+        const batches = new Map();
+        const detailed = [];
+        for (const structure of visibleStructures) {
+          if (structure.alive === false || structure.progress < 1 || structure.id === state.selectedStructureId) {
+            detailed.push(structure);
+            continue;
+          }
+          ensureStructureRuntime(structure);
+          let batch = batches.get(structure.faction);
+          if (!batch) {
+            batch = { production: new Path2D(), military: new Path2D(), defense: new Path2D() };
+            batches.set(structure.faction, batch);
+          }
+          const width = Math.max(12, (structure.hitbox?.w || 28) * 0.72);
+          const height = Math.max(10, (structure.hitbox?.h || 24) * 0.72);
+          const capacityClass = buildingCatalog[structure.type]?.capacityClass || "production";
+          const path = capacityClass === "defense" ? batch.defense : capacityClass === "military-production" || capacityClass === "hq" ? batch.military : batch.production;
+          path.rect(structure.x - width / 2, structure.y - height / 2, width, height);
+        }
+        ctx.save();
+        ctx.lineWidth = 1;
+        for (const [faction, batch] of batches) {
+          ctx.fillStyle = playerColor(faction);
+          ctx.strokeStyle = playerSecondaryColor(faction);
+          ctx.globalAlpha = 0.72;
+          ctx.fill(batch.production);
+          ctx.globalAlpha = 0.9;
+          ctx.fill(batch.military);
+          ctx.stroke(batch.military);
+          ctx.globalAlpha = 0.82;
+          ctx.fill(batch.defense);
+          ctx.stroke(batch.defense);
+        }
+        ctx.restore();
+        if (detailed.length) drawStructures(null, detailed);
+      }
+
       function drawUnit(unit, historical) {
         const view = historical || unit;
         if (view.embarkedInId) return;
@@ -13868,7 +14128,8 @@ import {
             drawOverviewClusters(overviewClusters);
             drawOverviewSquadRoles(renderObjects.units);
           } else {
-            drawStructures(snapshot, renderObjects.structures);
+            if (denseActorMode && !snapshot) drawDenseStructureBatches(renderObjects.structures);
+            else drawStructures(snapshot, renderObjects.structures);
             drawTransports();
             if (denseActorMode) drawDenseUnitBatches(renderObjects.units);
             else {
@@ -16633,7 +16894,7 @@ import {
           }
           if (!state.paused && state.mode === "sim" && !state.replay) {
             try {
-              const simulationStep = 1 / 30;
+              const simulationStep = state.performancePreset.id === "total" ? 1 / 20 : 1 / 30;
               state.simulationAccumulator = Math.min(0.6, state.simulationAccumulator + rawDt * state.speed);
               const simulationResult = runFixedStepBudget({
                 accumulator: state.simulationAccumulator,
@@ -16664,7 +16925,7 @@ import {
           }
           state.uiAccumulator += rawDt;
           state.renderAccumulator += rawDt;
-          const renderInterval = state.speed >= 8 ? 1 / 6 : state.performancePreset.id === "total" ? 1 / 20 : 1 / 30;
+          const renderInterval = state.performancePreset.id === "total" ? 1 / 10 : state.speed >= 8 ? 1 / 6 : 1 / 30;
           const deferOverBudgetTotalDraw = state.performancePreset.id === "total"
             && (state.lastSimulationFrame?.workMs || 0) > 32
             && state.frameCount % 2 === 1;
@@ -16677,7 +16938,7 @@ import {
               recordFrameFailure(error, "render");
             }
           }
-          if (state.uiAccumulator >= (state.speed >= 8 ? 0.5 : 0.25)) {
+          if (state.uiAccumulator >= (state.performancePreset.id === "total" || state.speed >= 8 ? 0.5 : 0.25)) {
             try {
               profiler.profile("ui", updateUI);
             } catch (error) {

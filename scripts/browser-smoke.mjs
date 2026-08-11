@@ -355,7 +355,9 @@ try {
       buildersByFaction: state.players.map(player => ({
         faction: player.id,
         race: player.race,
-        count: builders.filter(unit => unit.faction === player.id).length
+        count: builders.filter(unit => unit.faction === player.id).length,
+        desired: player.builderWorkforce?.desired || player.builderTarget || 0,
+        constructionDemand: player.builderWorkforce?.constructionDemand || 0
       })),
       carriersByFaction: state.players.map(player => ({
         faction: player.id,
@@ -368,8 +370,8 @@ try {
     };
   })()`);
   const invalidBuilderGroup = builderHealth.buildersByFaction.find(group => {
-    const [minimum, maximum] = group.race === 'Necrons' || group.race === 'Orks' ? [6, 8] : [2, 4];
-    return group.count < minimum || group.count > maximum;
+    const minimum = group.race === 'Necrons' || group.race === 'Orks' ? 6 : 2;
+    return group.count < minimum || group.count > Math.max(minimum, group.desired + 1);
   });
   if (builderHealth.paused || builderHealth.failures !== 0 || builderHealth.builderCount < 4
     || builderHealth.livingBuilders !== builderHealth.builderCount || invalidBuilderGroup

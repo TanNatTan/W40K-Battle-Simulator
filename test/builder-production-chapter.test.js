@@ -30,12 +30,12 @@ const players = {
 };
 
 test("each faction trains builders from its authored producer instead of squad production", () => {
-  assert.deepEqual(builderProductionProfileFor(players.marines).producerTypes, ["outpost"]);
+  assert.deepEqual(builderProductionProfileFor(players.marines).producerTypes, ["outpost", "workshop"]);
   assert.deepEqual(builderProductionProfileFor(players.guard).producerTypes, ["outpost", "barracks"]);
-  assert.deepEqual(builderProductionProfileFor(players.mechanicus).producerTypes, ["outpost", "workshop"]);
-  assert.deepEqual(builderProductionProfileFor(players.orks).producerTypes, ["barracks"]);
-  assert.deepEqual(builderProductionProfileFor(players.tau).producerTypes, ["workshop"]);
-  assert.deepEqual(builderProductionProfileFor(players.tyranids).producerTypes, ["barracks"]);
+  assert.deepEqual(builderProductionProfileFor(players.mechanicus).producerTypes, ["outpost", "workshop", "researchcenter"]);
+  assert.deepEqual(builderProductionProfileFor(players.orks).producerTypes, ["barracks", "workshop"]);
+  assert.deepEqual(builderProductionProfileFor(players.tau).producerTypes, ["outpost", "workshop"]);
+  assert.deepEqual(builderProductionProfileFor(players.tyranids).producerTypes, ["barracks", "fieldhospital", "refinery"]);
   const structures = [
     { id: "hq", faction: "orks", type: "outpost", progress: 1, condition: 1 },
     { id: "hut", faction: "orks", type: "barracks", progress: 1, condition: 0.8 }
@@ -46,11 +46,11 @@ test("each faction trains builders from its authored producer instead of squad p
   assert.equal(builderProductionPriority(6, 6), 0);
 });
 
-test("builder targets scale from 2-4 normally and 6-8 for Orks and Necrons", () => {
+test("builder targets scale from completed buildings without a global maximum", () => {
   const structures = Array.from({ length: 20 }, (_, index) => ({ faction: "sm", progress: 1, alive: true, id: index }));
-  assert.equal(desiredBuilderCount(players.marines, structures, 2), 4);
-  assert.equal(desiredBuilderCount(players.orks, structures.map(item => ({ ...item, faction: "orks" })), 6), 8);
-  assert.equal(desiredBuilderCount(players.necrons, [], 2), 6);
+  assert.equal(desiredBuilderCount(players.marines, structures, 2), 27);
+  assert.equal(desiredBuilderCount(players.orks, structures.map(item => ({ ...item, faction: "orks" })), 6), 55);
+  assert.equal(desiredBuilderCount(players.necrons, [], 2), 5);
 });
 
 test("builder movement and complete building footprints stay inside an authored spawn zone", () => {
@@ -84,4 +84,3 @@ test("browser composition includes builder queues, containment, and Emerald Suns
   assert.match(app, /recoverBuilderInsideSpawnZone/);
   assert.match(app, /builderTaskPointAllowed/);
 });
-

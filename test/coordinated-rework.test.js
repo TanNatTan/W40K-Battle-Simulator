@@ -115,12 +115,13 @@ test("resource carriers persist through repeat deliveries and scale with source 
   assert.ok(desiredResourceCarriers(sources, { x: 0, y: 0 }, 2) >= 5);
 });
 
-test("runtime integrates dedicated Chaos formations, doubled capacity, costs, and landmark capture", () => {
+test("runtime integrates subfaction Chaos formations, doubled capacity, costs, and landmark capture", () => {
   const source = readFileSync(new URL("../js/app.js", import.meta.url), "utf8");
-  assert.match(source, /else if \(player\.race === "Chaos"\)/);
+  assert.match(source, /chooseMilitaryProduction\(\{/);
+  assert.match(source, /player\.race === "Chaos" && player\.pendingChaosManifestSequence !== \(player\.productionSequence \|\| 0\)/);
   assert.match(source, /pendingChaosManifestSize = 3 \+ Math\.floor\(battleRandom\(\) \* 4\)/);
-  assert.match(source, /name: "Aspiring Champion"/);
-  assert.match(source, /const size = 5;/);
+  assert.match(source, /productionBranchId: directive\.productionPlan/);
+  assert.match(source, /producerTypes: directive\.producerTypes/);
   assert.match(source, /amount \* 2/);
   assert.doesNotMatch(source, /0, 999\);\s*\n\s*}/);
   assert.match(source, /costForManifest\(player, groupManifest\)/);

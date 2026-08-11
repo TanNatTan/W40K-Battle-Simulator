@@ -45,12 +45,19 @@ import { REPAIR_BALANCE, SUSTAINMENT_PROFILES, SUSTAINMENT_SERVICES, buildingRep
 import { createNavigationMonitor, ensureNavigationMonitor, markNavigationRecovery, movementDiagnostic, navigationFingerprint, rememberFailedPath, sampleNavigationProgress } from "./map/MovementProgressSystem.js";
 import { chooseRecoveryPoint, clearNavigationState, recoveryRingCandidates } from "./map/StuckRecoverySystem.js";
 import { IDEAL_BUILDERS, constructionRefund, constructionSiteKey, createConstructionState, desiredBuildersFor, evaluateConstructionCancellation } from "./construction/ConstructionSystem.js";
+import { activeConstructionProjects, constructionLaborDemand, constructionQueueCapacity, constructionQueueSnapshot } from "./construction/ConstructionQueueSystem.js";
 import { chooseBuilderAssignment, scoreProjectForBuilder } from "./construction/BuilderAssignmentSystem.js";
 import { SUPPLY_TRANSPORT_SPEED, convoyBaseSpeed, convoyEffectiveSpeed, convoyMovementFactor } from "./logistics/ConvoyMovementSystem.js";
-import { BUILDER_PRODUCTION, builderProducerFor, builderProductionPriority, builderProductionProfileFor, desiredBuilderCount } from "./construction/BuilderProductionSystem.js";
+import { BUILDER_PRODUCTION, builderProducerFor, builderProducersFor, builderProductionPriority, builderProductionProfileFor, desiredBuilderCount } from "./construction/BuilderProductionSystem.js";
+import { BUILDER_WORKFORCE_POLICY_VERSION, BUILDER_WORKFORCE_PRIORITY, builderHomeStatus, builderWorkforceBranchFor, builderWorkforceDemand, builderWorkforceProfileFor, caretakerRequirementForStructure, reconcileBuilderHomes } from "./construction/BuilderWorkforceSystem.js";
 import { constrainPointToSpawnZone, structureFitsInsideSpawnZone, unitFitsInsideSpawnZone } from "./construction/BuilderContainmentSystem.js";
 import { EMERALD_SUNS, applyChapterBattleAdaptation, chapterMedicalModifiersFor, chapterVisualDefaultsFor, isEmeraldSuns } from "./ai/SpaceMarineChapterSystem.js";
 import { SUBFACTION_BUILDINGS, SUBFACTION_BUILDING_ORDER, SUBFACTION_BUILDING_SLOTS, subfactionBuildingLabelFor, subfactionBuildingProfileFor, subfactionBuildingTypesFor, validateSubfactionBuildingCatalog } from "./factions/SubfactionBuildingSystem.js";
+import { SUBFACTION_BRANCH_ARCHETYPES, SUBFACTION_PRODUCTION_ARCHETYPES, constructionOrderFor, nextProductionDirectiveFor, productionBranchFor, productionProducerTypesFor, subfactionArchetypeFor, validateSubfactionProductionBranches } from "./factions/SubfactionProductionDoctrine.js";
+import { analyzeProductionDemand } from "./ai/ProductionDemandAnalyzer.js";
+import { buildingPrerequisitesSatisfied, chooseSubfactionBuildProject, constructionCandidatesFor, signatureGateSatisfied } from "./ai/SubfactionBuildPlanner.js";
+import { chooseMilitaryProduction, producerTypesForProduction, productionTagsFor, scoreProductionCandidate } from "./ai/MilitaryProductionPlanner.js";
+import { BUILDING_ROLE_TO_TYPE, BUILDING_TYPE_TO_ROLE, PRODUCTION_FACILITIES, SHARED_BUILDING_DEPENDENCIES, SUBFACTION_PRODUCTION_PLANS, buildingRequirementsFor, buildingTypeForOperationalRole, operationalRoleForBuildingType, planConstructionRoles, subfactionProductionPlanFor, validateProductionPlanData } from "./ai/SubfactionProductionPlans.js";
 import { BUILDER_REPAIR_ASSIGNMENT_TTL, BUILDER_REPAIR_CREW_LIMIT, SERVITOR_REPAIR_ASSIGNMENT_TTL, activeRepairCrewCount, builderRepairCrewLimit, builderRepairSlotAvailable, claimRepairAssignment, releaseStaleRepairAssignment, servitorRepairCrewLimit, servitorRepairSlotAvailable } from "./construction/RepairCrewSystem.js";
 import { ACTIVE_FORCE_ROLES, PASSIVE_FORCE_ROLES, desiredActiveForceRatio, enforceActiveForceRatio } from "./ai/ActiveForceSystem.js";
 import { BUILDING_CAPACITY_CLASSES, TERRITORY_BUILD_CAPS, buildingCapacityClass, constructionCapacityForCell, countBuildingsByCapacityClass, territoryCapacityAvailable } from "./territory/TerritoryConstructionSystem.js";
@@ -203,6 +210,10 @@ globalThis.AWTSystems = Object.freeze({
   createConstructionState,
   desiredBuildersFor,
   evaluateConstructionCancellation,
+  activeConstructionProjects,
+  constructionLaborDemand,
+  constructionQueueCapacity,
+  constructionQueueSnapshot,
   chooseBuilderAssignment,
   scoreProjectForBuilder,
   SUPPLY_TRANSPORT_SPEED,
@@ -211,9 +222,18 @@ globalThis.AWTSystems = Object.freeze({
   convoyMovementFactor,
   BUILDER_PRODUCTION,
   builderProducerFor,
+  builderProducersFor,
   builderProductionPriority,
   builderProductionProfileFor,
   desiredBuilderCount,
+  BUILDER_WORKFORCE_POLICY_VERSION,
+  BUILDER_WORKFORCE_PRIORITY,
+  builderHomeStatus,
+  builderWorkforceBranchFor,
+  builderWorkforceDemand,
+  builderWorkforceProfileFor,
+  caretakerRequirementForStructure,
+  reconcileBuilderHomes,
   constrainPointToSpawnZone,
   structureFitsInsideSpawnZone,
   unitFitsInsideSpawnZone,
@@ -229,6 +249,34 @@ globalThis.AWTSystems = Object.freeze({
   subfactionBuildingProfileFor,
   subfactionBuildingTypesFor,
   validateSubfactionBuildingCatalog,
+  SUBFACTION_BRANCH_ARCHETYPES,
+  SUBFACTION_PRODUCTION_ARCHETYPES,
+  constructionOrderFor,
+  nextProductionDirectiveFor,
+  productionBranchFor,
+  productionProducerTypesFor,
+  subfactionArchetypeFor,
+  validateSubfactionProductionBranches,
+  analyzeProductionDemand,
+  buildingPrerequisitesSatisfied,
+  chooseSubfactionBuildProject,
+  constructionCandidatesFor,
+  signatureGateSatisfied,
+  chooseMilitaryProduction,
+  producerTypesForProduction,
+  productionTagsFor,
+  scoreProductionCandidate,
+  BUILDING_ROLE_TO_TYPE,
+  BUILDING_TYPE_TO_ROLE,
+  PRODUCTION_FACILITIES,
+  SHARED_BUILDING_DEPENDENCIES,
+  SUBFACTION_PRODUCTION_PLANS,
+  buildingRequirementsFor,
+  buildingTypeForOperationalRole,
+  operationalRoleForBuildingType,
+  planConstructionRoles,
+  subfactionProductionPlanFor,
+  validateProductionPlanData,
   SERVITOR_REPAIR_ASSIGNMENT_TTL,
   BUILDER_REPAIR_ASSIGNMENT_TTL,
   activeRepairCrewCount,

@@ -4,7 +4,9 @@ export const BUILDER_REPAIR_CREW_LIMIT = 1;
 
 export function builderRepairCrewLimit(player = {}, unit = {}, request = {}, target = {}) {
   if (unit.role !== "builder" || request.targetType !== "building") return Infinity;
-  return BUILDER_REPAIR_CREW_LIMIT;
+  const residentCrew = Math.max(BUILDER_REPAIR_CREW_LIMIT, caretakerRequirementForStructure(player, target));
+  const severe = Number(request.severity) >= 0.18 || Number(target.hp) < Number(target.maxHp) * 0.82;
+  return residentCrew + (severe ? builderWorkforceProfileFor(player).repairReserve : 0);
 }
 
 // Kept as compatibility aliases for existing integrations and saved test fixtures.
@@ -47,3 +49,4 @@ export function claimRepairAssignment(unit = {}, targetId, now = 0) {
   unit.repairAssignmentAt = targetId ? Number(now) || 0 : null;
   return unit.repairTargetId;
 }
+import { builderWorkforceProfileFor, caretakerRequirementForStructure } from "./BuilderWorkforceSystem.js";

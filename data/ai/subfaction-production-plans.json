@@ -1,0 +1,3940 @@
+{
+  "version": 1,
+  "design": {
+    "name": "Subfaction Operational Build & Production Branches",
+    "principle": "No technology unlock tiers. Facilities are operational prerequisites/capacity providers; doctrine and battlefield need choose the branch.",
+    "productionSelection": [
+      "doctrineBias",
+      "battlefieldCounterNeed",
+      "ownRoleDeficit",
+      "resourceAffordability",
+      "commitmentFit",
+      "facilityCapacity",
+      "replacementUrgency",
+      "mobility/logisticsSupport"
+    ]
+  },
+  "sharedBuildingDependencies": {
+    "HQ": {
+      "requiresAll": []
+    },
+    "Power": {
+      "requiresAll": [
+        "HQ"
+      ]
+    },
+    "Logistics": {
+      "requiresAll": [
+        "HQ"
+      ]
+    },
+    "Muster": {
+      "requiresAll": [
+        "HQ"
+      ]
+    },
+    "Industry": {
+      "requiresAll": [
+        "Power"
+      ]
+    },
+    "Doctrine": {
+      "requiresAll": [
+        "Power"
+      ],
+      "requiresAny": [
+        "Muster",
+        "Industry"
+      ]
+    },
+    "War Forge": {
+      "requiresAll": [
+        "Power"
+      ],
+      "requiresAny": [
+        "Industry",
+        "Logistics"
+      ]
+    },
+    "Sustainment": {
+      "requiresAll": [
+        "Power"
+      ],
+      "requiresAny": [
+        "Logistics",
+        "Muster"
+      ]
+    },
+    "Intel": {
+      "requiresAll": [
+        "HQ"
+      ]
+    },
+    "Deployment": {
+      "requiresAll": [
+        "Power"
+      ],
+      "requiresAny": [
+        "Muster",
+        "War Forge"
+      ]
+    },
+    "Fortification": {
+      "requiresAll": [
+        "HQ"
+      ]
+    },
+    "Emplacement": {
+      "requiresAll": [
+        "Power",
+        "Fortification"
+      ]
+    },
+    "Signature": {
+      "requiresAll": [
+        "Doctrine"
+      ],
+      "requiresAny": [
+        "War Forge",
+        "Deployment",
+        "Fortification"
+      ],
+      "priorityGate": "Major Battle or higher, strategic objective need, or strong surplus; never a mandatory tech unlock"
+    }
+  },
+  "productionFacilities": {
+    "HQ": [
+      "builder",
+      "supply",
+      "emergency-basic-reinforcement"
+    ],
+    "Muster": [
+      "basic-infantry",
+      "battleline",
+      "scout",
+      "command"
+    ],
+    "Doctrine": [
+      "specialist-weighting",
+      "elite-coordination",
+      "counter-production"
+    ],
+    "War Forge": [
+      "vehicles",
+      "walkers",
+      "heavy-weapons",
+      "monster/heavy-organism equivalents"
+    ],
+    "Sustainment": [
+      "medic/support",
+      "repair/recovery",
+      "replacement efficiency"
+    ],
+    "Deployment": [
+      "transport-reinforcement",
+      "deep-strike/airlift/portal/tunnel delivery"
+    ],
+    "Intel": [
+      "scout/recon/marker/targeting production bias"
+    ],
+    "Signature": [
+      "rare signature formations/assets; still gated by scenario and commitment, not technology"
+    ]
+  },
+  "subfactions": {
+    "Ultramarines": {
+      "race": "Space Marines",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Logistics",
+          "Muster"
+        ],
+        "primaryBranch": [
+          "Doctrine",
+          "Intel"
+        ],
+        "secondaryBranch": [
+          "War Forge",
+          "Sustainment",
+          "Deployment"
+        ],
+        "lateBranch": [
+          "Fortification",
+          "Emplacement",
+          "Industry",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Logistics",
+          "Muster",
+          "Doctrine",
+          "Intel",
+          "War Forge",
+          "Sustainment",
+          "Deployment",
+          "Fortification",
+          "Emplacement",
+          "Industry",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "battleline",
+        "ranged-support",
+        "scout",
+        "assault",
+        "support",
+        "command"
+      ],
+      "vehiclePriority": [
+        "transport",
+        "walker",
+        "tank",
+        "heavy-command"
+      ],
+      "productionStyle": "balanced combined-arms; fill missing battlefield roles before doubling down",
+      "notes": ""
+    },
+    "Blood Angels": {
+      "race": "Space Marines",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Muster",
+          "Logistics"
+        ],
+        "primaryBranch": [
+          "Deployment",
+          "Doctrine"
+        ],
+        "secondaryBranch": [
+          "War Forge",
+          "Sustainment"
+        ],
+        "lateBranch": [
+          "Intel",
+          "Industry",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Muster",
+          "Logistics",
+          "Deployment",
+          "Doctrine",
+          "War Forge",
+          "Sustainment",
+          "Intel",
+          "Industry",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "assault",
+        "elite-melee",
+        "battleline",
+        "support",
+        "ranged-support",
+        "scout"
+      ],
+      "vehiclePriority": [
+        "transport",
+        "walker",
+        "tank",
+        "heavy-command"
+      ],
+      "productionStyle": "fast assault; maintain enough battleline to hold captured ground",
+      "notes": ""
+    },
+    "Imperial Fists": {
+      "race": "Space Marines",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Logistics",
+          "Muster"
+        ],
+        "primaryBranch": [
+          "Intel",
+          "Fortification",
+          "Emplacement"
+        ],
+        "secondaryBranch": [
+          "War Forge",
+          "Doctrine"
+        ],
+        "lateBranch": [
+          "Sustainment",
+          "Industry",
+          "Deployment",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Logistics",
+          "Muster",
+          "Intel",
+          "Fortification",
+          "Emplacement",
+          "War Forge",
+          "Doctrine",
+          "Sustainment",
+          "Industry",
+          "Deployment",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "battleline",
+        "ranged-support",
+        "heavy",
+        "support",
+        "scout",
+        "assault"
+      ],
+      "vehiclePriority": [
+        "walker",
+        "tank",
+        "heavy-command",
+        "transport"
+      ],
+      "productionStyle": "siege/defence; establish firing control before expensive armour",
+      "notes": ""
+    },
+    "Salamanders": {
+      "race": "Space Marines",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Logistics",
+          "Muster"
+        ],
+        "primaryBranch": [
+          "Sustainment",
+          "War Forge"
+        ],
+        "secondaryBranch": [
+          "Fortification",
+          "Doctrine"
+        ],
+        "lateBranch": [
+          "Intel",
+          "Deployment",
+          "Industry",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Logistics",
+          "Muster",
+          "Sustainment",
+          "War Forge",
+          "Fortification",
+          "Doctrine",
+          "Intel",
+          "Deployment",
+          "Industry",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "battleline",
+        "ranged-support",
+        "support",
+        "assault",
+        "engineer",
+        "scout"
+      ],
+      "vehiclePriority": [
+        "walker",
+        "transport",
+        "heavy-command",
+        "tank"
+      ],
+      "productionStyle": "durable close-range combined arms; preserve squads and recover damaged assets",
+      "notes": ""
+    },
+    "Emerald Suns": {
+      "race": "Space Marines",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Logistics",
+          "Muster"
+        ],
+        "primaryBranch": [
+          "Sustainment",
+          "Intel"
+        ],
+        "secondaryBranch": [
+          "War Forge",
+          "Doctrine",
+          "Fortification"
+        ],
+        "lateBranch": [
+          "Deployment",
+          "Industry",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Logistics",
+          "Muster",
+          "Sustainment",
+          "Intel",
+          "War Forge",
+          "Doctrine",
+          "Fortification",
+          "Deployment",
+          "Industry",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "battleline",
+        "ranged-support",
+        "support",
+        "scout",
+        "assault",
+        "command"
+      ],
+      "vehiclePriority": [
+        "transport",
+        "walker",
+        "tank",
+        "heavy-command"
+      ],
+      "productionStyle": "controlled escalation; defend, regroup, then commit mobile reserves",
+      "notes": ""
+    },
+    "White Scars": {
+      "race": "Space Marines",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Muster",
+          "Logistics"
+        ],
+        "primaryBranch": [
+          "Deployment",
+          "War Forge"
+        ],
+        "secondaryBranch": [
+          "Intel",
+          "Doctrine"
+        ],
+        "lateBranch": [
+          "Industry",
+          "Sustainment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Muster",
+          "Logistics",
+          "Deployment",
+          "War Forge",
+          "Intel",
+          "Doctrine",
+          "Industry",
+          "Sustainment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "mobile-battleline",
+        "scout",
+        "assault",
+        "ranged-support",
+        "support"
+      ],
+      "vehiclePriority": [
+        "transport",
+        "fast-attack",
+        "tank",
+        "walker"
+      ],
+      "productionStyle": "high mobility; prefer transport capacity and redeployment over static defence",
+      "notes": ""
+    },
+    "Raven Guard": {
+      "race": "Space Marines",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Intel",
+          "Muster"
+        ],
+        "primaryBranch": [
+          "Deployment",
+          "Doctrine"
+        ],
+        "secondaryBranch": [
+          "Logistics",
+          "War Forge"
+        ],
+        "lateBranch": [
+          "Sustainment",
+          "Industry",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Intel",
+          "Muster",
+          "Deployment",
+          "Doctrine",
+          "Logistics",
+          "War Forge",
+          "Sustainment",
+          "Industry",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "scout",
+        "infiltrator",
+        "ranged-support",
+        "battleline",
+        "assault",
+        "support"
+      ],
+      "vehiclePriority": [
+        "transport",
+        "fast-attack",
+        "walker",
+        "tank"
+      ],
+      "productionStyle": "recon/infiltration; reveal targets and create local superiority before committing",
+      "notes": ""
+    },
+    "Iron Hands": {
+      "race": "Space Marines",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Logistics",
+          "Industry"
+        ],
+        "primaryBranch": [
+          "War Forge",
+          "Doctrine"
+        ],
+        "secondaryBranch": [
+          "Muster",
+          "Sustainment"
+        ],
+        "lateBranch": [
+          "Intel",
+          "Fortification",
+          "Emplacement",
+          "Deployment",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Logistics",
+          "Industry",
+          "War Forge",
+          "Doctrine",
+          "Muster",
+          "Sustainment",
+          "Intel",
+          "Fortification",
+          "Emplacement",
+          "Deployment",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "battleline",
+        "ranged-support",
+        "engineer",
+        "heavy",
+        "support",
+        "scout"
+      ],
+      "vehiclePriority": [
+        "walker",
+        "tank",
+        "heavy-command",
+        "transport"
+      ],
+      "productionStyle": "machine-heavy attrition; keep repair/engineering coverage with every armour group",
+      "notes": ""
+    },
+    "Space Wolves": {
+      "race": "Space Marines",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Muster",
+          "Logistics"
+        ],
+        "primaryBranch": [
+          "War Forge",
+          "Deployment"
+        ],
+        "secondaryBranch": [
+          "Doctrine",
+          "Sustainment"
+        ],
+        "lateBranch": [
+          "Intel",
+          "Industry",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Muster",
+          "Logistics",
+          "War Forge",
+          "Deployment",
+          "Doctrine",
+          "Sustainment",
+          "Intel",
+          "Industry",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "assault",
+        "battleline",
+        "elite-melee",
+        "scout",
+        "support",
+        "ranged-support"
+      ],
+      "vehiclePriority": [
+        "transport",
+        "walker",
+        "heavy-command",
+        "tank"
+      ],
+      "productionStyle": "aggressive hunter packs; vehicles deliver infantry rather than replace them",
+      "notes": ""
+    },
+    "Black Templars": {
+      "race": "Space Marines",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Muster",
+          "Logistics"
+        ],
+        "primaryBranch": [
+          "Doctrine",
+          "Deployment"
+        ],
+        "secondaryBranch": [
+          "War Forge",
+          "Sustainment"
+        ],
+        "lateBranch": [
+          "Fortification",
+          "Intel",
+          "Industry",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Muster",
+          "Logistics",
+          "Doctrine",
+          "Deployment",
+          "War Forge",
+          "Sustainment",
+          "Fortification",
+          "Intel",
+          "Industry",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "assault",
+        "battleline",
+        "elite-melee",
+        "support",
+        "ranged-support",
+        "scout"
+      ],
+      "vehiclePriority": [
+        "transport",
+        "heavy-command",
+        "walker",
+        "tank"
+      ],
+      "productionStyle": "crusade pressure; prioritize transports and melee mass while retaining objective holders",
+      "notes": ""
+    },
+    "Cadian 8th": {
+      "race": "Imperial Guard",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Logistics",
+          "Muster"
+        ],
+        "primaryBranch": [
+          "Intel",
+          "Fortification",
+          "Emplacement"
+        ],
+        "secondaryBranch": [
+          "War Forge",
+          "Doctrine"
+        ],
+        "lateBranch": [
+          "Industry",
+          "Sustainment",
+          "Deployment",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Logistics",
+          "Muster",
+          "Intel",
+          "Fortification",
+          "Emplacement",
+          "War Forge",
+          "Doctrine",
+          "Industry",
+          "Sustainment",
+          "Deployment",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "line-infantry",
+        "heavy-weapons",
+        "elite-infantry",
+        "scout",
+        "support",
+        "command"
+      ],
+      "vehiclePriority": [
+        "transport",
+        "tank",
+        "scout-walker",
+        "heavy-tank"
+      ],
+      "productionStyle": "disciplined defence and counterattack; armour supports established infantry lines",
+      "notes": ""
+    },
+    "Steel Legion": {
+      "race": "Imperial Guard",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Logistics",
+          "Industry"
+        ],
+        "primaryBranch": [
+          "War Forge",
+          "Muster",
+          "Deployment"
+        ],
+        "secondaryBranch": [
+          "Doctrine",
+          "Intel"
+        ],
+        "lateBranch": [
+          "Sustainment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Logistics",
+          "Industry",
+          "War Forge",
+          "Muster",
+          "Deployment",
+          "Doctrine",
+          "Intel",
+          "Sustainment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "mechanised-infantry",
+        "line-infantry",
+        "anti-armour",
+        "support",
+        "scout"
+      ],
+      "vehiclePriority": [
+        "transport",
+        "tank",
+        "heavy-tank",
+        "scout-walker"
+      ],
+      "productionStyle": "mechanised warfare; do not create infantry waves without enough transport lift",
+      "notes": ""
+    },
+    "Tempestus Scions": {
+      "race": "Imperial Guard",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Muster",
+          "Intel"
+        ],
+        "primaryBranch": [
+          "Deployment",
+          "Doctrine"
+        ],
+        "secondaryBranch": [
+          "Logistics",
+          "War Forge"
+        ],
+        "lateBranch": [
+          "Sustainment",
+          "Industry",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Muster",
+          "Intel",
+          "Deployment",
+          "Doctrine",
+          "Logistics",
+          "War Forge",
+          "Sustainment",
+          "Industry",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "elite-infantry",
+        "special-weapons",
+        "scout",
+        "command",
+        "support"
+      ],
+      "vehiclePriority": [
+        "airmobile-transport",
+        "light-transport",
+        "scout-walker",
+        "tank"
+      ],
+      "productionStyle": "precision deployment; smaller high-quality detachments instead of attrition waves",
+      "notes": "Add Taurox Prime/Valkyrie production entries when their unit assets exist; current generic Guard vehicle roster cannot express this fully."
+    },
+    "Death Korps of Krieg": {
+      "race": "Imperial Guard",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Logistics",
+          "Muster"
+        ],
+        "primaryBranch": [
+          "Fortification",
+          "Emplacement",
+          "War Forge"
+        ],
+        "secondaryBranch": [
+          "Doctrine",
+          "Industry"
+        ],
+        "lateBranch": [
+          "Sustainment",
+          "Intel",
+          "Deployment",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Logistics",
+          "Muster",
+          "Fortification",
+          "Emplacement",
+          "War Forge",
+          "Doctrine",
+          "Industry",
+          "Sustainment",
+          "Intel",
+          "Deployment",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "line-infantry",
+        "siege-infantry",
+        "heavy-weapons",
+        "engineer",
+        "support",
+        "command"
+      ],
+      "vehiclePriority": [
+        "artillery",
+        "tank",
+        "heavy-tank",
+        "transport"
+      ],
+      "productionStyle": "siege attrition; artillery/engineering branch outranks fast redeployment",
+      "notes": "Add Basilisk/Earthshaker production when available; the current generic Guard roster lacks a true artillery vehicle."
+    },
+    "Catachan Jungle Fighters": {
+      "race": "Imperial Guard",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Muster",
+          "Intel"
+        ],
+        "primaryBranch": [
+          "Deployment",
+          "Doctrine"
+        ],
+        "secondaryBranch": [
+          "Logistics",
+          "Sustainment"
+        ],
+        "lateBranch": [
+          "War Forge",
+          "Industry",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Muster",
+          "Intel",
+          "Deployment",
+          "Doctrine",
+          "Logistics",
+          "Sustainment",
+          "War Forge",
+          "Industry",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "scout",
+        "line-infantry",
+        "assault-infantry",
+        "special-weapons",
+        "support"
+      ],
+      "vehiclePriority": [
+        "scout-walker",
+        "light-transport",
+        "transport",
+        "tank"
+      ],
+      "productionStyle": "ambush/recon; avoid overbuilding heavy armour in restrictive terrain",
+      "notes": ""
+    },
+    "Tallarn Desert Raiders": {
+      "race": "Imperial Guard",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Logistics",
+          "Muster"
+        ],
+        "primaryBranch": [
+          "Deployment",
+          "Intel",
+          "War Forge"
+        ],
+        "secondaryBranch": [
+          "Doctrine",
+          "Industry"
+        ],
+        "lateBranch": [
+          "Sustainment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Logistics",
+          "Muster",
+          "Deployment",
+          "Intel",
+          "War Forge",
+          "Doctrine",
+          "Industry",
+          "Sustainment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "mobile-infantry",
+        "scout",
+        "anti-armour",
+        "line-infantry",
+        "support"
+      ],
+      "vehiclePriority": [
+        "scout-walker",
+        "transport",
+        "tank",
+        "heavy-tank"
+      ],
+      "productionStyle": "mobile desert warfare; flank, raid logistics, and preserve movement lanes",
+      "notes": ""
+    },
+    "Mars Forge": {
+      "race": "Adeptus Mechanicus",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Logistics",
+          "Industry"
+        ],
+        "primaryBranch": [
+          "Doctrine",
+          "War Forge"
+        ],
+        "secondaryBranch": [
+          "Muster",
+          "Intel"
+        ],
+        "lateBranch": [
+          "Sustainment",
+          "Deployment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Logistics",
+          "Industry",
+          "Doctrine",
+          "War Forge",
+          "Muster",
+          "Intel",
+          "Sustainment",
+          "Deployment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "skitarii-ranged",
+        "battle-servitor",
+        "support",
+        "elite",
+        "scout"
+      ],
+      "vehiclePriority": [
+        "walker",
+        "tank",
+        "artillery",
+        "transport"
+      ],
+      "productionStyle": "research-led combined arms; machine production scales after power/logistics stability",
+      "notes": ""
+    },
+    "Ryza Forge": {
+      "race": "Adeptus Mechanicus",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Industry",
+          "War Forge"
+        ],
+        "primaryBranch": [
+          "Doctrine",
+          "Muster"
+        ],
+        "secondaryBranch": [
+          "Logistics",
+          "Deployment"
+        ],
+        "lateBranch": [
+          "Intel",
+          "Sustainment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Industry",
+          "War Forge",
+          "Doctrine",
+          "Muster",
+          "Logistics",
+          "Deployment",
+          "Intel",
+          "Sustainment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "plasma-ranged",
+        "skitarii-assault",
+        "elite",
+        "support",
+        "scout"
+      ],
+      "vehiclePriority": [
+        "tank",
+        "walker",
+        "fast-attack",
+        "transport"
+      ],
+      "productionStyle": "aggressive plasma/vehicle production; tolerate higher energy draw for firepower",
+      "notes": ""
+    },
+    "Lucius Forge": {
+      "race": "Adeptus Mechanicus",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Logistics",
+          "Doctrine"
+        ],
+        "primaryBranch": [
+          "Deployment",
+          "War Forge"
+        ],
+        "secondaryBranch": [
+          "Muster",
+          "Sustainment"
+        ],
+        "lateBranch": [
+          "Industry",
+          "Intel",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Logistics",
+          "Doctrine",
+          "Deployment",
+          "War Forge",
+          "Muster",
+          "Sustainment",
+          "Industry",
+          "Intel",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "durable-skitarii",
+        "elite",
+        "support",
+        "ranged",
+        "scout"
+      ],
+      "vehiclePriority": [
+        "walker",
+        "transport",
+        "tank",
+        "heavy"
+      ],
+      "productionStyle": "teleportation and machine preservation; replace losses selectively",
+      "notes": ""
+    },
+    "Graia Forge": {
+      "race": "Adeptus Mechanicus",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Logistics",
+          "Muster"
+        ],
+        "primaryBranch": [
+          "Fortification",
+          "Sustainment",
+          "War Forge"
+        ],
+        "secondaryBranch": [
+          "Doctrine",
+          "Industry"
+        ],
+        "lateBranch": [
+          "Intel",
+          "Deployment",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Logistics",
+          "Muster",
+          "Fortification",
+          "Sustainment",
+          "War Forge",
+          "Doctrine",
+          "Industry",
+          "Intel",
+          "Deployment",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "durable-skitarii",
+        "battle-servitor",
+        "ranged",
+        "support",
+        "elite"
+      ],
+      "vehiclePriority": [
+        "walker",
+        "tank",
+        "transport",
+        "artillery"
+      ],
+      "productionStyle": "unyielding defence; redundant infrastructure and repair coverage before expansion",
+      "notes": ""
+    },
+    "Stygies VIII Forge": {
+      "race": "Adeptus Mechanicus",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Intel",
+          "Logistics"
+        ],
+        "primaryBranch": [
+          "Doctrine",
+          "Deployment"
+        ],
+        "secondaryBranch": [
+          "Muster",
+          "War Forge"
+        ],
+        "lateBranch": [
+          "Industry",
+          "Sustainment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Intel",
+          "Logistics",
+          "Doctrine",
+          "Deployment",
+          "Muster",
+          "War Forge",
+          "Industry",
+          "Sustainment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "scout",
+        "infiltrator",
+        "skitarii-ranged",
+        "elite",
+        "support"
+      ],
+      "vehiclePriority": [
+        "fast-attack",
+        "transport",
+        "walker",
+        "tank"
+      ],
+      "productionStyle": "covert reconnaissance; information advantage determines where expensive machines commit",
+      "notes": ""
+    },
+    "T'au Sept": {
+      "race": "T'au",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Logistics",
+          "Muster"
+        ],
+        "primaryBranch": [
+          "Intel",
+          "Doctrine"
+        ],
+        "secondaryBranch": [
+          "War Forge",
+          "Deployment"
+        ],
+        "lateBranch": [
+          "Sustainment",
+          "Industry",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Logistics",
+          "Muster",
+          "Intel",
+          "Doctrine",
+          "War Forge",
+          "Deployment",
+          "Sustainment",
+          "Industry",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "fire-warrior",
+        "pathfinder",
+        "battlesuit",
+        "broadside",
+        "breacher",
+        "support-drone"
+      ],
+      "vehiclePriority": [
+        "transport",
+        "tank",
+        "anti-air",
+        "fast-skimmer"
+      ],
+      "productionStyle": "balanced ranged cadre; marker support and screening before heavy suits",
+      "notes": ""
+    },
+    "Vior'la Sept": {
+      "race": "T'au",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Muster",
+          "Logistics"
+        ],
+        "primaryBranch": [
+          "Deployment",
+          "War Forge"
+        ],
+        "secondaryBranch": [
+          "Intel",
+          "Doctrine"
+        ],
+        "lateBranch": [
+          "Industry",
+          "Sustainment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Muster",
+          "Logistics",
+          "Deployment",
+          "War Forge",
+          "Intel",
+          "Doctrine",
+          "Industry",
+          "Sustainment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "breacher",
+        "battlesuit",
+        "fire-warrior",
+        "pathfinder",
+        "support-drone",
+        "broadside"
+      ],
+      "vehiclePriority": [
+        "transport",
+        "fast-skimmer",
+        "tank",
+        "anti-air"
+      ],
+      "productionStyle": "Mont'ka assault; close-range teams need transport and target acquisition",
+      "notes": ""
+    },
+    "Sa'cea Sept": {
+      "race": "T'au",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Logistics",
+          "Muster"
+        ],
+        "primaryBranch": [
+          "Intel",
+          "Fortification",
+          "Emplacement"
+        ],
+        "secondaryBranch": [
+          "Doctrine",
+          "War Forge"
+        ],
+        "lateBranch": [
+          "Sustainment",
+          "Industry",
+          "Deployment",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Logistics",
+          "Muster",
+          "Intel",
+          "Fortification",
+          "Emplacement",
+          "Doctrine",
+          "War Forge",
+          "Sustainment",
+          "Industry",
+          "Deployment",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "fire-warrior",
+        "broadside",
+        "pathfinder",
+        "battlesuit",
+        "support-drone",
+        "breacher"
+      ],
+      "vehiclePriority": [
+        "anti-air",
+        "tank",
+        "transport",
+        "fast-skimmer"
+      ],
+      "productionStyle": "urban defence; overlapping ranged fields and marker coverage",
+      "notes": ""
+    },
+    "Bork'an Sept": {
+      "race": "T'au",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Industry",
+          "Doctrine"
+        ],
+        "primaryBranch": [
+          "War Forge",
+          "Intel"
+        ],
+        "secondaryBranch": [
+          "Muster",
+          "Logistics"
+        ],
+        "lateBranch": [
+          "Deployment",
+          "Sustainment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Industry",
+          "Doctrine",
+          "War Forge",
+          "Intel",
+          "Muster",
+          "Logistics",
+          "Deployment",
+          "Sustainment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "battlesuit",
+        "broadside",
+        "fire-warrior",
+        "pathfinder",
+        "support-drone",
+        "breacher"
+      ],
+      "vehiclePriority": [
+        "tank",
+        "anti-air",
+        "fast-skimmer",
+        "transport"
+      ],
+      "productionStyle": "prototype-heavy warfare; expensive systems require stable power and fabrication",
+      "notes": ""
+    },
+    "Dal'yth Sept": {
+      "race": "T'au",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Logistics",
+          "Muster"
+        ],
+        "primaryBranch": [
+          "Deployment",
+          "Doctrine"
+        ],
+        "secondaryBranch": [
+          "Intel",
+          "War Forge"
+        ],
+        "lateBranch": [
+          "Sustainment",
+          "Industry",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Logistics",
+          "Muster",
+          "Deployment",
+          "Doctrine",
+          "Intel",
+          "War Forge",
+          "Sustainment",
+          "Industry",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "fire-warrior",
+        "auxiliary",
+        "pathfinder",
+        "breacher",
+        "battlesuit",
+        "support-drone"
+      ],
+      "vehiclePriority": [
+        "transport",
+        "fast-skimmer",
+        "tank",
+        "anti-air"
+      ],
+      "productionStyle": "coalition/logistics; emphasize transport, flexible auxiliaries, and territorial support",
+      "notes": ""
+    },
+    "Farsight Enclaves": {
+      "race": "T'au",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Muster",
+          "War Forge"
+        ],
+        "primaryBranch": [
+          "Deployment",
+          "Intel"
+        ],
+        "secondaryBranch": [
+          "Doctrine",
+          "Logistics"
+        ],
+        "lateBranch": [
+          "Industry",
+          "Sustainment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Muster",
+          "War Forge",
+          "Deployment",
+          "Intel",
+          "Doctrine",
+          "Logistics",
+          "Industry",
+          "Sustainment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "battlesuit",
+        "breacher",
+        "fire-warrior",
+        "pathfinder",
+        "support-drone",
+        "broadside"
+      ],
+      "vehiclePriority": [
+        "fast-skimmer",
+        "transport",
+        "tank",
+        "anti-air"
+      ],
+      "productionStyle": "aggressive close-range combined arms; battlesuits get a much higher production weight",
+      "notes": ""
+    },
+    "Marker Network": {
+      "race": "T'au",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Intel",
+          "Logistics"
+        ],
+        "primaryBranch": [
+          "Doctrine",
+          "Muster"
+        ],
+        "secondaryBranch": [
+          "War Forge",
+          "Emplacement"
+        ],
+        "lateBranch": [
+          "Deployment",
+          "Industry",
+          "Sustainment",
+          "Fortification",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Intel",
+          "Logistics",
+          "Doctrine",
+          "Muster",
+          "War Forge",
+          "Emplacement",
+          "Deployment",
+          "Industry",
+          "Sustainment",
+          "Fortification",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "pathfinder",
+        "marker-drone",
+        "fire-warrior",
+        "broadside",
+        "battlesuit",
+        "support-drone"
+      ],
+      "vehiclePriority": [
+        "anti-air",
+        "tank",
+        "transport",
+        "fast-skimmer"
+      ],
+      "productionStyle": "sensor/marker control; never overproduce shooters without enough target designation",
+      "notes": ""
+    },
+    "Guardian Web": {
+      "race": "T'au",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Logistics",
+          "Intel"
+        ],
+        "primaryBranch": [
+          "Fortification",
+          "Emplacement"
+        ],
+        "secondaryBranch": [
+          "Muster",
+          "War Forge"
+        ],
+        "lateBranch": [
+          "Doctrine",
+          "Sustainment",
+          "Industry",
+          "Deployment",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Logistics",
+          "Intel",
+          "Fortification",
+          "Emplacement",
+          "Muster",
+          "War Forge",
+          "Doctrine",
+          "Sustainment",
+          "Industry",
+          "Deployment",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "fire-warrior",
+        "broadside",
+        "support-drone",
+        "pathfinder",
+        "battlesuit",
+        "breacher"
+      ],
+      "vehiclePriority": [
+        "anti-air",
+        "transport",
+        "tank",
+        "fast-skimmer"
+      ],
+      "productionStyle": "layered defence; drones, sensors and ranged anchors dominate the branch",
+      "notes": ""
+    },
+    "Recon Swarm": {
+      "race": "T'au",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Intel",
+          "Deployment"
+        ],
+        "primaryBranch": [
+          "Muster",
+          "Doctrine"
+        ],
+        "secondaryBranch": [
+          "War Forge",
+          "Logistics"
+        ],
+        "lateBranch": [
+          "Industry",
+          "Sustainment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Intel",
+          "Deployment",
+          "Muster",
+          "Doctrine",
+          "War Forge",
+          "Logistics",
+          "Industry",
+          "Sustainment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "pathfinder",
+        "stealth",
+        "marker-drone",
+        "fire-warrior",
+        "battlesuit",
+        "support-drone"
+      ],
+      "vehiclePriority": [
+        "fast-skimmer",
+        "transport",
+        "anti-air",
+        "tank"
+      ],
+      "productionStyle": "recon screen; mobility and information outrank static production",
+      "notes": ""
+    },
+    "Ironjaw Mob": {
+      "race": "Orks",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Muster",
+          "Industry"
+        ],
+        "primaryBranch": [
+          "War Forge",
+          "Fortification"
+        ],
+        "secondaryBranch": [
+          "Deployment",
+          "Emplacement"
+        ],
+        "lateBranch": [
+          "Logistics",
+          "Doctrine",
+          "Sustainment",
+          "Intel",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Muster",
+          "Industry",
+          "War Forge",
+          "Fortification",
+          "Deployment",
+          "Emplacement",
+          "Logistics",
+          "Doctrine",
+          "Sustainment",
+          "Intel",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "slugga-boy",
+        "nob",
+        "tankbusta",
+        "shoota-boy",
+        "gretchin",
+        "kommando"
+      ],
+      "vehiclePriority": [
+        "walker",
+        "battlewagon",
+        "transport",
+        "light-walker"
+      ],
+      "productionStyle": "brutal assault; infantry mass first, then walkers and heavy wagons",
+      "notes": ""
+    },
+    "Speed Freeks": {
+      "race": "Orks",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Industry",
+          "War Forge"
+        ],
+        "primaryBranch": [
+          "Deployment",
+          "Muster"
+        ],
+        "secondaryBranch": [
+          "Logistics",
+          "Intel"
+        ],
+        "lateBranch": [
+          "Doctrine",
+          "Sustainment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Industry",
+          "War Forge",
+          "Deployment",
+          "Muster",
+          "Logistics",
+          "Intel",
+          "Doctrine",
+          "Sustainment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "mobile-boy",
+        "shoota-boy",
+        "tankbusta",
+        "nob",
+        "kommando",
+        "gretchin"
+      ],
+      "vehiclePriority": [
+        "transport",
+        "fast-vehicle",
+        "battlewagon",
+        "walker"
+      ],
+      "productionStyle": "speed-first; every large mob should have mobility before another static structure",
+      "notes": "Add Warbike/Deffkilla-style entries later; current Ork vehicle roster only partially expresses a true Speed Freeks army."
+    },
+    "Freebooter Fleet": {
+      "race": "Orks",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Industry",
+          "Logistics"
+        ],
+        "primaryBranch": [
+          "War Forge",
+          "Deployment"
+        ],
+        "secondaryBranch": [
+          "Muster",
+          "Intel"
+        ],
+        "lateBranch": [
+          "Doctrine",
+          "Sustainment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Industry",
+          "Logistics",
+          "War Forge",
+          "Deployment",
+          "Muster",
+          "Intel",
+          "Doctrine",
+          "Sustainment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "shoota-boy",
+        "tankbusta",
+        "kommando",
+        "nob",
+        "slugga-boy",
+        "gretchin"
+      ],
+      "vehiclePriority": [
+        "battlewagon",
+        "transport",
+        "looted-vehicle",
+        "walker"
+      ],
+      "productionStyle": "loot-driven combined arms; salvage availability can temporarily override normal production priority",
+      "notes": ""
+    },
+    "Goff Mob": {
+      "race": "Orks",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Muster",
+          "Industry"
+        ],
+        "primaryBranch": [
+          "Deployment",
+          "War Forge"
+        ],
+        "secondaryBranch": [
+          "Doctrine",
+          "Fortification"
+        ],
+        "lateBranch": [
+          "Logistics",
+          "Sustainment",
+          "Intel",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Muster",
+          "Industry",
+          "Deployment",
+          "War Forge",
+          "Doctrine",
+          "Fortification",
+          "Logistics",
+          "Sustainment",
+          "Intel",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "slugga-boy",
+        "nob",
+        "tankbusta",
+        "shoota-boy",
+        "gretchin",
+        "kommando"
+      ],
+      "vehiclePriority": [
+        "transport",
+        "battlewagon",
+        "walker",
+        "light-walker"
+      ],
+      "productionStyle": "maximum melee pressure; transports exist to deliver mobs into combat",
+      "notes": ""
+    },
+    "Bad Moon Mob": {
+      "race": "Orks",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Industry",
+          "War Forge"
+        ],
+        "primaryBranch": [
+          "Logistics",
+          "Muster"
+        ],
+        "secondaryBranch": [
+          "Emplacement",
+          "Intel"
+        ],
+        "lateBranch": [
+          "Deployment",
+          "Doctrine",
+          "Sustainment",
+          "Fortification",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Industry",
+          "War Forge",
+          "Logistics",
+          "Muster",
+          "Emplacement",
+          "Intel",
+          "Deployment",
+          "Doctrine",
+          "Sustainment",
+          "Fortification",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "shoota-boy",
+        "tankbusta",
+        "nob",
+        "slugga-boy",
+        "kommando",
+        "gretchin"
+      ],
+      "vehiclePriority": [
+        "battlewagon",
+        "light-walker",
+        "walker",
+        "transport"
+      ],
+      "productionStyle": "dakka economy; ranged weapons and expensive machinery get first claim on surplus scrap",
+      "notes": ""
+    },
+    "Deathskull Mob": {
+      "race": "Orks",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Industry",
+          "Logistics"
+        ],
+        "primaryBranch": [
+          "War Forge",
+          "Intel"
+        ],
+        "secondaryBranch": [
+          "Muster",
+          "Deployment"
+        ],
+        "lateBranch": [
+          "Doctrine",
+          "Sustainment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Industry",
+          "Logistics",
+          "War Forge",
+          "Intel",
+          "Muster",
+          "Deployment",
+          "Doctrine",
+          "Sustainment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "tankbusta",
+        "kommando",
+        "shoota-boy",
+        "nob",
+        "slugga-boy",
+        "gretchin"
+      ],
+      "vehiclePriority": [
+        "looted-vehicle",
+        "walker",
+        "transport",
+        "battlewagon"
+      ],
+      "productionStyle": "salvage opportunists; counter-build from enemy wrecks and captured equipment",
+      "notes": ""
+    },
+    "Sautekh": {
+      "race": "Necrons",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Logistics",
+          "Muster"
+        ],
+        "primaryBranch": [
+          "Doctrine",
+          "Intel"
+        ],
+        "secondaryBranch": [
+          "Sustainment",
+          "War Forge"
+        ],
+        "lateBranch": [
+          "Fortification",
+          "Emplacement",
+          "Deployment",
+          "Industry",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Logistics",
+          "Muster",
+          "Doctrine",
+          "Intel",
+          "Sustainment",
+          "War Forge",
+          "Fortification",
+          "Emplacement",
+          "Deployment",
+          "Industry",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "warrior",
+        "immortal",
+        "lychguard",
+        "deathmark",
+        "support",
+        "flayed-one"
+      ],
+      "vehiclePriority": [
+        "transport",
+        "gun-barge",
+        "artillery",
+        "monolith"
+      ],
+      "productionStyle": "disciplined phalanx; build ranged mass and reanimation depth before decisive assets",
+      "notes": ""
+    },
+    "Mephrit": {
+      "race": "Necrons",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Muster",
+          "Doctrine"
+        ],
+        "primaryBranch": [
+          "Intel",
+          "War Forge"
+        ],
+        "secondaryBranch": [
+          "Logistics",
+          "Emplacement"
+        ],
+        "lateBranch": [
+          "Sustainment",
+          "Industry",
+          "Deployment",
+          "Fortification",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Muster",
+          "Doctrine",
+          "Intel",
+          "War Forge",
+          "Logistics",
+          "Emplacement",
+          "Sustainment",
+          "Industry",
+          "Deployment",
+          "Fortification",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "immortal",
+        "deathmark",
+        "warrior",
+        "lychguard",
+        "support",
+        "flayed-one"
+      ],
+      "vehiclePriority": [
+        "artillery",
+        "gun-barge",
+        "monolith",
+        "transport"
+      ],
+      "productionStyle": "annihilation firepower; prioritize ranged killing power and targeting",
+      "notes": ""
+    },
+    "Novokh": {
+      "race": "Necrons",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Muster",
+          "Logistics"
+        ],
+        "primaryBranch": [
+          "Deployment",
+          "Doctrine"
+        ],
+        "secondaryBranch": [
+          "War Forge",
+          "Sustainment"
+        ],
+        "lateBranch": [
+          "Intel",
+          "Industry",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Muster",
+          "Logistics",
+          "Deployment",
+          "Doctrine",
+          "War Forge",
+          "Sustainment",
+          "Intel",
+          "Industry",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "flayed-one",
+        "lychguard",
+        "warrior",
+        "immortal",
+        "support",
+        "deathmark"
+      ],
+      "vehiclePriority": [
+        "transport",
+        "monolith",
+        "gun-barge",
+        "artillery"
+      ],
+      "productionStyle": "melee execution; teleport/transport delivery supports assault phalanxes",
+      "notes": ""
+    },
+    "Nihilakh": {
+      "race": "Necrons",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Logistics",
+          "Muster"
+        ],
+        "primaryBranch": [
+          "Fortification",
+          "Emplacement",
+          "Sustainment"
+        ],
+        "secondaryBranch": [
+          "Doctrine",
+          "Intel"
+        ],
+        "lateBranch": [
+          "War Forge",
+          "Industry",
+          "Deployment",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Logistics",
+          "Muster",
+          "Fortification",
+          "Emplacement",
+          "Sustainment",
+          "Doctrine",
+          "Intel",
+          "War Forge",
+          "Industry",
+          "Deployment",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "warrior",
+        "immortal",
+        "lychguard",
+        "support",
+        "deathmark",
+        "flayed-one"
+      ],
+      "vehiclePriority": [
+        "transport",
+        "monolith",
+        "gun-barge",
+        "artillery"
+      ],
+      "productionStyle": "territorial defence; reanimation and static control outrank pursuit",
+      "notes": ""
+    },
+    "Nephrekh": {
+      "race": "Necrons",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Deployment",
+          "Intel"
+        ],
+        "primaryBranch": [
+          "Muster",
+          "Doctrine"
+        ],
+        "secondaryBranch": [
+          "War Forge",
+          "Logistics"
+        ],
+        "lateBranch": [
+          "Sustainment",
+          "Industry",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Deployment",
+          "Intel",
+          "Muster",
+          "Doctrine",
+          "War Forge",
+          "Logistics",
+          "Sustainment",
+          "Industry",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "deathmark",
+        "triarch",
+        "immortal",
+        "warrior",
+        "lychguard",
+        "support"
+      ],
+      "vehiclePriority": [
+        "gun-barge",
+        "transport",
+        "monolith",
+        "artillery"
+      ],
+      "productionStyle": "translocation mobility; seek weak points instead of building a slow front",
+      "notes": ""
+    },
+    "Szarekhan": {
+      "race": "Necrons",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Logistics",
+          "Doctrine"
+        ],
+        "primaryBranch": [
+          "Muster",
+          "Sustainment"
+        ],
+        "secondaryBranch": [
+          "War Forge",
+          "Intel"
+        ],
+        "lateBranch": [
+          "Fortification",
+          "Emplacement",
+          "Industry",
+          "Deployment",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Logistics",
+          "Doctrine",
+          "Muster",
+          "Sustainment",
+          "War Forge",
+          "Intel",
+          "Fortification",
+          "Emplacement",
+          "Industry",
+          "Deployment",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "immortal",
+        "lychguard",
+        "warrior",
+        "support",
+        "deathmark",
+        "flayed-one"
+      ],
+      "vehiclePriority": [
+        "monolith",
+        "transport",
+        "gun-barge",
+        "artillery"
+      ],
+      "productionStyle": "elite dynastic combined arms; preserve high-value units and relic assets",
+      "notes": ""
+    },
+    "Tomb Watch": {
+      "race": "Necrons",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Intel",
+          "Logistics"
+        ],
+        "primaryBranch": [
+          "Fortification",
+          "Emplacement",
+          "Muster"
+        ],
+        "secondaryBranch": [
+          "Sustainment",
+          "War Forge"
+        ],
+        "lateBranch": [
+          "Doctrine",
+          "Industry",
+          "Deployment",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Intel",
+          "Logistics",
+          "Fortification",
+          "Emplacement",
+          "Muster",
+          "Sustainment",
+          "War Forge",
+          "Doctrine",
+          "Industry",
+          "Deployment",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "warrior",
+        "canoptek",
+        "immortal",
+        "support",
+        "deathmark",
+        "lychguard"
+      ],
+      "vehiclePriority": [
+        "transport",
+        "monolith",
+        "gun-barge",
+        "artillery"
+      ],
+      "productionStyle": "automated perimeter defence; sensor coverage and durable garrisons",
+      "notes": ""
+    },
+    "Repair Cohort": {
+      "race": "Necrons",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Logistics",
+          "Sustainment"
+        ],
+        "primaryBranch": [
+          "Industry",
+          "War Forge"
+        ],
+        "secondaryBranch": [
+          "Muster",
+          "Doctrine"
+        ],
+        "lateBranch": [
+          "Intel",
+          "Fortification",
+          "Emplacement",
+          "Deployment",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Logistics",
+          "Sustainment",
+          "Industry",
+          "War Forge",
+          "Muster",
+          "Doctrine",
+          "Intel",
+          "Fortification",
+          "Emplacement",
+          "Deployment",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "support",
+        "canoptek",
+        "warrior",
+        "immortal",
+        "lychguard",
+        "deathmark"
+      ],
+      "vehiclePriority": [
+        "transport",
+        "repair-support",
+        "monolith",
+        "gun-barge"
+      ],
+      "productionStyle": "reconstruction force; damaged/reanimating assets suppress unnecessary new production",
+      "notes": ""
+    },
+    "Hunter Matrix": {
+      "race": "Necrons",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Intel",
+          "Deployment"
+        ],
+        "primaryBranch": [
+          "Muster",
+          "War Forge"
+        ],
+        "secondaryBranch": [
+          "Doctrine",
+          "Logistics"
+        ],
+        "lateBranch": [
+          "Sustainment",
+          "Industry",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Intel",
+          "Deployment",
+          "Muster",
+          "War Forge",
+          "Doctrine",
+          "Logistics",
+          "Sustainment",
+          "Industry",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "deathmark",
+        "canoptek-hunter",
+        "triarch",
+        "immortal",
+        "warrior",
+        "support"
+      ],
+      "vehiclePriority": [
+        "gun-barge",
+        "fast-construct",
+        "transport",
+        "monolith"
+      ],
+      "productionStyle": "pursuit/hunter-killer; produce sensors and mobile killers, not static mass",
+      "notes": ""
+    },
+    "Leviathan": {
+      "race": "Tyranids",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Logistics",
+          "Muster"
+        ],
+        "primaryBranch": [
+          "Industry",
+          "Doctrine"
+        ],
+        "secondaryBranch": [
+          "War Forge",
+          "Sustainment"
+        ],
+        "lateBranch": [
+          "Intel",
+          "Deployment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Logistics",
+          "Muster",
+          "Industry",
+          "Doctrine",
+          "War Forge",
+          "Sustainment",
+          "Intel",
+          "Deployment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "termagant",
+        "hormagaunt",
+        "warrior",
+        "genestealer",
+        "gargoyle",
+        "support-organism"
+      ],
+      "vehiclePriority": [
+        "carnifex",
+        "exocrine",
+        "trygon",
+        "tyrannofex"
+      ],
+      "productionStyle": "balanced adaptive swarm; maintain synapse and biomass throughput",
+      "notes": ""
+    },
+    "Kraken": {
+      "race": "Tyranids",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Muster",
+          "Deployment"
+        ],
+        "primaryBranch": [
+          "Intel",
+          "Doctrine"
+        ],
+        "secondaryBranch": [
+          "Industry",
+          "War Forge"
+        ],
+        "lateBranch": [
+          "Logistics",
+          "Sustainment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Muster",
+          "Deployment",
+          "Intel",
+          "Doctrine",
+          "Industry",
+          "War Forge",
+          "Logistics",
+          "Sustainment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "hormagaunt",
+        "genestealer",
+        "gargoyle",
+        "warrior",
+        "ravener",
+        "termagant"
+      ],
+      "vehiclePriority": [
+        "trygon",
+        "carnifex",
+        "exocrine",
+        "tyrannofex"
+      ],
+      "productionStyle": "rapid migration; fast broods probe and envelop before monsters commit",
+      "notes": ""
+    },
+    "Behemoth": {
+      "race": "Tyranids",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Muster",
+          "Industry"
+        ],
+        "primaryBranch": [
+          "War Forge",
+          "Deployment"
+        ],
+        "secondaryBranch": [
+          "Doctrine",
+          "Sustainment"
+        ],
+        "lateBranch": [
+          "Logistics",
+          "Intel",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Muster",
+          "Industry",
+          "War Forge",
+          "Deployment",
+          "Doctrine",
+          "Sustainment",
+          "Logistics",
+          "Intel",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "hormagaunt",
+        "warrior",
+        "genestealer",
+        "termagant",
+        "ravener",
+        "support-organism"
+      ],
+      "vehiclePriority": [
+        "carnifex",
+        "trygon",
+        "tyrannofex",
+        "exocrine"
+      ],
+      "productionStyle": "shock assault; monstrous creatures open fortified fronts for swarms",
+      "notes": ""
+    },
+    "Jormungandr": {
+      "race": "Tyranids",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Logistics",
+          "Deployment"
+        ],
+        "primaryBranch": [
+          "Muster",
+          "Intel"
+        ],
+        "secondaryBranch": [
+          "War Forge",
+          "Doctrine"
+        ],
+        "lateBranch": [
+          "Industry",
+          "Sustainment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Logistics",
+          "Deployment",
+          "Muster",
+          "Intel",
+          "War Forge",
+          "Doctrine",
+          "Industry",
+          "Sustainment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "ravener",
+        "warrior",
+        "termagant",
+        "hormagaunt",
+        "genestealer",
+        "support-organism"
+      ],
+      "vehiclePriority": [
+        "trygon",
+        "carnifex",
+        "tyrannofex",
+        "exocrine"
+      ],
+      "productionStyle": "subterranean pressure; tunnel delivery and ambush precede surface mass",
+      "notes": ""
+    },
+    "Kronos": {
+      "race": "Tyranids",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Muster",
+          "Doctrine"
+        ],
+        "primaryBranch": [
+          "Intel",
+          "War Forge"
+        ],
+        "secondaryBranch": [
+          "Industry",
+          "Logistics"
+        ],
+        "lateBranch": [
+          "Sustainment",
+          "Emplacement",
+          "Fortification",
+          "Deployment",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Muster",
+          "Doctrine",
+          "Intel",
+          "War Forge",
+          "Industry",
+          "Logistics",
+          "Sustainment",
+          "Emplacement",
+          "Fortification",
+          "Deployment",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "termagant",
+        "warrior",
+        "ranged-bioform",
+        "gargoyle",
+        "hormagaunt",
+        "support-organism"
+      ],
+      "vehiclePriority": [
+        "exocrine",
+        "tyrannofex",
+        "carnifex",
+        "trygon"
+      ],
+      "productionStyle": "ranged/anti-warp swarm; bio-artillery stays screened by cheap organisms",
+      "notes": ""
+    },
+    "Gorgon": {
+      "race": "Tyranids",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Industry",
+          "Doctrine"
+        ],
+        "primaryBranch": [
+          "Muster",
+          "War Forge"
+        ],
+        "secondaryBranch": [
+          "Sustainment",
+          "Intel"
+        ],
+        "lateBranch": [
+          "Logistics",
+          "Deployment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Industry",
+          "Doctrine",
+          "Muster",
+          "War Forge",
+          "Sustainment",
+          "Intel",
+          "Logistics",
+          "Deployment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "termagant",
+        "hormagaunt",
+        "toxic-bioform",
+        "warrior",
+        "genestealer",
+        "support-organism"
+      ],
+      "vehiclePriority": [
+        "tyrannofex",
+        "exocrine",
+        "carnifex",
+        "trygon"
+      ],
+      "productionStyle": "adaptive toxins; counter-produce bioforms based on observed enemy physiology/armour",
+      "notes": ""
+    },
+    "Hydra": {
+      "race": "Tyranids",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Industry",
+          "Muster"
+        ],
+        "primaryBranch": [
+          "Logistics",
+          "Sustainment"
+        ],
+        "secondaryBranch": [
+          "Doctrine",
+          "Deployment"
+        ],
+        "lateBranch": [
+          "War Forge",
+          "Intel",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Industry",
+          "Muster",
+          "Logistics",
+          "Sustainment",
+          "Doctrine",
+          "Deployment",
+          "War Forge",
+          "Intel",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "termagant",
+        "hormagaunt",
+        "gargoyle",
+        "warrior",
+        "genestealer",
+        "support-organism"
+      ],
+      "vehiclePriority": [
+        "carnifex",
+        "trygon",
+        "exocrine",
+        "tyrannofex"
+      ],
+      "productionStyle": "endless swarm; brood throughput outranks monster saturation until biomass surplus exists",
+      "notes": ""
+    },
+    "Lictor Brood": {
+      "race": "Tyranids",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Intel",
+          "Deployment"
+        ],
+        "primaryBranch": [
+          "Muster",
+          "Doctrine"
+        ],
+        "secondaryBranch": [
+          "Industry",
+          "War Forge"
+        ],
+        "lateBranch": [
+          "Logistics",
+          "Sustainment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Intel",
+          "Deployment",
+          "Muster",
+          "Doctrine",
+          "Industry",
+          "War Forge",
+          "Logistics",
+          "Sustainment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "lictor",
+        "genestealer",
+        "ravener",
+        "gargoyle",
+        "warrior",
+        "termagant"
+      ],
+      "vehiclePriority": [
+        "trygon",
+        "carnifex",
+        "exocrine",
+        "tyrannofex"
+      ],
+      "productionStyle": "assassination/vanguard; keep monster production sparse unless the target requires it",
+      "notes": "Add Lictor/Deathleaper entries when assets exist; the current generic Tyranid roster does not expose them."
+    },
+    "Spore Web": {
+      "race": "Tyranids",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Industry",
+          "Intel"
+        ],
+        "primaryBranch": [
+          "Fortification",
+          "Emplacement"
+        ],
+        "secondaryBranch": [
+          "Muster",
+          "War Forge"
+        ],
+        "lateBranch": [
+          "Doctrine",
+          "Logistics",
+          "Sustainment",
+          "Deployment",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Industry",
+          "Intel",
+          "Fortification",
+          "Emplacement",
+          "Muster",
+          "War Forge",
+          "Doctrine",
+          "Logistics",
+          "Sustainment",
+          "Deployment",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "termagant",
+        "spore-organism",
+        "warrior",
+        "gargoyle",
+        "hormagaunt",
+        "support-organism"
+      ],
+      "vehiclePriority": [
+        "exocrine",
+        "tyrannofex",
+        "carnifex",
+        "trygon"
+      ],
+      "productionStyle": "area denial; saturation and bio-artillery protect digestion/reclamation zones",
+      "notes": ""
+    },
+    "Genestealer Vanguard": {
+      "race": "Tyranids",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Intel",
+          "Muster"
+        ],
+        "primaryBranch": [
+          "Deployment",
+          "Doctrine"
+        ],
+        "secondaryBranch": [
+          "Industry",
+          "War Forge"
+        ],
+        "lateBranch": [
+          "Logistics",
+          "Sustainment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Intel",
+          "Muster",
+          "Deployment",
+          "Doctrine",
+          "Industry",
+          "War Forge",
+          "Logistics",
+          "Sustainment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "genestealer",
+        "ravener",
+        "warrior",
+        "hormagaunt",
+        "gargoyle",
+        "termagant"
+      ],
+      "vehiclePriority": [
+        "trygon",
+        "carnifex",
+        "exocrine",
+        "tyrannofex"
+      ],
+      "productionStyle": "infiltration assault; spawn light, fast broods until a breach is created",
+      "notes": ""
+    },
+    "Black Legion": {
+      "race": "Chaos",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Logistics",
+          "Muster"
+        ],
+        "primaryBranch": [
+          "Deployment",
+          "Doctrine"
+        ],
+        "secondaryBranch": [
+          "War Forge",
+          "Intel"
+        ],
+        "lateBranch": [
+          "Industry",
+          "Sustainment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Logistics",
+          "Muster",
+          "Deployment",
+          "Doctrine",
+          "War Forge",
+          "Intel",
+          "Industry",
+          "Sustainment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "chaos-marine",
+        "chosen",
+        "havoc",
+        "raptor",
+        "cultist",
+        "support"
+      ],
+      "vehiclePriority": [
+        "transport",
+        "daemon-engine",
+        "walker",
+        "heavy-daemon-engine"
+      ],
+      "productionStyle": "speartip combined arms; create one hard striking package rather than uniform waves",
+      "notes": ""
+    },
+    "Word Bearers": {
+      "race": "Chaos",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Muster",
+          "Doctrine"
+        ],
+        "primaryBranch": [
+          "Deployment",
+          "Industry"
+        ],
+        "secondaryBranch": [
+          "Logistics",
+          "War Forge"
+        ],
+        "lateBranch": [
+          "Sustainment",
+          "Intel",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Muster",
+          "Doctrine",
+          "Deployment",
+          "Industry",
+          "Logistics",
+          "War Forge",
+          "Sustainment",
+          "Intel",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "cultist",
+        "chaos-marine",
+        "daemon",
+        "chosen",
+        "support",
+        "havoc"
+      ],
+      "vehiclePriority": [
+        "daemon-engine",
+        "transport",
+        "walker",
+        "heavy-daemon-engine"
+      ],
+      "productionStyle": "ritual/summoning mass; cheap bodies secure sites while daemonic power accumulates",
+      "notes": ""
+    },
+    "Iron Warriors": {
+      "race": "Chaos",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Logistics",
+          "Industry"
+        ],
+        "primaryBranch": [
+          "War Forge",
+          "Fortification",
+          "Emplacement"
+        ],
+        "secondaryBranch": [
+          "Muster",
+          "Intel"
+        ],
+        "lateBranch": [
+          "Doctrine",
+          "Sustainment",
+          "Deployment",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Logistics",
+          "Industry",
+          "War Forge",
+          "Fortification",
+          "Emplacement",
+          "Muster",
+          "Intel",
+          "Doctrine",
+          "Sustainment",
+          "Deployment",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "havoc",
+        "chaos-marine",
+        "chosen",
+        "engineer",
+        "cultist",
+        "support"
+      ],
+      "vehiclePriority": [
+        "walker",
+        "heavy-daemon-engine",
+        "artillery",
+        "transport"
+      ],
+      "productionStyle": "siege engineering; heavy firepower and fortified logistics before breakthrough",
+      "notes": ""
+    },
+    "Night Lords": {
+      "race": "Chaos",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Intel",
+          "Muster"
+        ],
+        "primaryBranch": [
+          "Deployment",
+          "Doctrine"
+        ],
+        "secondaryBranch": [
+          "War Forge",
+          "Logistics"
+        ],
+        "lateBranch": [
+          "Industry",
+          "Sustainment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Intel",
+          "Muster",
+          "Deployment",
+          "Doctrine",
+          "War Forge",
+          "Logistics",
+          "Industry",
+          "Sustainment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "raptor",
+        "warp-talon",
+        "chosen",
+        "chaos-marine",
+        "cultist",
+        "havoc"
+      ],
+      "vehiclePriority": [
+        "transport",
+        "fast-daemon-engine",
+        "walker",
+        "heavy-daemon-engine"
+      ],
+      "productionStyle": "terror and isolation; hunt weak detachments and avoid fair frontal fights",
+      "notes": ""
+    },
+    "Alpha Legion": {
+      "race": "Chaos",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Intel",
+          "Logistics"
+        ],
+        "primaryBranch": [
+          "Doctrine",
+          "Deployment"
+        ],
+        "secondaryBranch": [
+          "Muster",
+          "War Forge"
+        ],
+        "lateBranch": [
+          "Industry",
+          "Sustainment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Intel",
+          "Logistics",
+          "Doctrine",
+          "Deployment",
+          "Muster",
+          "War Forge",
+          "Industry",
+          "Sustainment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "infiltrator",
+        "cultist",
+        "havoc",
+        "chaos-marine",
+        "raptor",
+        "chosen"
+      ],
+      "vehiclePriority": [
+        "transport",
+        "fast-daemon-engine",
+        "walker",
+        "heavy-daemon-engine"
+      ],
+      "productionStyle": "deception/sabotage; information and infiltration can override raw army-size deficits",
+      "notes": ""
+    },
+    "Emperor's Children": {
+      "race": "Chaos",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Muster",
+          "Doctrine"
+        ],
+        "primaryBranch": [
+          "War Forge",
+          "Deployment"
+        ],
+        "secondaryBranch": [
+          "Intel",
+          "Logistics"
+        ],
+        "lateBranch": [
+          "Industry",
+          "Sustainment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Muster",
+          "Doctrine",
+          "War Forge",
+          "Deployment",
+          "Intel",
+          "Logistics",
+          "Industry",
+          "Sustainment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "chosen",
+        "precision-ranged",
+        "assault",
+        "raptor",
+        "chaos-marine",
+        "cultist"
+      ],
+      "vehiclePriority": [
+        "transport",
+        "fast-daemon-engine",
+        "heavy-daemon-engine",
+        "walker"
+      ],
+      "productionStyle": "precision/excess; elite quality and target hunting over mass",
+      "notes": ""
+    },
+    "World Eaters": {
+      "race": "Chaos",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Muster",
+          "Deployment"
+        ],
+        "primaryBranch": [
+          "War Forge",
+          "Doctrine"
+        ],
+        "secondaryBranch": [
+          "Industry",
+          "Logistics"
+        ],
+        "lateBranch": [
+          "Sustainment",
+          "Intel",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Muster",
+          "Deployment",
+          "War Forge",
+          "Doctrine",
+          "Industry",
+          "Logistics",
+          "Sustainment",
+          "Intel",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "berserker",
+        "chosen",
+        "chaos-marine",
+        "assault",
+        "cultist",
+        "support"
+      ],
+      "vehiclePriority": [
+        "transport",
+        "walker",
+        "daemon-engine",
+        "heavy-daemon-engine"
+      ],
+      "productionStyle": "maximum melee tempo; transport availability is a prerequisite for creating another assault wave",
+      "notes": "Add Khorne Berzerker/Jakhals entries when assets exist; current generic Chaos roster cannot fully express World Eaters."
+    },
+    "Death Guard": {
+      "race": "Chaos",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Logistics",
+          "Muster"
+        ],
+        "primaryBranch": [
+          "Sustainment",
+          "Fortification"
+        ],
+        "secondaryBranch": [
+          "War Forge",
+          "Doctrine"
+        ],
+        "lateBranch": [
+          "Industry",
+          "Emplacement",
+          "Intel",
+          "Deployment",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Logistics",
+          "Muster",
+          "Sustainment",
+          "Fortification",
+          "War Forge",
+          "Doctrine",
+          "Industry",
+          "Emplacement",
+          "Intel",
+          "Deployment",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "plague-marine",
+        "chaos-marine",
+        "chosen",
+        "support",
+        "cultist",
+        "havoc"
+      ],
+      "vehiclePriority": [
+        "daemon-engine",
+        "walker",
+        "transport",
+        "heavy-daemon-engine"
+      ],
+      "productionStyle": "slow attrition; production favors durable occupation forces and repair/regeneration",
+      "notes": ""
+    },
+    "Thousand Sons": {
+      "race": "Chaos",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Doctrine",
+          "Logistics"
+        ],
+        "primaryBranch": [
+          "Muster",
+          "Intel"
+        ],
+        "secondaryBranch": [
+          "War Forge",
+          "Deployment"
+        ],
+        "lateBranch": [
+          "Industry",
+          "Sustainment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Doctrine",
+          "Logistics",
+          "Muster",
+          "Intel",
+          "War Forge",
+          "Deployment",
+          "Industry",
+          "Sustainment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "rubricae",
+        "sorcerer",
+        "ranged",
+        "support",
+        "cultist",
+        "chosen"
+      ],
+      "vehiclePriority": [
+        "daemon-engine",
+        "transport",
+        "heavy-daemon-engine",
+        "walker"
+      ],
+      "productionStyle": "sorcery/ranged control; doctrine and intel precede mass production",
+      "notes": "Add Rubric Marine/Sorcerer-specific entries when assets exist; generic Chaos units are only a fallback."
+    },
+    "Khorne Host": {
+      "race": "Chaos",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Muster",
+          "Deployment"
+        ],
+        "primaryBranch": [
+          "Doctrine",
+          "War Forge"
+        ],
+        "secondaryBranch": [
+          "Industry",
+          "Logistics"
+        ],
+        "lateBranch": [
+          "Sustainment",
+          "Intel",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Muster",
+          "Deployment",
+          "Doctrine",
+          "War Forge",
+          "Industry",
+          "Logistics",
+          "Sustainment",
+          "Intel",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "bloodletter",
+        "melee-daemon",
+        "elite-daemon",
+        "cultist",
+        "support"
+      ],
+      "vehiclePriority": [
+        "daemon-engine",
+        "walker",
+        "transport",
+        "heavy-daemon-engine"
+      ],
+      "productionStyle": "daemonic melee flood; minimal static investment unless holding a ritual/strategic point",
+      "notes": ""
+    },
+    "Tzeentch Coven": {
+      "race": "Chaos",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Doctrine",
+          "Intel"
+        ],
+        "primaryBranch": [
+          "Muster",
+          "Deployment"
+        ],
+        "secondaryBranch": [
+          "Industry",
+          "War Forge"
+        ],
+        "lateBranch": [
+          "Logistics",
+          "Sustainment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Doctrine",
+          "Intel",
+          "Muster",
+          "Deployment",
+          "Industry",
+          "War Forge",
+          "Logistics",
+          "Sustainment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "horror",
+        "sorcerer",
+        "ranged-daemon",
+        "support",
+        "elite-daemon"
+      ],
+      "vehiclePriority": [
+        "daemon-engine",
+        "heavy-daemon-engine",
+        "transport",
+        "walker"
+      ],
+      "productionStyle": "change/deception; produce counters to enemy composition rather than fixed ratios",
+      "notes": ""
+    },
+    "Nurgle Host": {
+      "race": "Chaos",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Logistics",
+          "Muster"
+        ],
+        "primaryBranch": [
+          "Sustainment",
+          "Fortification"
+        ],
+        "secondaryBranch": [
+          "Industry",
+          "War Forge"
+        ],
+        "lateBranch": [
+          "Doctrine",
+          "Emplacement",
+          "Intel",
+          "Deployment",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Logistics",
+          "Muster",
+          "Sustainment",
+          "Fortification",
+          "Industry",
+          "War Forge",
+          "Doctrine",
+          "Emplacement",
+          "Intel",
+          "Deployment",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "plaguebearer",
+        "durable-daemon",
+        "support",
+        "cultist",
+        "elite-daemon"
+      ],
+      "vehiclePriority": [
+        "daemon-engine",
+        "walker",
+        "heavy-daemon-engine",
+        "transport"
+      ],
+      "productionStyle": "area denial and attrition; grow forward strongpoints around contested objectives",
+      "notes": ""
+    },
+    "Slaanesh Host": {
+      "race": "Chaos",
+      "buildingPlan": {
+        "opening": [
+          "Power",
+          "Muster",
+          "Deployment"
+        ],
+        "primaryBranch": [
+          "Intel",
+          "Doctrine"
+        ],
+        "secondaryBranch": [
+          "War Forge",
+          "Industry"
+        ],
+        "lateBranch": [
+          "Logistics",
+          "Sustainment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ],
+        "fallbackFullOrder": [
+          "HQ",
+          "Power",
+          "Muster",
+          "Deployment",
+          "Intel",
+          "Doctrine",
+          "War Forge",
+          "Industry",
+          "Logistics",
+          "Sustainment",
+          "Fortification",
+          "Emplacement",
+          "Signature"
+        ]
+      },
+      "unitPriority": [
+        "daemonette",
+        "fast-melee",
+        "elite-daemon",
+        "ranged-support",
+        "cultist"
+      ],
+      "vehiclePriority": [
+        "fast-daemon-engine",
+        "transport",
+        "daemon-engine",
+        "walker"
+      ],
+      "productionStyle": "speed/isolation; repeatedly create local numerical superiority instead of a static line",
+      "notes": ""
+    }
+  }
+}

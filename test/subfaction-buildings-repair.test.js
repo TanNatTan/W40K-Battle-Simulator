@@ -46,15 +46,15 @@ test("subfaction building labels preserve the authored faction identity", () => 
   assert.equal(subfactionBuildingLabelFor("Slaanesh Host", "turret"), "Sonic Warp Shrine");
 });
 
-test("every faction limits building repairs to one assigned builder", () => {
+test("resident caretakers lead repairs and severe damage may draw the authored reserve", () => {
   const player = { faction: "Space Marines", subfaction: "Salamanders" };
   const servitor = { id: "s1", faction: "a", role: "builder", name: "Servitor", alive: true };
-  const routine = { targetId: "forge", targetType: "building", severity: 0.2, underFire: false };
+  const routine = { targetId: "forge", targetType: "building", severity: 0.1, underFire: false };
   const severe = { ...routine, severity: 0.55 };
-  const target = { id: "forge", type: "workshop", hp: 420, maxHp: 600, condition: 0.7 };
+  const target = { id: "forge", type: "workshop", progress: 1, alive: true, hp: 570, maxHp: 600, condition: 0.95 };
   assert.equal(BUILDER_REPAIR_CREW_LIMIT, 1);
   assert.equal(builderRepairCrewLimit(player, servitor, routine, target), 1);
-  assert.equal(builderRepairCrewLimit(player, servitor, severe, target), 1);
+  assert.equal(builderRepairCrewLimit(player, servitor, severe, target), 3);
 
   const first = { ...servitor };
   claimRepairAssignment(first, target.id, 10);
@@ -62,36 +62,41 @@ test("every faction limits building repairs to one assigned builder", () => {
   const third = { ...servitor, id: "s3" };
   assert.equal(activeRepairCrewCount({ units: [first, second, third], targetId: target.id, faction: "a", now: 10.2 }), 1);
   assert.equal(builderRepairSlotAvailable({ player, unit: second, request: routine, target, units: [first, second, third], now: 10.2 }), false);
-  assert.equal(builderRepairSlotAvailable({ player, unit: second, request: severe, target, units: [first, second, third], now: 10.2 }), false);
+  assert.equal(builderRepairSlotAvailable({ player, unit: second, request: severe, target, units: [first, second, third], now: 10.2 }), true);
   claimRepairAssignment(second, target.id, 10.2);
-  assert.equal(builderRepairSlotAvailable({ player, unit: third, request: severe, target, units: [first, second, third], now: 10.3 }), false);
+  assert.equal(builderRepairSlotAvailable({ player, unit: third, request: severe, target, units: [first, second, third], now: 10.3 }), true);
 });
 
-test("stale repair claims expire and the one-builder limit applies to non-Servitor factions", () => {
+test("stale repair claims expire and Orks use multi-builder repair crews", () => {
   const stale = { id: "s1", faction: "a", role: "builder", name: "Servitor", repairTargetId: "forge", repairAssignmentAt: 2 };
   assert.equal(releaseStaleRepairAssignment(stale, 3), true);
   assert.equal(stale.repairTargetId, null);
 
   const grot = { id: "g1", faction: "b", role: "builder", name: "Gretchin" };
-  assert.equal(builderRepairCrewLimit({ faction: "Scrap Legion" }, grot, { targetType: "building" }, {}), 1);
+  assert.equal(builderRepairCrewLimit({ race: "Orks", faction: "Scrap Legion" }, grot, { targetType: "building", severity: 0.1 }, { progress: 1, alive: true, type: "barracks" }), 2);
 });
 
-test("browser runtime constructs first and applies the universal builder repair gate", async () => {
+test("browser runtime plans construction above builders and applies the universal repair gate", async () => {
   const source = await readFile(new URL("../js/app.js", import.meta.url), "utf8");
   assert.match(source, /signature:\s*\{ label: "Signature Facility"/);
   assert.match(source, /subfactionBuildingLabelFor\(player, type, fallback\)/);
-  assert.match(source, /subfactionBuildingTypesFor\(player\)/);
+  assert.match(source, /chooseSubfactionBuildProject\(\{/);
   assert.match(source, /availableBuildingRepairs = state\.sustainmentRequests\.filter/);
   assert.match(source, /builderRepairSlotAvailable\(\{/);
-  assert.match(source, /if \(tryStartBuilderConstruction\(unit\)\) return;/);
+  assert.match(source, /planFactionConstruction\(player\)/);
+  assert.match(source, /construction\.state = "planned"/);
+  assert.doesNotMatch(source, /tryStartBuilderConstruction/);
+  assert.match(source, /builderHomeStatus\(unit, state\.structures\)/);
   assert.match(source, /constructionFirst: true/);
   assert.doesNotMatch(source, /Paused construction to save/);
   assert.match(source, /claimRepairAssignment\(unit, damaged\.id, state\.time\)/);
-  const constructionAttempt = source.indexOf("if (tryStartBuilderConstruction(unit)) return;");
-  const buildingRepair = source.indexOf("const damaged = urgentRepair", constructionAttempt);
+  const projectAssignment = source.indexOf("const alliedProjects = state.structures");
+  const constructionExecution = source.indexOf("if (unit.buildProject)", projectAssignment);
+  const buildingRepair = source.indexOf("const damaged = urgentRepair", constructionExecution);
   const resourceCollection = source.indexOf("if (updateResourceCollector(unit, dt)) return;", buildingRepair);
   const obstacleClearing = source.indexOf("const removableObstacle", resourceCollection);
-  assert.ok(constructionAttempt >= 0 && constructionAttempt < buildingRepair);
+  assert.ok(projectAssignment >= 0 && projectAssignment < constructionExecution);
+  assert.ok(constructionExecution < buildingRepair);
   assert.ok(buildingRepair < resourceCollection);
   assert.ok(resourceCollection < obstacleClearing);
 });
