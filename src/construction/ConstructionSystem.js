@@ -37,6 +37,11 @@ export function createConstructionState({ committedResources = {}, now = 0 } = {
   };
 }
 
+export function snapConstructionProgress(value = 0, completionThreshold = 0.995) {
+  const progress = clamp01(value);
+  return progress >= Math.max(0.9, Math.min(1, Number(completionThreshold) || 0.995)) ? 1 : progress;
+}
+
 export function constructionSiteKey(structure = {}, cellSize = 32) {
   const size = Math.max(1, Number(cellSize) || 32);
   return `${structure.type || "building"}:${Math.round((Number(structure.x) || 0) / size)},${Math.round((Number(structure.y) || 0) / size)}`;

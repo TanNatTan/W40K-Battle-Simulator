@@ -8,11 +8,15 @@ import { once } from "node:events";
 import { createServer as createNetServer } from "node:net";
 
 const projectRoot = process.cwd();
-const durationMs = Math.max(10_000, Number(process.env.AWT_STRESS_DURATION_MS) || 30_000);
 const argumentValue = name => process.argv.find(argument => argument.startsWith(`--${name}=`))?.split("=").slice(1).join("=");
+const durationMs = Math.max(10_000, (Number(argumentValue("duration")) || 0) * 1000 || Number(process.env.AWT_STRESS_DURATION_MS) || 30_000);
 const simulationSpeed = Math.max(1, Math.min(8, Number(argumentValue("speed") || process.env.AWT_STRESS_SPEED) || 8));
 const spawnRadius = Math.max(24, Number(argumentValue("spawn-radius") || process.env.AWT_STRESS_SPAWN_RADIUS) || 84);
+const playerCount = Math.max(2, Math.min(12, Number(argumentValue("players")) || 12));
 const fullRoster = process.argv.includes("--full-roster") || process.env.AWT_STRESS_FULL_ROSTER === "1";
+const allSpaceMarines = process.argv.includes("--all-space-marines");
+const constructionContinuation = process.argv.includes("--construction-continuation");
+const territoryDefenseCaptures = Math.max(0, Math.floor(Number(argumentValue("territory-defense-captures")) || 0));
 const profiling = process.argv.includes("--profile") || process.env.AWT_STRESS_PROFILE === "1";
 const browserPath = [
   "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
@@ -153,12 +157,28 @@ try {
     resolution.value = '1920x1080';
     resolution.dispatchEvent(new Event('change', { bubbles: true }));
     const players = document.querySelector('#awt-player-count');
-    players.value = '12';
+    players.value = '${playerCount}';
     players.dispatchEvent(new Event('change', { bubbles: true }));
     const scale = document.querySelector('#awt-scale-preset');
     scale.value = 'total';
     scale.dispatchEvent(new Event('change', { bubbles: true }));
     document.querySelector('#awt-configure-players').click();
+    ${allSpaceMarines ? `
+    const chapters = ['Ultramarines', 'Blood Angels', 'Emerald Suns', 'Salamanders', 'White Scars', 'Imperial Fists'];
+    const setSelect = (selector, value) => {
+      const select = document.querySelector(selector);
+      select.value = value;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    for (let index = 0; index < ${playerCount}; index += 1) {
+      document.querySelector('[data-player-tab="' + index + '"]').click();
+      setSelect('#awt-player-race', 'Imperium');
+      setSelect('#awt-player-faction', 'Space Marines');
+      setSelect('#awt-player-subfaction', chapters[index % chapters.length]);
+      setSelect('#awt-player-team', String(index % 4 + 1));
+      setSelect('#awt-player-battle-objective', index % 2 ? 'territorial_domination' : 'annihilation');
+    }
+    ` : ""}
     document.querySelector('#awt-shape-map').click();
     for (const player of root.awtDebugState.players) {
       player.battleObjective = 'annihilation';
@@ -166,11 +186,19 @@ try {
       player.battleObjectiveState = null;
     }
     const fixture = ${fullRoster ? `root.awtDebugControls.prepareFullRosterStressFixture(${spawnRadius})` : "null"};
+    const territoryDefenseProbes = ${territoryDefenseCaptures > 0
+      ? `root.awtDebugState.players.map(player => root.awtDebugControls.captureTerritoryMilestoneProbe(player.id, ${territoryDefenseCaptures}))`
+      : "[]"};
+    globalThis.awtStressInitialStructureIds = new Set(root.awtDebugState.structures.map(structure => structure.id));
+    globalThis.awtStressConstructionLifecycle = { firstCompletionAt: null, maxConcurrentProjects: 0 };
     document.querySelector('#awt-deploy-map').click();
     return {
       width: root.awtDebugState.world.width,
       height: root.awtDebugState.world.height,
       players: root.awtDebugState.players.length,
+      races: root.awtDebugState.players.map(player => player.race),
+      factions: root.awtDebugState.players.map(player => player.faction),
+      subfactions: root.awtDebugState.players.map(player => player.subfaction),
       teams: new Set(root.awtDebugState.players.map(player => player.team)).size,
       builders: root.awtDebugState.units.filter(unit => unit.role === 'builder').length,
       mode: root.awtDebugState.mode,
@@ -179,6 +207,7 @@ try {
       speedRequested: ${simulationSpeed},
       spawnRadii: root.awtDebugState.players.map(player => player.spawnZone?.size || 0),
       fixture,
+      territoryDefenseProbes,
       fixtureUnits: fixture ? fixture.players.reduce((sum, player) => sum + player.expectedUnitCount, 0) : 0,
       fixtureBuildings: fixture ? fixture.players.reduce((sum, player) => sum + player.expectedBuildingCount, 0) : 0,
       actualStressRosterUnits: root.awtDebugState.units.filter(unit => unit.stressRosterName).length,
@@ -187,8 +216,8 @@ try {
       error: root.dataset.runtimeError || null
     };
   })()`, 10_000);
-  if (setup.value.width !== 1920 || setup.value.height !== 1080 || setup.value.players !== 12
-    || setup.value.teams !== 4 || setup.value.builders < 24 || setup.value.mode !== "sim"
+  if (setup.value.width !== 1920 || setup.value.height !== 1080 || setup.value.players !== playerCount
+    || setup.value.teams !== Math.min(4, playerCount) || setup.value.builders < playerCount * 2 || setup.value.mode !== "sim"
     || setup.value.preset !== "total" || setup.value.viewport.width !== 1920 || setup.value.viewport.height !== 1080
     || setup.value.spawnRadii.some(radius => radius !== spawnRadius)
     || (fullRoster && setup.value.fixture.players.some(player => player.missingUnits.length || player.missingBuildings.length
@@ -197,6 +226,10 @@ try {
       || player.unitsOutsideSpawnZone.length || player.buildingsOutsideSpawnZone.length))
     || (fullRoster && (setup.value.actualStressRosterUnits !== setup.value.fixtureUnits
       || setup.value.completedStructures !== setup.value.fixtureBuildings))
+    || (allSpaceMarines && (setup.value.races.some(race => race !== "Imperium")
+      || setup.value.factions.some(faction => faction !== "Space Marines")))
+    || (territoryDefenseCaptures > 0 && setup.value.territoryDefenseProbes.some(probe => !probe
+      || probe.captured < territoryDefenseCaptures || probe.defenseOrders.length < Math.floor(territoryDefenseCaptures / 5) * 2))
     || setup.value.error) throw new Error(`Invalid stress setup: ${JSON.stringify(setup.value)}`);
 
   await delay(1500);
@@ -223,6 +256,22 @@ try {
         const start = globalThis.awtStressStartPositions[unit.id];
         return Math.hypot(unit.x - start.x, unit.y - start.y);
       });
+      const territoryAgents = state.units.filter(unit => unit.alive && unit.territoryAgentMission?.expiresAt > state.time);
+      const territoryAgentDisplacements = territoryAgents.map(unit => {
+        const start = globalThis.awtStressStartPositions?.[unit.id];
+        return start ? Math.hypot(unit.x - start.x, unit.y - start.y) : 0;
+      });
+      const newStructures = state.structures.filter(structure => !globalThis.awtStressInitialStructureIds?.has(structure.id));
+      const completedNewStructures = newStructures.filter(structure => structure.progress >= 1 && structure.alive !== false);
+      const lifecycle = globalThis.awtStressConstructionLifecycle;
+      if (lifecycle.firstCompletionAt == null && completedNewStructures.length) {
+        lifecycle.firstCompletionAt = Math.min(...completedNewStructures.map(structure => structure.completedAt ?? state.time));
+      }
+      const activeProjectsByFaction = state.players.map(player => state.structures.filter(structure => structure.faction === player.id
+        && structure.alive !== false && structure.progress < 1 && structure.construction?.state !== 'cancelled').length);
+      lifecycle.maxConcurrentProjects = Math.max(lifecycle.maxConcurrentProjects, ...activeProjectsByFaction);
+      const continuedStructures = lifecycle.firstCompletionAt == null ? []
+        : newStructures.filter(structure => structure.createdAt > lifecycle.firstCompletionAt + 0.0001);
       return {
         wallTime: performance.now(), simulationTime: state.time, frameCount: state.frameCount,
         lastSuccessfulSimulationAt: state.lastSuccessfulSimulationAt, paused: state.paused, ended: state.ended,
@@ -241,8 +290,36 @@ try {
           movedCombatUnits: combatDisplacements.filter(value => value >= 12).length,
           maximumDisplacement: Math.max(0, ...combatDisplacements)
         },
+        territoryAgents: {
+          assigned: territoryAgents.length,
+          moved: territoryAgentDisplacements.filter(value => value >= 8).length,
+          frontierContacts: state.players.reduce((sum, player) => sum + (player.frontierContacts?.length || 0), 0),
+          byFaction: state.players.map(player => ({
+            faction: player.id,
+            assigned: territoryAgents.filter(unit => unit.faction === player.id).length,
+            planned: player.territoryAgentMissions?.length || 0
+          }))
+        },
         frameMonitor: { ...globalThis.awtStressMetrics },
-        simulationFrame: { ...(state.lastSimulationFrame || {}) }
+        simulationFrame: { ...(state.lastSimulationFrame || {}) },
+        construction: {
+          newStructures: newStructures.length,
+          completedNewStructures: completedNewStructures.length,
+          firstCompletionAt: lifecycle.firstCompletionAt,
+          continuedStructures: continuedStructures.length,
+          maximumProgress: Math.max(0, ...newStructures.map(structure => Number(structure.progress) || 0)),
+          progressingStructures: newStructures.filter(structure => Number(structure.progress) > 0).length,
+          maxConcurrentProjects: lifecycle.maxConcurrentProjects,
+          activeProjectsByFaction,
+          defenseOrdersByFaction: state.players.map(player => ({
+            faction: player.id,
+            captures: player.territoryCaptureCount || 0,
+            total: (player.territoryDefenseOrders || []).length,
+            materialized: (player.territoryDefenseOrders || []).filter(order => order.structureId
+              && state.structures.some(structure => structure.id === order.structureId && structure.defendsTerritoryCell === order.cellKey)).length,
+            complete: (player.territoryDefenseOrders || []).filter(order => order.status === 'complete').length
+          }))
+        }
       };
     })()`);
     samples.push({ ...sample.value, probeLatencyMs: sample.latencyMs });
@@ -279,7 +356,15 @@ try {
     || last.movement.trackedCombatUnits > 0 && last.movement.movedCombatUnits < Math.max(1, Math.floor(last.movement.trackedCombatUnits * 0.05));
   console.log(JSON.stringify(report, null, 2));
   if (last.speed !== simulationSpeed) throw new Error(`Expected ${simulationSpeed}x simulation speed, received ${last.speed}x.`);
-  if (frozen) throw new Error(`12-player 1920x1080 simulation froze or became unresponsive: ${JSON.stringify(report)}`);
+  if (constructionContinuation && (last.construction.completedNewStructures < 1
+    || last.construction.continuedStructures < 1 || last.construction.maxConcurrentProjects < 2)) {
+    throw new Error(`Construction did not remain parallel and continue after completion: ${JSON.stringify(last.construction)}`);
+  }
+  if (territoryDefenseCaptures > 0 && last.construction.defenseOrdersByFaction.some(faction => faction.captures < territoryDefenseCaptures
+    || faction.materialized < Math.floor(territoryDefenseCaptures / 5) * 2)) {
+    throw new Error(`Fifth-capture territory defenses were not physically placed: ${JSON.stringify(last.construction.defenseOrdersByFaction)}`);
+  }
+  if (frozen) throw new Error(`${playerCount}-player 1920x1080 simulation froze or became unresponsive: ${JSON.stringify(report)}`);
 } finally {
   socket?.close();
   if (browser && browser.exitCode === null) {

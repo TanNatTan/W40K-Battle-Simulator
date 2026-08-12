@@ -44,7 +44,7 @@ import { BUILDING_CLEARANCE, blocksServiceCorridor, buildingClearanceFor, placem
 import { REPAIR_BALANCE, SUSTAINMENT_PROFILES, SUSTAINMENT_SERVICES, buildingRepairRate, buildSustainmentRequests, factionSustainmentCost, fieldServiceLimit, providerCanService, repairInteractionRange, selectSustainmentRequest, sustainmentCostFor, sustainmentProfileFor, sustainmentRequestFor } from "./support/SustainmentSystem.js";
 import { createNavigationMonitor, ensureNavigationMonitor, markNavigationRecovery, movementDiagnostic, navigationFingerprint, rememberFailedPath, sampleNavigationProgress } from "./map/MovementProgressSystem.js";
 import { chooseRecoveryPoint, clearNavigationState, recoveryRingCandidates } from "./map/StuckRecoverySystem.js";
-import { IDEAL_BUILDERS, constructionRefund, constructionSiteKey, createConstructionState, desiredBuildersFor, evaluateConstructionCancellation } from "./construction/ConstructionSystem.js";
+import { IDEAL_BUILDERS, constructionRefund, constructionSiteKey, createConstructionState, desiredBuildersFor, evaluateConstructionCancellation, snapConstructionProgress } from "./construction/ConstructionSystem.js";
 import { activeConstructionProjects, constructionLaborDemand, constructionQueueCapacity, constructionQueueSnapshot } from "./construction/ConstructionQueueSystem.js";
 import { chooseBuilderAssignment, scoreProjectForBuilder } from "./construction/BuilderAssignmentSystem.js";
 import { SUPPLY_TRANSPORT_SPEED, convoyBaseSpeed, convoyEffectiveSpeed, convoyMovementFactor } from "./logistics/ConvoyMovementSystem.js";
@@ -61,6 +61,9 @@ import { BUILDING_ROLE_TO_TYPE, BUILDING_TYPE_TO_ROLE, PRODUCTION_FACILITIES, SH
 import { BUILDER_REPAIR_ASSIGNMENT_TTL, BUILDER_REPAIR_CREW_LIMIT, SERVITOR_REPAIR_ASSIGNMENT_TTL, activeRepairCrewCount, builderRepairCrewLimit, builderRepairSlotAvailable, claimRepairAssignment, releaseStaleRepairAssignment, servitorRepairCrewLimit, servitorRepairSlotAvailable } from "./construction/RepairCrewSystem.js";
 import { ACTIVE_FORCE_ROLES, PASSIVE_FORCE_ROLES, desiredActiveForceRatio, enforceActiveForceRatio } from "./ai/ActiveForceSystem.js";
 import { BUILDING_CAPACITY_CLASSES, TERRITORY_BUILD_CAPS, buildingCapacityClass, constructionCapacityForCell, countBuildingsByCapacityClass, territoryCapacityAvailable } from "./territory/TerritoryConstructionSystem.js";
+import { TERRITORY_DEFENSE_INTERVAL, defensePackageForMilestone, pendingTerritoryDefenseOrder, recordTerritoryCapture, territoryDefenseOrdersForCapture } from "./territory/TerritoryDefenseSystem.js";
+import { STRATEGIC_DIRECTOR_RACE_PROFILES, STRATEGIC_DIRECTOR_ROLE_GATES, calculateBaseMaturity, evaluateStrategicDirector, scoreConstructionCandidate, selectConstructionIntent } from "./ai/StrategicDirectorSystem.js";
+import { TERRITORY_AGENT_DISENGAGE_RADIUS, TERRITORY_AGENT_SELF_DEFENSE_RADIUS, chooseTerritoryAgentFallback, isTerritoryAgentCandidate, selectTerritoryAgents, territoryAgentContactResponse } from "./ai/TerritoryAgentSystem.js";
 import { COMBAT_RESPONSES, chooseImmediateThreat, chooseSquadTarget, combatContactPhase, combatContactPoint, evaluateCombatResponse, refreshSquadCombatContact } from "./ai/CombatResponseSystem.js";
 import { BREAK_POLICIES, BREAK_POLICY_IDS, breakPolicyFor, breakPolicyIdFor, commissarInterventionFor, createPsychologyState, guardBreakStateFor, isCommissar, updateFactionPressure, withdrawalDecisionFor } from "./ai/FactionBreakPolicy.js";
 
@@ -210,6 +213,7 @@ globalThis.AWTSystems = Object.freeze({
   createConstructionState,
   desiredBuildersFor,
   evaluateConstructionCancellation,
+  snapConstructionProgress,
   activeConstructionProjects,
   constructionLaborDemand,
   constructionQueueCapacity,
@@ -297,6 +301,23 @@ globalThis.AWTSystems = Object.freeze({
   constructionCapacityForCell,
   countBuildingsByCapacityClass,
   territoryCapacityAvailable,
+  TERRITORY_DEFENSE_INTERVAL,
+  defensePackageForMilestone,
+  pendingTerritoryDefenseOrder,
+  recordTerritoryCapture,
+  territoryDefenseOrdersForCapture,
+  STRATEGIC_DIRECTOR_RACE_PROFILES,
+  STRATEGIC_DIRECTOR_ROLE_GATES,
+  calculateBaseMaturity,
+  evaluateStrategicDirector,
+  scoreConstructionCandidate,
+  selectConstructionIntent,
+  TERRITORY_AGENT_DISENGAGE_RADIUS,
+  TERRITORY_AGENT_SELF_DEFENSE_RADIUS,
+  chooseTerritoryAgentFallback,
+  isTerritoryAgentCandidate,
+  selectTerritoryAgents,
+  territoryAgentContactResponse,
   COMBAT_RESPONSES,
   chooseImmediateThreat,
   chooseSquadTarget,

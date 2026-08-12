@@ -46,7 +46,7 @@ export const factionConfig = Object.freeze({
         builder: ["Dark Servitor", "Cult Laborer"],
         supply: ["Traitor Cargo Hauler", "Daemon-bound Supply Carrier"],
         trooper: ["Cultist", "Chaos Space Marine", "Havoc", "Chosen", "Possessed", "Noise Marine", "Plague Marine", "Rubric Marine", "Khorne Berzerker"],
-        scout: ["Raptor", "Warp Talon"], medic: ["Dark Apostle"], engineer: ["Warpsmith"],
+        scout: ["Skull Probe", "Raptor", "Warp Talon"], medic: ["Dark Apostle"], engineer: ["Warpsmith"],
         commander: ["Chaos Lord", "Sorcerer", "Exalted Champion"], standard: ["Icon Bearer"],
         vehicle: ["Chaos Rhino", "Predator", "Land Raider", "Defiler", "Maulerfiend", "Forgefiend", "Heldrake", "Venomcrawler"]
       }
