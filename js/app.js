@@ -132,7 +132,11 @@ import {
 } from "../src/construction/RepairCrewSystem.js";
 import { enforceActiveForceRatio } from "../src/ai/ActiveForceSystem.js";
 import { buildingCapacityClass, constructionCapacityForCell } from "../src/territory/TerritoryConstructionSystem.js";
-import { pendingTerritoryDefenseOrder, recordTerritoryCapture } from "../src/territory/TerritoryDefenseSystem.js";
+import { pendingTerritoryDevelopmentOrder, recordTerritoryDevelopment } from "../src/territory/TerritoryDevelopmentSystem.js";
+import { evaluateSpaceMarineAI } from "../src/ai/space-marines/SpaceMarineAISystem.js";
+import { selectSpaceMarineConstructionIntent } from "../src/ai/space-marines/SpaceMarineConstructionDirector.js";
+import { isSpaceMarinePlayer } from "../src/ai/space-marines/SpaceMarineChapterDoctrine.js";
+import { evaluateSpaceMarineTerritoryDevelopment } from "../src/ai/space-marines/SpaceMarineTerritoryDoctrine.js";
 import {
   constructionRefund,
   constructionSiteKey,
@@ -1451,7 +1455,7 @@ import {
             roleCount: Object.keys(SQUAD_ROLE_DEFINITIONS).length
           };
         },
-        captureTerritoryMilestoneProbe(faction = state.players[0]?.id, captures = 5) {
+        captureTerritoryDevelopmentProbe(faction = state.players[0]?.id, captures = 5) {
           const player = playerFor(faction);
           const territory = primaryTerritoryFor(faction);
           if (!player || !territory) return null;
@@ -1484,7 +1488,8 @@ import {
             captured: (player.territoryCaptureCount || 0) - startingCaptures,
             captureCount: player.territoryCaptureCount || 0,
             claimedCells: territory.claimedCells.size,
-            defenseOrders: (player.territoryDefenseOrders || []).map(order => ({ ...order }))
+            developmentHistory: (player.territoryDevelopmentHistory || []).map(entry => ({ ...entry })),
+            developmentOrders: (player.territoryDevelopmentOrders || []).map(order => ({ ...order }))
           };
         },
         prepareFullRosterStressFixture(spawnRadius = 160) {
@@ -3623,7 +3628,7 @@ import {
             roads: state.roads,
             unitConfig: {
               unitsPerPlayer: 10,
-              baseCaptureSeconds: 60,
+              baseCaptureSeconds: 20,
               perUnitBonus: 0.2,
               maxUnitsPerTarget: 5,
               moveSecondsPerHop: 3.5
@@ -3663,7 +3668,9 @@ import {
           player.scenarioTags = [];
           player.constructionCooldowns = {};
           player.territoryCaptureCount = 0;
-          player.territoryDefenseOrders = [];
+          player.territoryDevelopmentOrders = [];
+          player.territoryDevelopmentHistory = [];
+          player.spaceMarineStrategy = null;
         });
         const requestedScale = state.performanceRequested === "auto" ? "skirmish" : state.performanceRequested;
         const battleScalePreset = scalePresetFor(0, requestedScale);
@@ -4052,7 +4059,7 @@ import {
           ? readinessValues.reduce((sum, value) => sum + value, 0) / readinessValues.length : 0.5;
         const armyCount = state.units.filter(unit => unit.alive && !unit.incapacitated && unit.faction === player.id
           && !["builder", "supply"].includes(unit.role)).length;
-        player.strategicDirector = evaluateStrategicDirector({
+        const sharedDirector = evaluateStrategicDirector({
           now: state.time,
           player,
           operationalPhase: player.operationalPlan?.phase || "assess",
@@ -4066,6 +4073,14 @@ import {
           productionPlan: subfactionProductionPlanFor(player),
           demand: demand || productionDemandFor(player)
         });
+        player.strategicDirector = player.spaceMarineStrategy ? Object.freeze({
+          ...sharedDirector,
+          phase: player.spaceMarineStrategy.posture.toLowerCase(),
+          constructionConcurrency: player.spaceMarineStrategy.constructionConcurrency,
+          territoryAgents: player.spaceMarineStrategy.territoryAgents,
+          roleWeights: Object.freeze({ ...sharedDirector.roleWeights, ...player.spaceMarineStrategy.roleWeights }),
+          reason: player.spaceMarineStrategy.reason
+        }) : sharedDirector;
         return player.strategicDirector;
       }
 
@@ -4203,6 +4218,7 @@ import {
               committedCount: committed(type),
               activeCount: state.structures.filter(item => item.faction === faction && item.type === type && item.alive !== false && item.progress < 1).length,
               emergency: threat,
+              criticalResourceFailure: (economy.shortages || []).some(resource => Object.hasOwn(spec.produces || {}, resource)),
               reason: type === nextBranchType ? recommendedProject.reason : bootstrapBonus ? "bootstrap production chain" : `${spec.purpose.toLowerCase()} need and battlefield utility`,
               prerequisitesSatisfied: dependencyReady,
               dependenciesCanEverBeSatisfied: !spec.requires || Object.hasOwn(buildingCatalog, spec.requires),
@@ -4213,12 +4229,20 @@ import {
           .sort((a, b) => b.utility - a.utility);
         const temperature = player.race === "Orks" ? 24 : behavior.aggression >= 70 ? 18 : 11;
         const naturalFallback = selectConstructionProject(scored, { random: battleRandom, temperature, top: 3 });
-        const intent = selectConstructionIntent({
-          candidates: scored,
-          director: strategicDirector,
-          currentIntent: player.constructionIntent,
-          now: state.time
-        });
+        const intent = isSpaceMarinePlayer(player)
+          ? selectSpaceMarineConstructionIntent({
+            player,
+            candidates: scored,
+            strategy: player.spaceMarineStrategy || { posture: "SECURE", roleWeights: strategicDirector.roleWeights },
+            currentIntent: player.constructionIntent,
+            now: state.time
+          })
+          : selectConstructionIntent({
+            candidates: scored,
+            director: strategicDirector,
+            currentIntent: player.constructionIntent,
+            now: state.time
+          });
         player.constructionIntent = intent;
         player.lastConstructionProject = intent?.candidate || naturalFallback;
         return intent?.buildingType || naturalFallback?.buildingType || null;
@@ -4385,7 +4409,7 @@ import {
         return true;
       }
 
-      function approveConstructionProject(player, type, { preferredCellKey = null, defenseOrderId = null } = {}) {
+      function approveConstructionProject(player, type, { preferredCellKey = null, developmentOrderId = null, developmentPriority = null } = {}) {
         if (!player || !type) return null;
         const typeCooldownUntil = player.constructionCooldowns?.[`type:${type}`] || 0;
         if (typeCooldownUntil > state.time) {
@@ -4427,8 +4451,8 @@ import {
         const construction = createConstructionState({ committedResources: buildCost, now: state.time });
         construction.state = "planned";
         const strategicIntent = player.constructionIntent?.buildingType === type ? player.constructionIntent : null;
-        construction.priority = defenseOrderId ? 100 : strategicIntent?.priority || 72;
-        construction.reason = defenseOrderId ? "captured-territory defense milestone" : strategicIntent?.reason || player.lastConstructionProject?.reason || "headquarters recovery";
+        construction.priority = developmentOrderId ? developmentPriority || 86 : strategicIntent?.priority || 72;
+        construction.reason = developmentOrderId ? "captured-territory development decision" : strategicIntent?.reason || player.lastConstructionProject?.reason || "headquarters recovery";
         construction.intentId = strategicIntent?.id || null;
         const structure = {
           id: structureId,
@@ -4453,8 +4477,8 @@ import {
           priority: construction.priority,
           strategicIntentId: construction.intentId,
           strategicReason: construction.reason,
-          territoryDefenseOrderId: defenseOrderId,
-          defendsTerritoryCell: preferredCellKey,
+          territoryDevelopmentOrderId: developmentOrderId,
+          developsTerritoryCell: preferredCellKey,
           construction,
           completedAt: null
         };
@@ -4489,17 +4513,25 @@ import {
         // navigation-cache spikes when several mature factions expand together.
         const availableAtStart = Math.min(1, snapshot.available);
         while (approved < availableAtStart) {
-          const defenseOrder = pendingTerritoryDefenseOrder(player, state.structures);
-          const type = defenseOrder?.buildingType || chooseBuilding(player.id);
+          const developmentOrder = pendingTerritoryDevelopmentOrder(player, state.structures);
+          const type = developmentOrder?.buildingType || chooseBuilding(player.id);
           if (!type) break;
-          const project = approveConstructionProject(player, type, {
-            preferredCellKey: defenseOrder?.cellKey || null,
-            defenseOrderId: defenseOrder?.id || null
+          let project = approveConstructionProject(player, type, {
+            preferredCellKey: developmentOrder?.cellKey || null,
+            developmentOrderId: developmentOrder?.id || null,
+            developmentPriority: developmentOrder?.priority || null
           });
+          if (!project && developmentOrder) {
+            developmentOrder.attempts = (developmentOrder.attempts || 0) + 1;
+            developmentOrder.lastAttemptAt = state.time;
+            developmentOrder.status = "waiting";
+            const fallbackType = chooseBuilding(player.id);
+            if (fallbackType && fallbackType !== type) project = approveConstructionProject(player, fallbackType);
+          }
           if (!project) break;
-          if (defenseOrder) {
-            defenseOrder.structureId = project.id;
-            defenseOrder.status = "construction";
+          if (developmentOrder && project.territoryDevelopmentOrderId === developmentOrder.id) {
+            developmentOrder.structureId = project.id;
+            developmentOrder.status = "construction";
           }
           approved += 1;
         }
@@ -4651,7 +4683,28 @@ import {
           && (selectedBuildingRepair.request.severity >= 0.18 || repairPriority && selectedBuildingRepair.request.severity >= 0.08)
           ? selectedBuildingRepair.target : null;
         const homeStatus = builderHomeStatus(unit, state.structures);
-        if (homeStatus.needsRepair) {
+        const marineServitor = isSpaceMarinePlayer(player);
+        const criticalHeadquarters = marineServitor ? state.structures.find(structure => structure.faction === unit.faction
+          && structure.type === "outpost" && structure.alive !== false && structure.progress >= 1
+          && structure.hp < structure.maxHp * 0.7) : null;
+        const homeEmergency = marineServitor && homeStatus.home
+          && (homeStatus.condition < 0.55 || homeStatus.home.type === "outpost" && homeStatus.condition < 0.7);
+        const emergencyHomeTarget = criticalHeadquarters || (homeEmergency ? homeStatus.home : null);
+        if (marineServitor && emergencyHomeTarget) {
+          if (unit.buildProject) {
+            const interrupted = structureById(unit.buildProject);
+            unit.buildProject = null;
+            unit.buildStall = 0;
+            unit.constructionCommitUntil = 0;
+            if (interrupted) unit.lastAction = `Critical chapter asset recalled this Servitor from ${interrupted.displayName || factionBuildingLabel(unit.faction, interrupted.type)}.`;
+          }
+          const homeRequest = state.sustainmentByTarget.get(emergencyHomeTarget.id) || {
+            targetId: emergencyHomeTarget.id,
+            targetType: "building",
+            severity: 1 - emergencyHomeTarget.hp / Math.max(1, emergencyHomeTarget.maxHp)
+          };
+          if (performBuilderBuildingRepair(unit, emergencyHomeTarget, homeRequest, dt, true)) return;
+        } else if (!marineServitor && homeStatus.needsRepair) {
           if (unit.buildProject) {
             const interrupted = structureById(unit.buildProject);
             unit.buildProject = null;
@@ -4665,7 +4718,7 @@ import {
           };
           if (performBuilderBuildingRepair(unit, homeStatus.home, homeRequest, dt, true)) return;
         }
-        if (!unit.buildProject && continuingRepair
+        if (!marineServitor && !unit.buildProject && continuingRepair
           && performBuilderBuildingRepair(unit, continuingRepair, state.sustainmentByTarget.get(continuingRepair.id), dt,
             unit.homeStructureId === continuingRepair.id)) return;
         if (!unit.buildProject && unit.builderDecisionCd <= 0) {
@@ -4695,6 +4748,7 @@ import {
             alliedProject.construction ||= createConstructionState({ now: alliedProject.createdAt || state.time });
             alliedProject.construction.state = "active";
             alliedProject.leadBuilderId ||= unit.id;
+            if (marineServitor) unit.constructionCommitUntil = state.time + 25;
             const lead = unitById(alliedProject.leadBuilderId);
             if (lead) recordRelationshipEvent(unit, lead, "completedTogether", "joined an allied construction project", { cooldown: 30, reciprocal: 0.7 });
             unit.lastAction = `Joined ${alliedProject.displayName || factionBuildingLabel(unit.faction, alliedProject.type)} as builder ${assignment.project.assignedBuilders + 1}/${assignment.project.desiredBuilders}.`;
@@ -4792,6 +4846,7 @@ import {
               for (const contributor of state.units.filter(other => other.buildProject === structure.id)) {
                 moveUnitOutsideStructure(contributor, structure);
                 contributor.buildProject = null;
+                contributor.constructionCommitUntil = 0;
                 contributor.detour = null;
                 contributor.buildStall = 0;
                 contributor.buildCd = rand(0.8, 2.2);
@@ -4806,6 +4861,19 @@ import {
 
         // Builders execute commander-approved foundations. They never decide what
         // the faction should build; idle labor becomes repair/gather reserve.
+
+        if (marineServitor && homeStatus.needsRepair) {
+          const homeRequest = state.sustainmentByTarget.get(homeStatus.home.id) || {
+            targetId: homeStatus.home.id,
+            targetType: "building",
+            severity: 1 - homeStatus.condition
+          };
+          if (performBuilderBuildingRepair(unit, homeStatus.home, homeRequest, dt, true)) return;
+        }
+
+        if (marineServitor && continuingRepair
+          && performBuilderBuildingRepair(unit, continuingRepair, state.sustainmentByTarget.get(continuingRepair.id), dt,
+            unit.homeStructureId === continuingRepair.id)) return;
 
         const damaged = urgentRepair || (selectedBuildingRepair?.request.targetType === "building" ? selectedBuildingRepair.target : null);
         if (performBuilderBuildingRepair(unit, damaged, selectedBuildingRepair?.request, dt)) return;
@@ -6164,8 +6232,8 @@ import {
             issuedAt: state.time,
             combinedArms: player.combinedArmsGroups,
             branchChoice: player.factionAIChoice || null,
-            operationalPhase: player.chaosStrategy?.phase || player.operationalPlan?.phase || null,
-            operationalReason: player.chaosStrategy?.reason || player.operationalPlan?.reason || null,
+            operationalPhase: player.chaosStrategy?.phase || player.spaceMarineStrategy?.posture || player.operationalPlan?.phase || null,
+            operationalReason: player.chaosStrategy?.reason || player.spaceMarineStrategy?.reason || player.operationalPlan?.reason || null,
             operationalAction: player.chaosStrategy?.selectedAction?.id || null
           };
         }
@@ -7848,6 +7916,19 @@ import {
             player.operationalPlan.objectiveLeash
           );
         } else player.chaosStrategy = null;
+        player.spaceMarineStrategy = isSpaceMarinePlayer(player) ? evaluateSpaceMarineAI({
+          now: state.time,
+          player,
+          operationalPhase: player.operationalPlan.phase,
+          context: {
+            ...context,
+            armyCondition: clamp(1 - context.casualtyRatio, 0, 1),
+            resourceHealth: clamp(1 - context.resourceShortage, 0, 1),
+            territoryValue: context.objectiveProgress,
+            headquartersCritical: state.structures.some(structure => structure.id === player.headquartersId
+              && structure.alive !== false && structure.hp < structure.maxHp * 0.7)
+          }
+        }) : null;
         const producerClusters = criticalProducerClusters(state.structures, player.id, structure => productionDefinitionForStructure(player, structure));
         const recentCriticalLoss = state.structures.some(structure => structure.faction === player.id && structure.alive === false
           && state.time - (structure.destroyedAt || -Infinity) <= 30
@@ -10459,7 +10540,8 @@ import {
         player.nextBuilderProducerCursor = (player.nextBuilderProducerCursor || 0) + 1;
         request.status = builders + 1 >= desiredBuilders ? "Complete" : `Approved · ${desiredBuilders - builders - 1} workforce posts remain`;
         request.producedUnitId = builder.id;
-        const raceDelay = player.race === "Orks" ? 14 : player.race === "Necrons" || player.race === "Tyranids" ? 18 : 22;
+        const raceDelay = isSpaceMarinePlayer(player) ? 14 : player.race === "Orks" ? 14
+          : player.race === "Necrons" || player.race === "Tyranids" ? 18 : 22;
         const infrastructureFactor = Math.max(1, Math.sqrt(Math.max(1, producers.length)));
         const deficitFactor = Math.max(1, Math.min(2.4, (desiredBuilders - builders) / 4));
         state.nextBuilderTrain[player.id] = state.time + raceDelay / infrastructureFactor / deficitFactor;
@@ -10877,6 +10959,77 @@ import {
           && territoryCellKey(structure.x, structure.y) === key);
       }
 
+      function territoryDevelopmentDecisionFor(player, key) {
+        if (!isSpaceMarinePlayer(player)) return {
+          category: "none",
+          buildingType: null,
+          priority: 0,
+          scores: {},
+          reason: "Existing faction construction doctrine remains active"
+        };
+        const point = territoryCellCenter(key);
+        const territory = primaryTerritoryFor(player.id);
+        const economy = economyFor(player.id);
+        const demand = productionDemandFor(player);
+        const nearbyResources = strategicCellIndex.resourcesNear(point, TERRITORY_CELL_SIZE * 1.05);
+        const nearbyLandmarks = strategicCellIndex.landmarksNear(point, TERRITORY_CELL_SIZE * 1.05);
+        const nearbyEnemies = strategicCellIndex.unitsNear(point, 240)
+          .filter(unit => unit.alive && !unit.incapacitated && !areAllies(unit.faction, player.id));
+        const road = nearestRoadSegment(point, TERRITORY_CELL_SIZE * 0.9);
+        const neighbors = neighboringTerritoryCells(key);
+        const exposedNeighbors = neighbors.filter(neighbor => {
+          const owner = territoryOwnerForCell(neighbor)?.owner;
+          return !owner || !areAllies(owner, player.id);
+        }).length;
+        const resourceOptions = [
+          ...nearbyResources.map(resource => ({ type: resource.resourceType, value: (Number(resource.richness) || 1) * resourceNeedScore(player, resource.resourceType) })),
+          ...nearbyLandmarks.flatMap(node => Object.entries(node.exports || {}).map(([type, rate]) => ({ type, value: Number(rate) * resourceNeedScore(player, type) * 0.08 })))
+        ].filter(option => economy.activeResources.includes(option.type));
+        resourceOptions.sort((a, b) => b.value - a.value);
+        const resourceType = resourceOptions[0]?.type || null;
+        const resourceDeficit = resourceType ? clamp(resourceNeedScore(player, resourceType) / 100, 0, 1) : 0;
+        const localResourceValue = clamp(resourceOptions.reduce((sum, option) => sum + option.value, 0) / 180, 0, 1);
+        const strategicLandmarkValue = clamp(nearbyLandmarks.reduce((sum, node) => sum + (Number(node.strategicValue) || 0), 0) / 140, 0, 1);
+        const distanceFromBase = distance(point, player.base);
+        const reinforcementDistance = clamp(distanceFromBase / 650, 0, 1);
+        const enemyThreat = clamp(nearbyEnemies.reduce((sum, unit) => sum + (unit.role === "vehicle" ? 2.2 : unit.role === "commander" ? 1.6 : 1), 0) / 7, 0, 1);
+        const supplyConnectivity = insideSupplyRadius(point, player.id) ? 1 : road ? 0.58 : 0.18;
+        const existingBuildingTypes = state.structures.filter(structure => structure.alive !== false && structure.faction === player.id
+          && territoryCellKey(structure.x, structure.y) === key).map(structure => structure.type);
+        const queue = player.constructionQueue || { occupied: 0, capacity: player.strategicDirector?.constructionConcurrency || 2 };
+        const militaryProductionDeficit = clamp(Math.max(
+          demand.constructionNeeds?.Muster || 0,
+          demand.constructionNeeds?.["War Forge"] || 0,
+          demand.constructionNeeds?.Deployment || 0
+        ) / 100, 0, 1);
+        const strategicValue = Math.max(localResourceValue, strategicLandmarkValue, road ? 0.42 : 0);
+        return evaluateSpaceMarineTerritoryDevelopment({
+          player,
+          context: {
+            enemyThreat,
+            frontierExposure: clamp(exposedNeighbors / Math.max(1, neighbors.length), 0, 1),
+            objectiveValue: strategicLandmarkValue,
+            chokePointValue: clamp((road ? 0.45 : 0) + (neighbors.length <= 3 ? 0.4 : 0), 0, 1),
+            consolidateBias: ["FORTIFY", "SECURE"].includes(player.spaceMarineStrategy?.posture) ? 0.8 : 0.2,
+            reinforcementDistance,
+            militaryProductionDeficit,
+            offensivePressure: player.spaceMarineStrategy?.offensivePressure || 0.55,
+            forwardBaseValue: clamp(reinforcementDistance * (1 - enemyThreat) * (0.6 + supplyConnectivity * 0.4), 0, 1),
+            localResourceValue,
+            resourceDeficit,
+            resourceType,
+            supplyConnectivity,
+            economicExpansionNeed: clamp((aiBehaviorFor(player).expansion - 35) / 65 + (economy.shortages?.length || 0) * 0.12, 0, 1),
+            overextension: clamp(distanceFromBase / 900 * (1.2 - supplyConnectivity), 0, 1),
+            lowStrategicValue: 1 - strategicValue,
+            poorSupply: 1 - supplyConnectivity,
+            constructionBacklog: clamp((queue.occupied || 0) / Math.max(1, queue.capacity || 2), 0, 1),
+            productionNeeds: demand.constructionNeeds || {},
+            existingBuildingTypes
+          }
+        });
+      }
+
       function transferTerritoryCell(key, faction, reason) {
         const target = primaryTerritoryFor(faction);
         if (!target) return false;
@@ -10896,12 +11049,12 @@ import {
         target.influencedCells.add(key);
         target.claimedAt = state.time;
         target.reason = reason;
-        const captureDefense = recordTerritoryCapture(playerFor(faction), key, state.time);
-        if (captureDefense.orders.length) incident(
-          `${playerFor(faction).faction} reached ${captureDefense.captureCount} captured territories; a defensive package was ordered for cell ${key}.`,
-          null,
-          "info"
-        );
+        const player = playerFor(faction);
+        const developmentDecision = territoryDevelopmentDecisionFor(player, key);
+        const development = recordTerritoryDevelopment(player, key, state.time, developmentDecision);
+        incident(development.order
+          ? `${player.faction} evaluated captured cell ${key} as ${development.opportunity.category}; ${factionBuildingLabel(player.id, development.order.buildingType)} was requested.`
+          : `${player.faction} captured cell ${key} and left it undeveloped: ${development.opportunity.reason}.`, null, "info");
         syncTerritoryPoints(target);
         state.minimapMarkerDirty = true;
         return true;
@@ -11323,7 +11476,7 @@ import {
           rebuildTerritoryTopology(territory, topologyCache);
           refreshTerritoryAgentMissions(player, territory);
           const behavior = aiBehaviorFor(player);
-          const culturalCooldown = player.faction === "Space Marines" ? 30 : player.race === "Tyranids" ? 12 : player.race === "Orks" ? 10 : 20;
+          const culturalCooldown = player.faction === "Space Marines" ? 10 : player.race === "Tyranids" ? 12 : player.race === "Orks" ? 10 : 20;
           const cooldown = clamp(culturalCooldown - (behavior.expansion - 50) * 0.16 + (behavior.caution - 50) * 0.08, 7, 38);
           if (state.time - (player.lastTerritoryClaim || 0) < cooldown) continue;
           const physicallyOccupiedFrontier = [...new Set([...territory.frontierCells]
@@ -12080,8 +12233,8 @@ import {
               utilityScores: { ...(player.factionAIScores || {}) },
               threatEstimate: player.factionAIContext?.enemyPressure || 0,
               battleObjectiveMethod: player.battleObjectiveMethod,
-              operationalPhase: player.chaosStrategy?.phase || player.operationalPlan?.phase || null,
-              operationalReason: player.chaosStrategy?.reason || player.operationalPlan?.reason || null,
+              operationalPhase: player.chaosStrategy?.phase || player.spaceMarineStrategy?.posture || player.operationalPlan?.phase || null,
+              operationalReason: player.chaosStrategy?.reason || player.spaceMarineStrategy?.reason || player.operationalPlan?.reason || null,
               operationalAction: player.chaosStrategy?.selectedAction?.id || null,
               objectiveLeash: player.battleObjectiveLeash ? { ...player.battleObjectiveLeash, primaryChoices: [...player.battleObjectiveLeash.primaryChoices] } : null,
               chaosProfileId: player.chaosStrategy?.profileId || null,
@@ -14482,8 +14635,8 @@ import {
         els.aiConfidence.textContent = `Confidence ${Math.round(aiInspection.confidence * 100)}%`;
         els.aiGoal.textContent = `Current goal: ${aiInspection.currentGoal}`;
         els.aiThreat.textContent = `Threat estimate: ${Math.round(aiInspection.threatEstimate * 100)}%`;
-        const recordedOperationalPhase = recordedAI?.operationalPhase || player.chaosStrategy?.phase || player.operationalPlan?.phase;
-        const recordedOperationalReason = recordedAI?.operationalReason || player.chaosStrategy?.reason || player.operationalPlan?.reason;
+        const recordedOperationalPhase = recordedAI?.operationalPhase || player.chaosStrategy?.phase || player.spaceMarineStrategy?.posture || player.operationalPlan?.phase;
+        const recordedOperationalReason = recordedAI?.operationalReason || player.chaosStrategy?.reason || player.spaceMarineStrategy?.reason || player.operationalPlan?.reason;
         const chaosOperation = recordedOperationalPhase ? ` · Operational phase ${recordedOperationalPhase} (${String(recordedOperationalReason || "active_plan").replaceAll("_", " ")})` : "";
         els.aiDoctrine.textContent = `Battle-objective influence: ${prettyObjectiveMethod(aiInspection.doctrineInfluence)} · ${player.distinctiveDoctrine || "shared core"} · Commitment ${recordedAI?.commitmentStage || player.forceState?.commitmentStage || "contact"} ${Math.round((recordedAI?.commitment || player.forceState?.commitment || 0.35) * 100)}%${chaosOperation}`;
         els.aiUtilities.textContent = "";
@@ -14636,8 +14789,9 @@ import {
         const objectivePlan = battleObjectivePlanFor(player);
         const strategicOutcome = state.strategicOutcomes[player.id]?.status || "Building operational capability";
         const pressureLabel = economy.territoryPressure > 0 ? ` · Territory support pressure ${Math.round(economy.territoryPressure * 100)}%` : "";
-        const liveOperationalPlan = player.chaosStrategy || player.operationalPlan;
-        const operationalPhase = liveOperationalPlan ? ` · ${liveOperationalPlan.phase.toUpperCase()} / ${liveOperationalPlan.reason.replaceAll("_", " ")}${player.chaosStrategy?.selectedAction ? ` / ${player.chaosStrategy.selectedAction.id.replaceAll("_", " ")}` : ""}` : "";
+        const liveOperationalPlan = player.chaosStrategy || player.spaceMarineStrategy || player.operationalPlan;
+        const liveOperationalPhase = liveOperationalPlan?.posture || liveOperationalPlan?.phase;
+        const operationalPhase = liveOperationalPlan ? ` · ${liveOperationalPhase.toUpperCase()} / ${liveOperationalPlan.reason.replaceAll("_", " ")}${player.chaosStrategy?.selectedAction ? ` / ${player.chaosStrategy.selectedAction.id.replaceAll("_", " ")}` : ""}` : "";
         els.logisticsPersonality.textContent = `${objectivePlan.name} · ${prettyObjectiveMethod(objectivePlan.method)}${operationalPhase} · Commitment ${player.forceState?.commitmentStage || "contact"} ${Math.round((player.forceState?.commitment || 0.35) * 100)}% · Live tendencies A${Math.round(behavior.aggression)} C${Math.round(behavior.caution)} X${Math.round(behavior.expansion)} E${Math.round(behavior.economy)} · Army goal: ${armyPlan.goal} · ${strategicOutcome}${pressureLabel} · ${economy.emergency}`;
         els.logisticsResources.textContent = "";
         for (const key of economy.activeResources) {

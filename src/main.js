@@ -61,9 +61,13 @@ import { BUILDING_ROLE_TO_TYPE, BUILDING_TYPE_TO_ROLE, PRODUCTION_FACILITIES, SH
 import { BUILDER_REPAIR_ASSIGNMENT_TTL, BUILDER_REPAIR_CREW_LIMIT, SERVITOR_REPAIR_ASSIGNMENT_TTL, activeRepairCrewCount, builderRepairCrewLimit, builderRepairSlotAvailable, claimRepairAssignment, releaseStaleRepairAssignment, servitorRepairCrewLimit, servitorRepairSlotAvailable } from "./construction/RepairCrewSystem.js";
 import { ACTIVE_FORCE_ROLES, PASSIVE_FORCE_ROLES, desiredActiveForceRatio, enforceActiveForceRatio } from "./ai/ActiveForceSystem.js";
 import { BUILDING_CAPACITY_CLASSES, TERRITORY_BUILD_CAPS, buildingCapacityClass, constructionCapacityForCell, countBuildingsByCapacityClass, territoryCapacityAvailable } from "./territory/TerritoryConstructionSystem.js";
-import { TERRITORY_DEFENSE_INTERVAL, defensePackageForMilestone, pendingTerritoryDefenseOrder, recordTerritoryCapture, territoryDefenseOrdersForCapture } from "./territory/TerritoryDefenseSystem.js";
+import { pendingTerritoryDevelopmentOrder, recordTerritoryDevelopment, territoryDevelopmentOrderForCapture } from "./territory/TerritoryDevelopmentSystem.js";
 import { STRATEGIC_DIRECTOR_RACE_PROFILES, STRATEGIC_DIRECTOR_ROLE_GATES, calculateBaseMaturity, evaluateStrategicDirector, scoreConstructionCandidate, selectConstructionIntent } from "./ai/StrategicDirectorSystem.js";
 import { TERRITORY_AGENT_DISENGAGE_RADIUS, TERRITORY_AGENT_SELF_DEFENSE_RADIUS, chooseTerritoryAgentFallback, isTerritoryAgentCandidate, selectTerritoryAgents, territoryAgentContactResponse } from "./ai/TerritoryAgentSystem.js";
+import { SPACE_MARINE_CHAPTER_DOCTRINES, isSpaceMarinePlayer, spaceMarineChapterDoctrineFor } from "./ai/space-marines/SpaceMarineChapterDoctrine.js";
+import { SPACE_MARINE_POSTURES, assessSpaceMarineBattlefield, evaluateSpaceMarineAI } from "./ai/space-marines/SpaceMarineAISystem.js";
+import { SPACE_MARINE_CONSTRUCTION_PRIORITIES, scoreSpaceMarineConstructionCandidate, selectSpaceMarineConstructionIntent, spaceMarineConstructionPriority } from "./ai/space-marines/SpaceMarineConstructionDirector.js";
+import { evaluateSpaceMarineTerritoryDevelopment } from "./ai/space-marines/SpaceMarineTerritoryDoctrine.js";
 import { COMBAT_RESPONSES, chooseImmediateThreat, chooseSquadTarget, combatContactPhase, combatContactPoint, evaluateCombatResponse, refreshSquadCombatContact } from "./ai/CombatResponseSystem.js";
 import { BREAK_POLICIES, BREAK_POLICY_IDS, breakPolicyFor, breakPolicyIdFor, commissarInterventionFor, createPsychologyState, guardBreakStateFor, isCommissar, updateFactionPressure, withdrawalDecisionFor } from "./ai/FactionBreakPolicy.js";
 
@@ -301,11 +305,9 @@ globalThis.AWTSystems = Object.freeze({
   constructionCapacityForCell,
   countBuildingsByCapacityClass,
   territoryCapacityAvailable,
-  TERRITORY_DEFENSE_INTERVAL,
-  defensePackageForMilestone,
-  pendingTerritoryDefenseOrder,
-  recordTerritoryCapture,
-  territoryDefenseOrdersForCapture,
+  pendingTerritoryDevelopmentOrder,
+  recordTerritoryDevelopment,
+  territoryDevelopmentOrderForCapture,
   STRATEGIC_DIRECTOR_RACE_PROFILES,
   STRATEGIC_DIRECTOR_ROLE_GATES,
   calculateBaseMaturity,
@@ -318,6 +320,17 @@ globalThis.AWTSystems = Object.freeze({
   isTerritoryAgentCandidate,
   selectTerritoryAgents,
   territoryAgentContactResponse,
+  SPACE_MARINE_CHAPTER_DOCTRINES,
+  isSpaceMarinePlayer,
+  spaceMarineChapterDoctrineFor,
+  SPACE_MARINE_POSTURES,
+  assessSpaceMarineBattlefield,
+  evaluateSpaceMarineAI,
+  SPACE_MARINE_CONSTRUCTION_PRIORITIES,
+  scoreSpaceMarineConstructionCandidate,
+  selectSpaceMarineConstructionIntent,
+  spaceMarineConstructionPriority,
+  evaluateSpaceMarineTerritoryDevelopment,
   COMBAT_RESPONSES,
   chooseImmediateThreat,
   chooseSquadTarget,

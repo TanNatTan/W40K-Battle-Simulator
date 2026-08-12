@@ -1,17 +1,17 @@
 {
   "version": 1,
-  "principle": "Each completed building has persistent builder caretakers. Caretakers may perform secondary work while their home structure is healthy, but home repair is their first non-survival priority.",
+  "principle": "Each completed building has a resident caretaker, but command-approved construction outranks routine maintenance. Only critical home or headquarters damage interrupts active construction.",
   "profiles": {
     "space_marines": {
       "builder": "Servitor",
       "perBuilding": 1,
       "heavyBonus": 0,
       "heavyTypes": [],
-      "reserveBase": 2,
+      "reserveBase": 3,
       "reserveEvery": 4,
-      "repairReserve": 1,
+      "repairReserve": 2,
       "gatherReserve": 1,
-      "constructionReserve": 1
+      "constructionReserve": 3
     },
     "imperial_guard": {
       "builder": "Combat Engineer",
@@ -173,11 +173,12 @@
   },
   "priorityOrder": [
     "self-preservation",
-    "repair-home-building",
+    "repair-critical-home-building",
     "finish-current-construction",
     "repair-critical-building",
-    "harvest-gather-salvage",
     "assist-construction",
+    "repair-home-building",
+    "harvest-gather-salvage",
     "routine-maintenance",
     "idle-near-home"
   ]

@@ -56,11 +56,11 @@ test("every completed Marine building receives one caretaker plus floating reser
   const structures = Array.from({ length: 11 }, (_, index) => ({ id: `s${index}`, faction: "a", type: index === 2 ? "workshop" : "barracks", progress: 1, alive: true, hp: 100, maxHp: 100, x: index * 10, y: 0 }));
   const demand = builderWorkforceDemand({ player, structures });
   assert.equal(demand.caretakerRequirement, 11);
-  assert.equal(demand.desired, 15);
+  assert.equal(demand.desired, 16);
   const builders = Array.from({ length: demand.desired }, (_, index) => ({ id: `b${index}`, faction: "a", role: "builder", alive: true, x: index * 4, y: 2 }));
   const assignment = reconcileBuilderHomes({ player, structures, builders });
   assert.equal(assignment.assigned, 11);
-  assert.equal(assignment.floating, 4);
+  assert.equal(assignment.floating, 5);
   assert.ok(structures.every(structure => builders.filter(builder => builder.homeStructureId === structure.id).length === 1));
   structures[0].hp = 60;
   assert.equal(builderHomeStatus(builders.find(builder => builder.homeStructureId === structures[0].id), structures).needsRepair, true);
@@ -75,4 +75,3 @@ test("Orks, Necrons, and Repair Cohort receive dense per-building workforces", (
   assert.equal(caretakerRequirementForStructure(necron, necronOutpost), 4);
   assert.equal(builderWorkforceProfileFor(necron).repairReserve, 7);
 });
-

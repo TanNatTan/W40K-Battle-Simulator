@@ -16,7 +16,7 @@ const playerCount = Math.max(2, Math.min(12, Number(argumentValue("players")) ||
 const fullRoster = process.argv.includes("--full-roster") || process.env.AWT_STRESS_FULL_ROSTER === "1";
 const allSpaceMarines = process.argv.includes("--all-space-marines");
 const constructionContinuation = process.argv.includes("--construction-continuation");
-const territoryDefenseCaptures = Math.max(0, Math.floor(Number(argumentValue("territory-defense-captures")) || 0));
+const territoryDevelopmentCaptures = Math.max(0, Math.floor(Number(argumentValue("territory-development-captures")) || 0));
 const profiling = process.argv.includes("--profile") || process.env.AWT_STRESS_PROFILE === "1";
 const browserPath = [
   "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
@@ -186,8 +186,8 @@ try {
       player.battleObjectiveState = null;
     }
     const fixture = ${fullRoster ? `root.awtDebugControls.prepareFullRosterStressFixture(${spawnRadius})` : "null"};
-    const territoryDefenseProbes = ${territoryDefenseCaptures > 0
-      ? `root.awtDebugState.players.map(player => root.awtDebugControls.captureTerritoryMilestoneProbe(player.id, ${territoryDefenseCaptures}))`
+    const territoryDevelopmentProbes = ${territoryDevelopmentCaptures > 0
+      ? `root.awtDebugState.players.map(player => root.awtDebugControls.captureTerritoryDevelopmentProbe(player.id, ${territoryDevelopmentCaptures}))`
       : "[]"};
     globalThis.awtStressInitialStructureIds = new Set(root.awtDebugState.structures.map(structure => structure.id));
     globalThis.awtStressConstructionLifecycle = { firstCompletionAt: null, maxConcurrentProjects: 0 };
@@ -207,7 +207,7 @@ try {
       speedRequested: ${simulationSpeed},
       spawnRadii: root.awtDebugState.players.map(player => player.spawnZone?.size || 0),
       fixture,
-      territoryDefenseProbes,
+      territoryDevelopmentProbes,
       fixtureUnits: fixture ? fixture.players.reduce((sum, player) => sum + player.expectedUnitCount, 0) : 0,
       fixtureBuildings: fixture ? fixture.players.reduce((sum, player) => sum + player.expectedBuildingCount, 0) : 0,
       actualStressRosterUnits: root.awtDebugState.units.filter(unit => unit.stressRosterName).length,
@@ -228,8 +228,8 @@ try {
       || setup.value.completedStructures !== setup.value.fixtureBuildings))
     || (allSpaceMarines && (setup.value.races.some(race => race !== "Imperium")
       || setup.value.factions.some(faction => faction !== "Space Marines")))
-    || (territoryDefenseCaptures > 0 && setup.value.territoryDefenseProbes.some(probe => !probe
-      || probe.captured < territoryDefenseCaptures || probe.defenseOrders.length < Math.floor(territoryDefenseCaptures / 5) * 2))
+    || (territoryDevelopmentCaptures > 0 && setup.value.territoryDevelopmentProbes.some(probe => !probe
+      || probe.captured < territoryDevelopmentCaptures || probe.developmentHistory.length < territoryDevelopmentCaptures))
     || setup.value.error) throw new Error(`Invalid stress setup: ${JSON.stringify(setup.value)}`);
 
   await delay(1500);
@@ -311,13 +311,18 @@ try {
           progressingStructures: newStructures.filter(structure => Number(structure.progress) > 0).length,
           maxConcurrentProjects: lifecycle.maxConcurrentProjects,
           activeProjectsByFaction,
-          defenseOrdersByFaction: state.players.map(player => ({
+          developmentOrdersByFaction: state.players.map(player => ({
             faction: player.id,
             captures: player.territoryCaptureCount || 0,
-            total: (player.territoryDefenseOrders || []).length,
-            materialized: (player.territoryDefenseOrders || []).filter(order => order.structureId
-              && state.structures.some(structure => structure.id === order.structureId && structure.defendsTerritoryCell === order.cellKey)).length,
-            complete: (player.territoryDefenseOrders || []).filter(order => order.status === 'complete').length
+            evaluated: (player.territoryDevelopmentHistory || []).length,
+            total: (player.territoryDevelopmentOrders || []).length,
+            categories: (player.territoryDevelopmentHistory || []).reduce((counts, entry) => {
+              counts[entry.category] = (counts[entry.category] || 0) + 1;
+              return counts;
+            }, {}),
+            materialized: (player.territoryDevelopmentOrders || []).filter(order => order.structureId
+              && state.structures.some(structure => structure.id === order.structureId && structure.developsTerritoryCell === order.cellKey)).length,
+            complete: (player.territoryDevelopmentOrders || []).filter(order => order.status === 'complete').length
           }))
         }
       };
@@ -360,9 +365,9 @@ try {
     || last.construction.continuedStructures < 1 || last.construction.maxConcurrentProjects < 2)) {
     throw new Error(`Construction did not remain parallel and continue after completion: ${JSON.stringify(last.construction)}`);
   }
-  if (territoryDefenseCaptures > 0 && last.construction.defenseOrdersByFaction.some(faction => faction.captures < territoryDefenseCaptures
-    || faction.materialized < Math.floor(territoryDefenseCaptures / 5) * 2)) {
-    throw new Error(`Fifth-capture territory defenses were not physically placed: ${JSON.stringify(last.construction.defenseOrdersByFaction)}`);
+  if (territoryDevelopmentCaptures > 0 && last.construction.developmentOrdersByFaction.some(faction => faction.captures < territoryDevelopmentCaptures
+    || faction.evaluated < territoryDevelopmentCaptures)) {
+    throw new Error(`Captured territory was not evaluated for natural development: ${JSON.stringify(last.construction.developmentOrdersByFaction)}`);
   }
   if (frozen) throw new Error(`${playerCount}-player 1920x1080 simulation froze or became unresponsive: ${JSON.stringify(report)}`);
 } finally {

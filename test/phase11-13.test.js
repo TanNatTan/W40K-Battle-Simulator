@@ -62,7 +62,7 @@ test("Phase 12 allocates fixed irregular territory and unit pools and implements
   assert.equal(restored.units.length, system.units.length);
 });
 
-test("Phase 12 unit sieges take one minute alone and gain 20 percent per additional unit", () => {
+test("Phase 12 unit sieges take twenty seconds alone and gain 20 percent per additional unit", () => {
   const createSystem = () => {
     const partition = new SpatialPartition({ width: 900, height: 600, cellCount: 48, seed: 24 });
     return new TerritorySystem(partition, [
@@ -88,8 +88,8 @@ test("Phase 12 unit sieges take one minute alone and gain 20 percent per additio
     }
     return seconds;
   };
-  assert.ok(Math.abs(measureCapture(1) - 60) <= 2);
-  assert.ok(Math.abs(measureCapture(4) - 37.5) <= 2);
+  assert.ok(Math.abs(measureCapture(1) - 20) <= 2);
+  assert.ok(Math.abs(measureCapture(4) - 12.5) <= 2);
 });
 
 test("Phase 12 live territory advances only when physical host units occupy the cell", () => {
@@ -103,7 +103,7 @@ test("Phase 12 live territory advances only when physical host units occupy the 
   assert.ok(target);
   for (let second = 0; second < 90; second += 1) system.advancePhysical(1, []);
   assert.equal(target.owner, null, "empty cells must not be captured by internal/invisible agents");
-  for (let second = 0; second < 65 && target.owner !== "red"; second += 1) {
+  for (let second = 0; second < 25 && target.owner !== "red"; second += 1) {
     system.advancePhysical(1, [{ playerId: "red", cellId: target.id, power: 1 }]);
   }
   assert.equal(target.owner, "red", "a physical host unit should complete the capture");

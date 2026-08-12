@@ -40,7 +40,7 @@ export const DEFAULT_WEIGHTS = Object.freeze({
 
 export const UNIT_CONFIG = Object.freeze({
   unitsPerPlayer: 10,
-  baseCaptureSeconds: 60,
+  baseCaptureSeconds: 20,
   perUnitBonus: 0.2,
   maxUnitsPerTarget: 5,
   moveSecondsPerHop: 3.5

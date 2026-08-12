@@ -48,7 +48,7 @@ test("each faction trains builders from its authored producer instead of squad p
 
 test("builder targets scale from completed buildings without a global maximum", () => {
   const structures = Array.from({ length: 20 }, (_, index) => ({ faction: "sm", progress: 1, alive: true, id: index }));
-  assert.equal(desiredBuilderCount(players.marines, structures, 2), 27);
+  assert.equal(desiredBuilderCount(players.marines, structures, 2), 28);
   assert.equal(desiredBuilderCount(players.orks, structures.map(item => ({ ...item, faction: "orks" })), 6), 55);
   assert.equal(desiredBuilderCount(players.necrons, [], 2), 5);
 });

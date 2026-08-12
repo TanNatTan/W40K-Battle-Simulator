@@ -54,7 +54,7 @@ test("resident caretakers lead repairs and severe damage may draw the authored r
   const target = { id: "forge", type: "workshop", progress: 1, alive: true, hp: 570, maxHp: 600, condition: 0.95 };
   assert.equal(BUILDER_REPAIR_CREW_LIMIT, 1);
   assert.equal(builderRepairCrewLimit(player, servitor, routine, target), 1);
-  assert.equal(builderRepairCrewLimit(player, servitor, severe, target), 3);
+  assert.equal(builderRepairCrewLimit(player, servitor, severe, target), 4);
 
   const first = { ...servitor };
   claimRepairAssignment(first, target.id, 10);
