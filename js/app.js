@@ -41,10 +41,12 @@ import { chooseRecoveryPoint, clearNavigationState } from "../src/map/StuckRecov
 import { TerrainTextureLibrary } from "../src/rendering/TerrainTextureLibrary.js";
 import {
   FORMATION_TYPES,
+  updateAstartesCohesionMode,
   assignCombinedArmsSupport,
   combinedArmsSupportDistance,
   formationLocalPosition as formationSlotFor
 } from "../src/formations/FormationSystem.js";
+import { shouldUseArmyBattleFormation, updateArmyBattleFormation } from "../src/formations/ArmyBattleFormationSystem.js";
 import {
   boardTransport,
   createAircraftState,
@@ -153,6 +155,17 @@ import { selectSpaceMarineConstructionIntent } from "../src/ai/space-marines/Spa
 import { isSpaceMarinePlayer } from "../src/ai/space-marines/SpaceMarineChapterDoctrine.js";
 import { evaluateSpaceMarineTerritoryDevelopment } from "../src/ai/space-marines/SpaceMarineTerritoryDoctrine.js";
 import {
+  astartesSquadCapacityFor,
+  astartesSquadClassFor,
+  configureSpaceMarineUnit,
+  isAstartesCoreMember,
+  isSpaceMarineCharacter,
+  reinforcementWaveSize,
+  selectIncompleteAstartesSquad,
+  synchronizeAstartesSquad
+} from "../src/ai/space-marines/SpaceMarineForceComposition.js";
+import { updateSpaceMarineCharacterAttachments } from "../src/ai/space-marines/SpaceMarineCommanderAttachmentSystem.js";
+import {
   constructionRefund,
   constructionSiteKey,
   createConstructionState,
@@ -242,6 +255,13 @@ import {
   weaponProfileFor
 } from "../src/combat/CombatSystem.js";
 import {
+  absorbSpaceMarineDamage,
+  evaluateSpaceMarineAbility,
+  spaceMarineAttackDelayMultiplier,
+  spaceMarineDamageMultiplier,
+  updateSpaceMarinePassiveAbilities
+} from "../src/combat/SpaceMarineAbilitySystem.js";
+import {
   forceTreatmentThreshold,
   injuryStateFor,
   medicalProfileFor,
@@ -249,6 +269,12 @@ import {
   tickFactionRecovery,
   triageScore
 } from "../src/medical/MedicalSystem.js";
+import {
+  advanceGeneSeedRecovery,
+  canGenerateGeneSeed,
+  createGeneSeedRecoveryState,
+  selectGeneSeedCorpse
+} from "../src/medical/GeneSeedRecoverySystem.js";
 import {
   RESOURCE_TYPES,
   createResourceZone,
@@ -708,7 +734,7 @@ import {
           deployment: "Drop Pods, Thunderhawks, teleportation",
           buildings: { outpost: "Fortress Monastery", barracks: "Chapter Barracks", workshop: "Armoury", researchcenter: "Librarius", fieldhospital: "Apothecarion", generator: "Plasma Reactor", warehouse: "Supply Depot", refinery: "Manufactorum", dropbay: "Landing Pad", observationtower: "Listening Post", bunker: "Fortress Wall", turret: "Heavy Bolter Turret" },
           command: { squad: ["Sergeant"], field: ["Lieutenant"], company: ["Captain", "Chaplain", "Librarian"], exceptional: ["Chapter Master"] },
-          roster: { builder: ["Servitor"], supply: ["Chapter Supply Servitor", "Rhino Supply Carrier"], trooper: ["Tactical Marine", "Intercessor", "Assault Intercessor", "Hellblaster"], scout: ["Scout Marine", "Skull Probe", "Infiltrator", "Eliminator"], medic: ["Apothecary"], engineer: ["Techmarine"], commander: ["Sergeant", "Lieutenant", "Captain"], standard: ["Ancient", "Company Champion"], vehicle: ["Rhino", "Predator", "Dreadnought", "Land Raider"] }
+          roster: { builder: ["Servitor"], supply: ["Chapter Supply Servitor", "Rhino Supply Carrier"], trooper: ["Tactical Marine", "Intercessor", "Heavy Intercessor", "Assault Intercessor", "Assault Marine", "Jump Pack Intercessor", "Devastator", "Hellblaster", "Eradicator"], scout: ["Scout Marine", "Skull Probe", "Infiltrator", "Eliminator", "Reiver"], medic: ["Apothecary"], engineer: ["Techmarine"], commander: ["Sergeant", "Lieutenant", "Captain", "Chapter Master", "Chaplain", "Librarian", "Judiciar"], standard: ["Ancient", "Company Champion", "Bladeguard Veteran", "Sternguard Veteran", "Vanguard Veteran", "Terminator", "Assault Terminator"], vehicle: ["Rhino", "Razorback", "Impulsor", "Repulsor", "Land Raider", "Predator", "Gladiator", "Vindicator", "Whirlwind", "Hunter", "Stalker", "Storm Speeder", "Invader ATV", "Dreadnought", "Redemptor Dreadnought", "Ballistus Dreadnought", "Brutalis Dreadnought", "Thunderhawk", "Stormraven", "Stormtalon", "Stormhawk"] }
         },
         guard: {
           deployment: "Ground deployment, convoys, Valkyries",
@@ -1620,6 +1646,8 @@ import {
                 unit.x = placement.x;
                 unit.y = placement.y;
                 unit.name = `${rosterName} ${unit.index + 1}`;
+                unit.specialty = rosterName;
+                if (player.faction === "Space Marines") configureSpaceMarineUnit(unit, rosterName);
                 unit.stressRosterName = rosterName;
                 unit.status = "Full roster deployed";
                 state.units.push(unit);
@@ -3549,6 +3577,11 @@ import {
         squad.regroupSerial ??= 0;
         squad.roleAssignmentReason ||= "Initial reserve organization";
         squad.combatContact ||= null;
+        squad.coreMemberIds ||= [];
+        squad.attachedCharacterIds ||= [];
+        squad.cohesionMode ||= "STANDARD";
+        squad.formationActive ??= true;
+        squad.lastSeriousContactAt ??= -Infinity;
         squad.lastCommissarInterventionAt ??= -Infinity;
         return squad;
       }
@@ -3618,7 +3651,7 @@ import {
       }
 
       function autoFormSquads(faction) {
-        if (playerFor(faction).faction === "Imperial Guard") return;
+        if (["Imperial Guard", "Space Marines"].includes(playerFor(faction).faction)) return;
         const candidates = state.units.filter(unit => unit.alive && unit.faction === faction && !["builder", "supply", "vehicle"].includes(unit.role) && !unit.squadId);
         const existing = state.squads.find(squad => squad.faction === faction && squadMembers(squad.id).length < 6);
         if (existing && candidates.length) {
@@ -5513,14 +5546,19 @@ import {
           unit.lightPlan = `Frontier claim · ${territoryMission.reason}`;
           return territoryMission.point;
         }
-        const assignedSquad = unit.squadId ? ensureSquadRuntime(squadFor(unit.squadId)) : null;
+        if (unit.armyFormationAnchor && playerFor(unit.faction).armyBattleFormation?.active) {
+          unit.lightPlan = `All-army ${playerFor(unit.faction).armyBattleFormation.phase.toLowerCase()} formation`;
+          return unit.armyFormationAnchor;
+        }
+        const assignedSquadId = unit.squadId || unit.attachedSquadId;
+        const assignedSquad = assignedSquadId ? ensureSquadRuntime(squadFor(assignedSquadId)) : null;
         const protectedAsset = unit.protectTargetId
           ? (unitById(unit.protectTargetId)?.alive ? unitById(unit.protectTargetId) : null)
             || state.convoys.find(item => item.id === unit.protectTargetId && !item.finished)
             || activeStructureById(unit.protectTargetId)
           : null;
         if (protectedAsset) {
-          if (assignedSquad?.formation === "escort" && unit.formationSlot) {
+          if (assignedSquad?.formationActive && assignedSquad?.formation === "escort" && unit.formationSlot) {
             unit.lightPlan = `Screening ${protectedAsset.name || unitLabel(protectedAsset)} in escort formation`;
             return unit.formationSlot;
           }
@@ -5528,11 +5566,20 @@ import {
           return protectedAsset;
         }
         if (assignedSquad) {
-          if (assignedSquad.leaderId !== unit.id && unit.formationSlot) {
+          if (assignedSquad.formationActive && assignedSquad.leaderId !== unit.id && unit.formationSlot) {
             unit.lightPlan = `${assignedSquad.formation} formation`;
             return unit.formationSlot;
           }
           if (assignedSquad.objective) {
+            if (assignedSquad.cohesionMode === "DISTRIBUTED") {
+              const angle = ((unit.index || 0) * 2.399963229728653) % (Math.PI * 2);
+              const radius = 14 + ((unit.index || 0) % 4) * 7;
+              unit.lightPlan = `${assignedSquad.orderType || "Advance"} Â· distributed Astartes frontage`;
+              unit.distributedObjective ||= { x: 0, y: 0 };
+              unit.distributedObjective.x = clamp(assignedSquad.objective.x + Math.cos(angle) * radius, 20, worldWidth() - 20);
+              unit.distributedObjective.y = clamp(assignedSquad.objective.y + Math.sin(angle) * radius, 20, worldHeight() - 20);
+              return unit.distributedObjective;
+            }
             unit.lightPlan = assignedSquad.orderType || "Following commander order";
             return assignedSquad.objective;
           }
@@ -6195,6 +6242,8 @@ import {
               squad.routeAnchor = { ...waypoint, roadId: assignedRoad.id, segmentId: squad.routeSegmentId };
               squad.objective = squad.routeAnchor;
             } else squad.objective = squad.routeAnchor || roadTacticalAnchor(assignedRoad, squad.orderType, squad);
+          } else if (playerFor(squad.faction).armyBattleFormation?.active && playerFor(squad.faction).armyBattleFormation.squadAnchors?.[squad.id]) {
+            squad.objective = { ...playerFor(squad.faction).armyBattleFormation.squadAnchors[squad.id], armyFormation: true };
           } else if (squad.assignedObjective) squad.objective = { ...squad.assignedObjective };
           else if (enemy) {
             const start = baseFor(squad.faction);
@@ -6219,6 +6268,16 @@ import {
           }
           squad.targetId = target?.id || null;
           const enemies = nearbyCombatObjects(center, 100).units.filter(unit => unit.alive && !areAllies(unit.faction, squad.faction));
+          const marineSquad = playerFor(squad.faction).faction === "Space Marines";
+          if (marineSquad) {
+            synchronizeAstartesSquad(squad, state.units);
+            updateAstartesCohesionMode(squad, {
+              now: state.time,
+              seriousContact: enemies.length >= 2 || Boolean(target && distance(center, target) < Math.max(120, leader.range * 1.15)),
+              armyFormation: Boolean(playerFor(squad.faction).armyBattleFormation?.active),
+              regrouping
+            });
+          }
           if (squad.primaryRole === "reconnaissance" && enemies.length >= Math.max(1, members.length * 0.6)) {
             squad.objective = { ...baseFor(squad.faction), reconnaissanceWithdrawal: true };
             squad.targetId = null;
@@ -6258,20 +6317,26 @@ import {
           const right = { x: -forward.y, y: forward.x };
           let inPosition = 0;
           const groupRanks = new Map();
-          members.forEach((member, index) => {
-            member.formationGroup = formationGroupFor(member, index);
-            const groupRank = groupRanks.get(member.formationGroup) || 0;
-            groupRanks.set(member.formationGroup, groupRank + 1);
-            const local = formationSlotFor(squad.formation, index, members.length, member, groupRank);
-            const slot = safeFormationPosition({
-              x: clamp(anchor.x + right.x * local.x + forward.x * local.y, 20, worldWidth() - 20),
-              y: clamp(anchor.y + right.y * local.x + forward.y * local.y, 20, worldHeight() - 20)
-            }, member);
-            member.formationSlot = slot;
-            squad.slotAssignments[member.id] = slot;
-            if (distance(member, slot) < 24) inPosition += 1;
-          });
-          squad.cohesion = inPosition / members.length;
+          if (!marineSquad || squad.formationActive) {
+            members.forEach((member, index) => {
+              member.formationGroup = formationGroupFor(member, index);
+              const groupRank = groupRanks.get(member.formationGroup) || 0;
+              groupRanks.set(member.formationGroup, groupRank + 1);
+              const local = formationSlotFor(squad.formation, index, members.length, member, groupRank);
+              const slot = safeFormationPosition({
+                x: clamp(anchor.x + right.x * local.x + forward.x * local.y, 20, worldWidth() - 20),
+                y: clamp(anchor.y + right.y * local.x + forward.y * local.y, 20, worldHeight() - 20)
+              }, member);
+              member.formationSlot = slot;
+              squad.slotAssignments[member.id] = slot;
+              if (distance(member, slot) < 24) inPosition += 1;
+            });
+            squad.cohesion = inPosition / members.length;
+          } else {
+            for (const member of members) member.formationSlot = null;
+            squad.slotAssignments = {};
+            squad.cohesion = 1;
+          }
           if (distance(leader, squad.objective || leader) < 30 && squad.orderType !== "Advance" && squad.lastCreditedOrderAt !== squad.orderIssuedAt) {
             for (const member of members.slice(1)) {
               recordRelationshipEvent(member, leader, "commanderTrust", "completed a commander route order", { cooldown: 55, reciprocal: 0.25 });
@@ -6752,6 +6817,45 @@ import {
             demands = roleDemandScores(battle.context, assignedStrength);
             applySquadRoleMission(player, squad, members, battle);
           }
+          if (player.faction === "Space Marines") {
+            for (const squad of squads) synchronizeAstartesSquad(squad, state.units);
+            const characters = state.units.filter(unit => unit.alive && !unit.incapacitated && unit.faction === player.id
+              && isSpaceMarineCharacter(unit) && !unit.squadId);
+            const attachmentChanges = updateSpaceMarineCharacterAttachments({
+              characters,
+              squads,
+              membersForSquad: squadId => membersBySquad.get(squadId) || [],
+              now: state.time,
+              commitmentSeconds: 24
+            });
+            for (const change of attachmentChanges) {
+              const character = unitById.get(change.characterId);
+              const destination = squadFor(change.toSquadId);
+              if (character && destination) addUnitLog(character, `Attached to ${destination.name} for a committed battlefield assignment.`);
+            }
+            const combatUnits = battle.ownUnits.filter(unit => !["builder", "supply"].includes(unit.role));
+            const vehicles = combatUnits.filter(unit => unit.role === "vehicle");
+            const objective = battle.baseThreats[0] || battle.enemyStructures[0] || battle.enemies[0] || player.base;
+            const activateArmyFormation = shouldUseArmyBattleFormation({
+              squadCount: squads.length,
+              combatUnits: combatUnits.length,
+              baseThreat: battle.context.baseThreat,
+              objectiveImportance: battle.context.objectiveImportance,
+              allIn: player.forceState?.commitmentStage === "all-in",
+              annihilation: Boolean(battle.context.annihilation)
+            });
+            player.armyBattleFormation = updateArmyBattleFormation(player.armyBattleFormation, {
+              now: state.time,
+              activate: activateArmyFormation,
+              rallyPoint: player.base,
+              objective,
+              squads,
+              vehicles,
+              inContact: battle.enemies.some(enemy => combatUnits.some(unit => distance(unit, enemy) <= Math.max(130, unit.range || 0)))
+            });
+            for (const squad of squads) squad.armyAnchor = player.armyBattleFormation.squadAnchors?.[squad.id] || null;
+            for (const vehicle of vehicles) vehicle.armyFormationAnchor = player.armyBattleFormation.vehicleAnchors?.[vehicle.id] || null;
+          }
           player.squadRoleDemand = roleDemandScores(battle.context, assignedStrength);
           player.squadRoleComposition = Object.fromEntries(Object.keys(SQUAD_ROLE_DEFINITIONS).map(role => [role, squads.filter(squad => squad.primaryRole === role).length]));
           player.armyRoleBudget = armyAllocation.budget;
@@ -7135,9 +7239,9 @@ import {
           faction: unit.faction,
           shooterId: unit.id,
           intendedTargetId: target.id,
-          damage: unit.damage,
+          damage: unit.damage * spaceMarineDamageMultiplier(unit, target, state.time),
           penetration: weapon.penetration,
-          suppression: weapon.suppression,
+          suppression: weapon.suppression * (unit.suppressionOutputMultiplier || 1),
           splashRadius: weapon.splashRadius,
           tracerColor: weapon.tracerColor,
           weaponId: weapon.id,
@@ -7147,7 +7251,9 @@ import {
         });
         unit.aimTime = 0;
         const rationing = economyFor(unit.faction).shortages.includes("ammunition");
-        unit.fireCd = (weapon.rateOfFire + rand(0.04, Math.max(0.08, weapon.rateOfFire * 0.2))) * (rationing ? 1.75 : 1) * proximityCombatModifiers(unit).fireDelay;
+        unit.fireCd = (weapon.rateOfFire + rand(0.04, Math.max(0.08, weapon.rateOfFire * 0.2)))
+          * (rationing ? 1.75 : 1) * proximityCombatModifiers(unit).fireDelay
+          * spaceMarineAttackDelayMultiplier(unit, target, state.time);
         unit.status = rationing ? "Rationing fire" : "Firing";
         addUnitLog(unit, `Firing on ${unitLabel(target)} at ${Math.round(chance * 100)}% estimated hit probability.`);
         return true;
@@ -7327,7 +7433,10 @@ import {
         const armorHit = resolveArmorHit(target, projectile, battleRandom);
         const penetrated = armorHit.result === "penetrated";
         const zoneMultiplier = zone === "head" ? 1.55 : zone === "chest" ? 1.15 : zone.includes("Leg") ? 0.82 : 0.72;
-        const damage = projectile.damage * zoneMultiplier * armorHit.multiplier;
+        const protection = (target.psychicBarrierUntil || 0) > state.time ? 0.75 : target.shieldWallActive ? 0.78 : 1;
+        const rawDamage = projectile.damage * zoneMultiplier * armorHit.multiplier * protection;
+        const resolvedDamage = absorbSpaceMarineDamage(target, rawDamage, state.time, { frontal: armorHit.facing === "front" });
+        const damage = resolvedDamage.damage;
         target.hp -= damage;
         target.bodyZones[zone] = clamp((target.bodyZones[zone] || 1) - damage / target.maxHp * 1.8, 0, 1);
         target.bleeding = clamp((target.bleeding || 0) + (penetrated ? damage / target.maxHp * 0.42 : 0.01), 0, 0.55);
@@ -7769,6 +7878,138 @@ import {
         unit.status = target.role === "vehicle" ? selected.request.service === "heavy-repair" ? "Recovering disabled vehicle" : "Repairing vehicle" : "Repairing priority structure";
         unit.lastAction = `Servicing ${unitLabel(target)} from priority request ${Math.round(selected.request.priority)}.`;
         return true;
+      }
+
+      function spawnGeneSeedMarine(apothecary, monastery) {
+        const player = playerFor(apothecary.faction);
+        const candidate = { name: "Tactical Marine", role: "trooper" };
+        const targetSquad = selectIncompleteAstartesSquad(
+          state.squads.filter(squad => squad.faction === player.id),
+          state.units.filter(unit => unit.faction === player.id),
+          candidate
+        );
+        const unit = makeUnit(player.id, "trooper", {
+          method: "ground-deployment",
+          sourceId: monastery.id,
+          sourceType: "building",
+          label: `${monastery.displayName || "Fortress Monastery"} gene-seed induction`
+        });
+        unit.specialty = "Tactical Marine";
+        unit.name = `Gene-seed Tactical Marine ${unit.index + 1}`;
+        configureSpaceMarineUnit(unit, unit.specialty);
+        unit.x = clamp(monastery.x + 22, 24, worldWidth() - 24);
+        unit.y = clamp(monastery.y + 12, 24, worldHeight() - 24);
+        state.units.push(unit);
+        const squad = targetSquad || createSquad(player.id, unit, {
+          name: `Astartes combat squad ${state.nextSquadId}`,
+          templateId: "astartes-line",
+          nominalSize: 10,
+          astartesSquadClass: "line",
+          cohesionMode: "DISTRIBUTED",
+          formationActive: false,
+          reinforcementState: "1/10 Marines assembled"
+        });
+        unit.squadId = squad.id;
+        if (!unitById(squad.leaderId)?.alive) squad.leaderId = unit.id;
+        synchronizeAstartesSquad(squad, state.units);
+        squad.reinforcementState = `${squad.coreMemberIds.length}/${squad.nominalSize} Marines assembled`;
+        incident(`${unitLabel(apothecary)} deposited recovered gene-seed at ${monastery.displayName || "the Fortress Monastery"}; induction produced ${unitLabel(unit)}.`, unit.id, "info");
+        rebuildUnitSelect();
+        return unit;
+      }
+
+      function updateApothecaryGeneSeed(unit, dt) {
+        if (playerFor(unit.faction).faction !== "Space Marines" || !unit.abilities?.includes("gene-seed-recovery")) return false;
+        const monastery = state.structures.find(structure => structure.faction === unit.faction && structure.type === "outpost"
+          && structure.alive !== false && structure.progress >= 1);
+        if (!monastery) return false;
+        unit.geneSeedRecovery ||= createGeneSeedRecoveryState();
+        let target = state.features.find(feature => feature.id === unit.geneSeedRecovery.targetId && feature.geneSeed
+          && !feature.geneSeedRecovered && (!feature.geneSeedReservedBy || feature.geneSeedReservedBy === unit.id));
+        if (!target && unit.geneSeedRecovery.carried <= 0) {
+          target = selectGeneSeedCorpse(unit, state.features.filter(feature => !feature.geneSeedReservedBy || feature.geneSeedReservedBy === unit.id), distance);
+          if (target) target.geneSeedReservedBy = unit.id;
+        }
+        const result = advanceGeneSeedRecovery(unit.geneSeedRecovery, {
+          apothecary: unit,
+          target,
+          monastery,
+          dt,
+          distanceTo: distance,
+          random: battleRandom
+        });
+        unit.geneSeedRecovery = result.state;
+        if (result.action === "NONE") return false;
+        if (result.action === "MOVE_TO_CORPSE") {
+          moveToward(unit, result.target, dt, 1.08);
+          unit.status = "Recovering gene-seed";
+          unit.lastAction = `Moving to recover a fallen battle-brother's gene-seed.`;
+        } else if (result.action === "HARVEST") {
+          unit.status = "Harvesting gene-seed";
+          unit.lastAction = `Gene-seed extraction ${Math.round(unit.geneSeedRecovery.progress / 2.5 * 100)}%.`;
+        } else if (result.action === "RECOVERED") {
+          if (result.target) result.target.geneSeedReservedBy = null;
+          unit.status = "Gene-seed secured";
+          unit.lastAction = "Returning the recovered progenoid material to the Fortress Monastery.";
+        } else if (result.action === "MOVE_TO_MONASTERY") {
+          moveToward(unit, monastery, dt, 1.12);
+          unit.status = "Returning gene-seed";
+          unit.lastAction = "Carrying recovered gene-seed to the Fortress Monastery.";
+        } else if (result.action === "CREATE_MARINE") {
+          spawnGeneSeedMarine(unit, monastery);
+          unit.status = "Gene-seed deposited";
+        } else unit.status = "Gene-seed deposited";
+        return true;
+      }
+
+      function updateSpaceMarineSpecialist(unit, dt, assignedSquad) {
+        if (playerFor(unit.faction).faction !== "Space Marines") return false;
+        if (!unit.astartesConfigured && !["builder", "supply", "vehicle"].includes(unit.role)) configureSpaceMarineUnit(unit, unit.specialty || unit.name);
+        updateSpaceMarinePassiveAbilities(unit, dt, state.time);
+        if (!unit.abilities?.length) return false;
+        const nearby = nearbyCombatObjects(unit, 300).units;
+        const allies = nearby.filter(other => other.id !== unit.id && other.alive && areAllies(other.faction, unit.faction));
+        const enemies = nearby.filter(other => other.alive && !areAllies(other.faction, unit.faction));
+        const events = evaluateSpaceMarineAbility(unit, {
+          allies,
+          enemies,
+          vehicles: allies.filter(other => other.role === "vehicle"),
+          now: state.time,
+          dt,
+          formationActive: Boolean(assignedSquad?.formationActive)
+        });
+        let relocated = false;
+        for (const event of events) {
+          if (event.type === "SMITE" && event.target?.alive) {
+            const resolved = absorbSpaceMarineDamage(event.target, event.damage, state.time);
+            event.target.hp -= resolved.damage;
+            event.target.suppression = clamp((event.target.suppression || 0) + 0.28, 0, 1);
+            if (event.target.hp <= 0) enterIncapacitated(event.target, "a Librarian's Smite");
+            unit.status = "Casting Smite";
+          } else if (["JUMP", "TELEPORT"].includes(event.type) && event.target?.alive) {
+            const dx = event.target.x - unit.x;
+            const dy = event.target.y - unit.y;
+            const length = Math.hypot(dx, dy) || 1;
+            const landingDistance = event.type === "TELEPORT" ? 32 : 20;
+            const landing = {
+              x: clamp(event.target.x - dx / length * landingDistance, 24, worldWidth() - 24),
+              y: clamp(event.target.y - dy / length * landingDistance, 24, worldHeight() - 24)
+            };
+            if (!structureCollisionAt(landing, unit.collisionRadius || 5) && !environmentCollisionAt(landing, unit, unit.collisionRadius || 5)) {
+              unit.x = landing.x;
+              unit.y = landing.y;
+              unit.airborneUntil = event.type === "JUMP" ? state.time + event.airborneSeconds : null;
+              unit.status = event.type === "JUMP" ? "Jump-pack assault" : "Teleport strike";
+              unit.lastAction = `${event.type === "JUMP" ? "Jumped" : "Teleported"} into a valid assault position near ${unitLabel(event.target)}.`;
+              relocated = true;
+            }
+          } else if (event.type === "LITANY") {
+            unit.status = "Litany of Battle";
+            unit.lastAction = `Buffed ${event.affected} nearby Astartes with attack speed, melee resolve, and suppression resistance.`;
+          } else if (event.type === "TEMPORMORTIS") unit.status = "Tempormortis active";
+          else if (event.type === "BATTLEFIELD_REPAIR") unit.status = `Blessing ${unitLabel(event.target)}`;
+        }
+        return relocated;
       }
 
       function updateReinforcementRendezvous(unit, dt) {
@@ -8287,8 +8528,8 @@ import {
           ally.morale = clamp(ally.morale - shock * (1 - ally.discipline * 0.45), 0, 1);
           ally.suppression = clamp((ally.suppression || 0) + shock * 0.8, 0, 1);
         }
-        if (player.faction === "Space Marines") {
-          addIndexedFeature({ type: "wreckage", recoverableEquipment: true, geneSeed: true, geneSeedRecoveryPriority: chapterMedicalModifiersFor(player).geneSeedPriority, sourceFaction: unit.faction, x: unit.x, y: unit.y, r: unit.role === "vehicle" ? 16 : 7, shape: "circle", opacity: 0.82, condition: 1, age: 0, visual: "urban" });
+        if (player.faction === "Space Marines" && canGenerateGeneSeed(unit)) {
+          addIndexedFeature({ id: `gene-seed-${unit.id}`, type: "wreckage", recoverableEquipment: true, geneSeed: true, geneSeedRecoveryPriority: chapterMedicalModifiersFor(player).geneSeedPriority, sourceFaction: unit.faction, x: unit.x, y: unit.y, r: 7, shape: "circle", opacity: 0.82, condition: 1, age: 0, visual: "urban" });
         } else if (player.race !== "Orks" && player.race !== "Tyranids") {
           addIndexedFeature({ type: "wreckage", recoverableEquipment: true, sourceFaction: unit.faction, x: unit.x, y: unit.y, r: unit.role === "vehicle" ? 17 : 6, shape: "circle", opacity: 0.7, condition: 1, age: 0, visual: "urban" });
         }
@@ -8415,7 +8656,8 @@ import {
 
       function damageMeleeTarget(attacker, target, strike, scale = 1) {
         if (!target || target.alive === false || strike.damage <= 0) return;
-        const damage = strike.damage * scale;
+        const rawDamage = strike.damage * scale * ((target.psychicBarrierUntil || 0) > state.time ? 0.75 : target.shieldWallActive ? 0.78 : 1);
+        const damage = absorbSpaceMarineDamage(target, rawDamage, state.time, { frontal: false }).damage;
         target.hp -= damage;
         if (buildingCatalog[target.type]) {
           target.condition = clamp(target.hp / target.maxHp, 0.04, 1);
@@ -8762,7 +9004,8 @@ import {
         unit.fireCd -= dt;
         unit.healCd -= dt;
         unit.fatigue = clamp(unit.fatigue + dt * 0.0009, 0, 0.94);
-        unit.suppression = clamp((unit.suppression || 0) - dt * (0.07 + unit.suppressionResistance * 0.08), 0, 1);
+        const litanySuppression = (unit.litanyUntil || 0) > state.time ? unit.litanySuppressionResistance || 0.2 : 0;
+        unit.suppression = clamp((unit.suppression || 0) - dt * (0.07 + (unit.suppressionResistance + litanySuppression) * 0.08), 0, 1);
         unit.morale = clamp(unit.morale - unit.suppression * dt * 0.018, 0, 1);
         const moraleAllies = nearbyCombatObjects(unit, 85).units.filter(other => other.faction === unit.faction);
         unit.morale = clamp(unit.morale + moraleAuraFor(unit, moraleAllies) * dt, 0, 1);
@@ -8853,7 +9096,9 @@ import {
 
         const territoryAgentOnMission = Boolean(activeTerritoryAgentMission(unit));
         if (territoryAgentOnMission && updateTerritoryAgentAvoidance(unit, dt)) return;
-        const assignedSquad = unit.squadId ? ensureSquadRuntime(squadFor(unit.squadId)) : null;
+        const assignedSquadId = unit.squadId || unit.attachedSquadId;
+        const assignedSquad = assignedSquadId ? ensureSquadRuntime(squadFor(assignedSquadId)) : null;
+        if (updateSpaceMarineSpecialist(unit, dt, assignedSquad)) return;
         const combatWeapon = weaponProfileFor(unit);
         const playerBreakPolicy = breakPolicyFor(playerFor(unit.faction));
         let retreatReason = withdrawalDecisionFor(unit, playerFor(unit.faction), {
@@ -8939,6 +9184,7 @@ import {
         const immediateRoleThreat = immediateRoleThreatCandidate && !areAllies(immediateRoleThreatCandidate.faction, unit.faction)
           && canDetectTarget(unit, immediateRoleThreatCandidate) ? immediateRoleThreatCandidate : null;
         if (!immediateRoleThreat && unit.role === "medic" && updateMedic(unit, dt)) return;
+        if (!immediateRoleThreat && unit.role === "medic" && updateApothecaryGeneSeed(unit, dt)) return;
         if (!immediateRoleThreat && unit.role === "engineer" && updateEngineer(unit, dt)) return;
 
         unit.sensorCooldown = (unit.sensorCooldown || 0) - dt;
@@ -9064,7 +9310,7 @@ import {
               unit.lastAction = `Committing to close combat with ${unitLabel(target)}.`;
             }
             return;
-          } else if ((assignedSquad?.leaderId !== unit.id || assignedSquad?.formation === "escort") && unit.formationSlot && distance(unit, unit.formationSlot) > 18 && (restrictiveOrder || commitment.intent !== "Eliminate" || commitment.confidence < commitment.threshold + 5) && distance(unit, target) > unit.range * 0.35) {
+          } else if (assignedSquad?.formationActive && (assignedSquad?.leaderId !== unit.id || assignedSquad?.formation === "escort") && unit.formationSlot && distance(unit, unit.formationSlot) > 18 && (restrictiveOrder || commitment.intent !== "Eliminate" || commitment.confidence < commitment.threshold + 5) && distance(unit, target) > unit.range * 0.35) {
             moveToward(unit, unit.formationSlot, dt, (assignedSquad.cohesion < 0.55 ? 1.12 : 1.02) * alertMoveModifier(unit));
             if (distance(unit, target) <= unit.range * 0.92 && unit.fireCd <= 0 && unit.ammo > 0) fireAt(unit, target);
             unit.status = `Fighting in ${assignedSquad.formation}${alertSuffix(unit)}`;
@@ -9128,7 +9374,7 @@ import {
           unit.lastAction = `${endgameDirective.goal}. Policy: ${endgameDirective.policy}.`;
           return;
         }
-        if (assignedSquad && !territoryAgentOnMission && (assignedSquad.leaderId !== unit.id || assignedSquad.formation === "escort")) {
+        if (assignedSquad?.formationActive && !territoryAgentOnMission && (assignedSquad.leaderId !== unit.id || assignedSquad.formation === "escort")) {
           const leaderCandidate = unitById(assignedSquad.leaderId);
           const leader = leaderCandidate?.alive ? leaderCandidate : null;
           const slot = unit.formationSlot || leader;
@@ -10062,22 +10308,6 @@ import {
       function productionManifestFor(player, availableSlots) {
         const roster = factionProfile(player).roster;
         const ownUnits = state.units.filter(unit => unit.alive && !unit.incapacitated && unit.faction === player.id);
-        if (player.faction === "Space Marines") {
-          const lineSquads = state.squads.filter(squad => squad.faction === player.id && squad.nominalSize === 10
-            && squad.templateId === "group-imperium");
-          const replacementTarget = lineSquads.length >= 10
-            ? lineSquads.map(squad => ({ squad, living: squadMembers(squad.id).filter(unit => !unit.incapacitated).length }))
-              .filter(entry => entry.living < 10).sort((left, right) => left.living - right.living)[0]
-            : null;
-          if (replacementTarget && availableSlots > 0) {
-            const count = Math.min(10 - replacementTarget.living, Math.floor(availableSlots));
-            const name = roster.trooper[(player.productionSequence || 0) % roster.trooper.length] || "Tactical Marine";
-            player.lastProductionDirective = { name, role: "trooper", producerTypes: ["barracks"], score: 999,
-              scoreBreakdown: { replacement: count }, productionStyle: "restore ten-Marine squad integrity", sequence: player.productionSequence || 0 };
-            return Array.from({ length: count }, () => ({ name, role: "trooper", producerTypes: ["barracks"],
-              productionBranchId: "Astartes squad replacement", targetSquadId: replacementTarget.squad.id }));
-          }
-        }
         const availableProducerTypes = [...new Set(state.structures.filter(structure => structure.faction === player.id
           && structure.alive !== false && structure.progress >= 1 && structure.condition >= 0.35).map(structure => structure.type))];
         const directive = chooseMilitaryProduction({
@@ -10093,13 +10323,26 @@ import {
           player.pendingChaosManifestSequence = player.productionSequence || 0;
           player.pendingChaosManifestSize = 3 + Math.floor(battleRandom() * 4);
         }
-        const marineBattleSquad = player.faction === "Space Marines" && (directive.role === "trooper"
-          || directive.role === "scout" && !/skull probe|servo.?skull/i.test(directive.name));
-        const groupSize = marineBattleSquad ? 10 : directive.role === "trooper"
+        const marineSquadClass = player.faction === "Space Marines" ? astartesSquadClassFor(directive.name) : null;
+        const marineCharacter = player.faction === "Space Marines" && isSpaceMarineCharacter(directive.name);
+        const marineIndependent = player.faction === "Space Marines" && (marineCharacter || directive.role === "vehicle" || /skull probe|servo.?skull/i.test(directive.name));
+        const incompleteMarineSquad = marineSquadClass
+          ? selectIncompleteAstartesSquad(state.squads.filter(squad => squad.faction === player.id), ownUnits, directive)
+          : null;
+        const marineCapacity = marineSquadClass ? astartesSquadCapacityFor(directive.name) : 0;
+        const marineLiving = incompleteMarineSquad ? squadMembers(incompleteMarineSquad.id).filter(unit => !unit.incapacitated && isAstartesCoreMember(unit)).length : 0;
+        const marineMissing = incompleteMarineSquad ? Math.max(0, marineCapacity - marineLiving) : marineCapacity;
+        const marineWave = marineSquadClass ? reinforcementWaveSize({
+          sequence: player.productionSequence || 0,
+          missing: marineMissing,
+          squadClass: marineSquadClass
+        }) : marineIndependent ? /skull probe|servo.?skull/i.test(directive.name) ? 2 : 1 : 0;
+        if (player.faction === "Space Marines" && marineSquadClass && !incompleteMarineSquad && availableSlots < 3) return [];
+        const groupSize = player.faction === "Space Marines" ? Math.max(1, marineWave) : directive.role === "trooper"
           ? player.race === "Chaos" ? player.pendingChaosManifestSize
             : player.race === "Orks" || player.race === "Tyranids" ? 10
             : player.race === "Necrons" || player.race === "T'au" ? 8
-              : player.faction === "Space Marines" ? 10 : 6
+              : 6
           : directive.role === "scout"
             ? player.faction === "Space Marines" && /skull probe|servo.?skull/i.test(directive.name) ? 2
               : player.race === "Orks" || player.race === "Tyranids" || player.race === "Necrons" || player.race === "T'au" ? 5 : 3
@@ -10109,7 +10352,11 @@ import {
           name: directive.name,
           role: directive.role,
           producerTypes: directive.producerTypes,
-          productionBranchId: directive.productionPlan
+          productionBranchId: directive.productionPlan,
+          targetSquadId: incompleteMarineSquad?.id || null,
+          astartesSquadClass: marineSquadClass,
+          nominalSize: marineCapacity || null,
+          independent: marineIndependent
         }));
         player.productionBranchId = directive.productionPlan;
         player.lastProductionDirective = {
@@ -10150,6 +10397,7 @@ import {
           });
           unit.name = `${member.name} ${unit.index + 1}`;
           unit.specialty = member.name;
+          if (player.faction === "Space Marines") configureSpaceMarineUnit(unit, member.name);
           if (member.weaponId) {
             unit.weaponId = member.weaponId;
             unit.weapon = member.weapon || member.weaponId;
@@ -10168,24 +10416,45 @@ import {
         });
         const leader = units.find(unit => unit.role === "commander") || units[0];
         const template = player.faction === "Space Marines" ? "Astartes combat squad" : player.race === "Chaos" ? "Chaos warband" : player.race === "Orks" ? "Ork mob" : player.race === "Tyranids" ? "Tyranid brood" : player.race === "Necrons" ? "Necron phalanx" : player.race === "T'au" ? "Fire Warrior team" : "formation";
+        const independentDeployment = player.faction === "Space Marines" && manifest.every(member => member.independent);
+        if (independentDeployment) {
+          state.units.push(...units);
+          player.productionSequence = (player.productionSequence || 0) + 1;
+          incident(`${player.faction} deployed ${units.map(unit => unit.specialty).join(", ")} as independent squad attachments.`, leader.id, "info");
+          rebuildUnitSelect();
+          return units;
+        }
         const reinforcementSquadId = manifest.every(member => member.targetSquadId && member.targetSquadId === manifest[0].targetSquadId)
           ? manifest[0].targetSquadId : null;
         const squad = reinforcementSquadId ? squadFor(reinforcementSquadId)
-          : createSquad(player.id, leader, { name: `${template} ${state.nextSquadId}`, templateId: `group-${player.race.toLowerCase()}`, nominalSize: units.length, formation: player.race === "Orks" ? "circle" : player.race === "Tyranids" ? "wedge" : "line", reinforcementState: "Full strength" });
+          : createSquad(player.id, leader, {
+            name: `${template} ${state.nextSquadId}`,
+            templateId: player.faction === "Space Marines" ? `astartes-${manifest[0].astartesSquadClass || "line"}` : `group-${player.race.toLowerCase()}`,
+            nominalSize: player.faction === "Space Marines" ? manifest[0].nominalSize || 10 : units.length,
+            astartesSquadClass: player.faction === "Space Marines" ? manifest[0].astartesSquadClass || "line" : null,
+            cohesionMode: player.faction === "Space Marines" ? "DISTRIBUTED" : undefined,
+            formationActive: player.faction === "Space Marines" ? false : undefined,
+            formation: player.race === "Orks" ? "circle" : player.race === "Tyranids" ? "wedge" : "line",
+            reinforcementState: player.faction === "Space Marines" ? `Building toward ${manifest[0].nominalSize || 10}-Marine strength` : "Full strength"
+          });
         if (!squad) return [];
         for (const unit of units) unit.squadId = squad.id;
         state.units.push(...units);
+        if (player.faction === "Space Marines") synchronizeAstartesSquad(squad, state.units);
         if (reinforcementSquadId) {
           if (!unitById(squad.leaderId)?.alive) squad.leaderId = leader.id;
-          squad.reinforcementState = "Replacement detachment arrived";
+          squad.reinforcementState = squad.coreMemberIds?.length >= squad.nominalSize
+            ? "Full strength" : `${squad.coreMemberIds?.length || squadMembers(squad.id).length}/${squad.nominalSize} Marines assembled`;
         }
         seedSquadRelationships(units, leader);
         player.productionSequence = (player.productionSequence || 0) + 1;
         player.pendingChaosManifestSequence = null;
         player.pendingChaosManifestSize = null;
         incident(reinforcementSquadId
-          ? `${player.faction} restored ${squad.name} with a ${units.length}-Marine replacement detachment.`
-          : `${player.faction} deployed ${template} atomically with ${units.length} members.`, leader.id, "info");
+          ? `${player.faction} reinforced ${squad.name} with a ${units.length}-Marine reinforcement wave.`
+          : player.faction === "Space Marines"
+            ? `${player.faction} deployed a ${units.length}-Marine reinforcement wave for ${squad.name}; the squad will fill to ${squad.nominalSize}.`
+            : `${player.faction} deployed ${template} atomically with ${units.length} members.`, leader.id, "info");
         rebuildUnitSelect();
         return units;
       }
@@ -11201,14 +11470,18 @@ import {
           if (pod.stage === "Deployed") {
             pod.deployed = true;
             const deployedUnits = [];
-            const podRoles = ["commander", "trooper", "trooper", "medic"];
-            for (const [index, role] of podRoles.entries()) {
+            const podRoles = ["Intercessor", "Intercessor", "Assault Intercessor", "Hellblaster"];
+            for (const [index, specialty] of podRoles.entries()) {
+              const role = "trooper";
               const unit = makeUnit(pod.faction, role, {
                 method: "drop-pod",
                 sourceId: pod.id,
                 sourceType: "drop-pod",
                 label: "Orbital drop pod"
               });
+              unit.specialty = specialty;
+              unit.name = `${specialty} ${unit.index + 1}`;
+              configureSpaceMarineUnit(unit, specialty);
               const angle = index * Math.PI * 2 / podRoles.length;
               let landingPoint = { x: pod.destination.x + Math.cos(angle) * 14, y: pod.destination.y + Math.sin(angle) * 14 };
               for (let attempt = 0; attempt < 10; attempt += 1) {
@@ -11224,11 +11497,15 @@ import {
             const squad = createSquad(pod.faction, leader, {
               name: `Drop Pod squad ${state.nextSquadId}`,
               templateId: "drop-pod-four",
-              nominalSize: 4,
+              nominalSize: 10,
+              astartesSquadClass: "line",
+              cohesionMode: "BATTLE_FORMATION",
+              formationActive: true,
               formation: "defensive-ring",
-              reinforcementState: "Full strength"
+              reinforcementState: "4/10 Marines deployed by Drop Pod"
             });
             for (const unit of deployedUnits) unit.squadId = squad.id;
+            synchronizeAstartesSquad(squad, state.units);
             pod.deployedUnitIds = deployedUnits.map(unit => unit.id);
             pod.deployedUnitCount = deployedUnits.length;
             const request = economyFor(pod.faction).queue.find(item => item.id === pod.requestId);

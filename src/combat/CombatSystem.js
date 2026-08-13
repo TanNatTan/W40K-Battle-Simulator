@@ -151,7 +151,7 @@ export function updateCombatState(unit, dt, catalog) {
     if (melee.remaining === 0 && melee.phase === "windup") {
       events.push({ type: "melee-strike", targetId: melee.targetId, charged: melee.charged });
       melee.phase = "recovery";
-      melee.remaining = profile.melee.recovery / Math.max(0.2, profile.melee.attackSpeed);
+      melee.remaining = profile.melee.recovery / Math.max(0.2, profile.melee.attackSpeed * (unit.meleeAttackSpeedMultiplier || 1));
     } else if (melee.remaining === 0 && melee.phase === "recovery") {
       melee.phase = "idle";
       melee.targetId = null;
@@ -188,7 +188,7 @@ export function beginMeleeAttack(unit, targetId, charged = false, catalog) {
   const { profile } = ensureWeaponState(unit, catalog);
   if (unit.meleeState.phase !== "idle") return false;
   unit.meleeState.phase = "windup";
-  unit.meleeState.remaining = profile.melee.windUp / Math.max(0.2, profile.melee.attackSpeed);
+  unit.meleeState.remaining = profile.melee.windUp / Math.max(0.2, profile.melee.attackSpeed * (unit.meleeAttackSpeedMultiplier || 1));
   unit.meleeState.targetId = targetId;
   unit.meleeState.charged = Boolean(charged);
   return true;

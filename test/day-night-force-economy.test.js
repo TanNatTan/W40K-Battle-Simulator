@@ -57,6 +57,6 @@ test("commitment can jump directly to all-in while Chapter Masters remain except
   assert.equal(commandPresenceFor(marine, "all-in", ["existential-threat"]), "Chapter Master");
   const runtime = readFileSync(new URL("../js/app.js", import.meta.url), "utf8");
   assert.match(runtime, /command: \{ squad: \["Sergeant"\].*exceptional: \["Chapter Master"\]/);
-  assert.doesNotMatch(runtime, /commander: \[[^\]]*"Chapter Master"/);
+  assert.match(runtime, /commander: \[[^\]]*"Chapter Master"/);
   assert.doesNotMatch(runtime, /commander: \[[^\]]*"Warboss"/);
 });

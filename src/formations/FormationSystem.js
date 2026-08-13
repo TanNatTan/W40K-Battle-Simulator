@@ -7,6 +7,23 @@ export const COMBINED_ARMS_ROLES = Object.freeze([
   "medical", "repair", "logistics", "reserve"
 ]);
 
+export const ASTARTES_COHESION_MODES = Object.freeze({
+  DISTRIBUTED: "DISTRIBUTED",
+  BATTLE_FORMATION: "BATTLE_FORMATION",
+  REGROUPING: "REGROUPING"
+});
+
+export function updateAstartesCohesionMode(squad, { now = 0, seriousContact = false, armyFormation = false, regrouping = false, quietSeconds = 12 } = {}) {
+  if (!squad) return ASTARTES_COHESION_MODES.DISTRIBUTED;
+  if (seriousContact) squad.lastSeriousContactAt = now;
+  const recentlyEngaged = now - (squad.lastSeriousContactAt ?? -Infinity) < quietSeconds;
+  squad.cohesionMode = regrouping ? ASTARTES_COHESION_MODES.REGROUPING
+    : armyFormation || seriousContact || recentlyEngaged ? ASTARTES_COHESION_MODES.BATTLE_FORMATION
+      : ASTARTES_COHESION_MODES.DISTRIBUTED;
+  squad.formationActive = squad.cohesionMode !== ASTARTES_COHESION_MODES.DISTRIBUTED;
+  return squad.cohesionMode;
+}
+
 const weaponText = unit => `${unit.weapon || ""} ${unit.weaponId || ""} ${unit.specialty || ""}`.toLowerCase();
 const identityText = unit => `${unit.name || ""} ${unit.role || ""} ${unit.type || ""}`.toLowerCase();
 

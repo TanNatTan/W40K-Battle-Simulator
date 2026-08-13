@@ -7,11 +7,11 @@ export const factionConfig = Object.freeze({
       roster: {
         builder: ["Servitor"],
         supply: ["Chapter Supply Servitor", "Rhino Supply Carrier"],
-        trooper: ["Tactical Marine", "Intercessor", "Assault Intercessor", "Assault Marine", "Devastator", "Hellblaster", "Inceptor", "Aggressor", "Reiver", "Incursor", "Infiltrator"],
+        trooper: ["Tactical Marine", "Intercessor", "Heavy Intercessor", "Assault Intercessor", "Assault Marine", "Jump Pack Intercessor", "Devastator", "Hellblaster", "Eradicator", "Inceptor", "Aggressor", "Reiver", "Incursor", "Infiltrator"],
         scout: ["Scout Marine", "Skull Probe", "Eliminator", "Infiltrator"],
         medic: ["Apothecary"], engineer: ["Techmarine"],
         commander: ["Sergeant", "Lieutenant", "Captain", "Chapter Master", "Chaplain", "Librarian", "Judiciar"],
-        standard: ["Ancient", "Company Champion", "Bladeguard Veteran", "Sternguard", "Vanguard Veteran", "Terminator", "Assault Terminator"],
+        standard: ["Ancient", "Company Champion", "Bladeguard Veteran", "Sternguard Veteran", "Vanguard Veteran", "Terminator", "Assault Terminator"],
         vehicle: ["Rhino", "Razorback", "Impulsor", "Repulsor", "Land Raider", "Predator", "Gladiator", "Vindicator", "Whirlwind", "Hunter", "Stalker", "Storm Speeder", "Invader ATV", "Dreadnought", "Redemptor Dreadnought", "Ballistus Dreadnought", "Brutalis Dreadnought", "Thunderhawk", "Stormraven", "Stormtalon", "Stormhawk"]
       }
     },

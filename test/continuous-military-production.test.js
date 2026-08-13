@@ -61,9 +61,10 @@ test("runtime keeps a locked military queue, excludes builders, and uses the rea
   assert.match(source, /reservedTrainingCargo\[key\] \|\| 0/);
   assert.match(source, /const remainingCapacity = Math\.max\(0, unitCap - \(living \+ guardBatchSize\)\)/);
   assert.match(source, /const nextManifest = productionManifestFor\(player, remainingCapacity\)/);
-  assert.match(source, /const marineBattleSquad = player\.faction === "Space Marines"/);
-  assert.match(source, /restore ten-Marine squad integrity/);
-  assert.match(source, /const podRoles = \["commander", "trooper", "trooper", "medic"\]/);
+  assert.match(source, /const marineSquadClass = player\.faction === "Space Marines"/);
+  assert.match(source, /reinforcementWaveSize\(\{/);
+  assert.match(source, /selectIncompleteAstartesSquad/);
+  assert.match(source, /const podRoles = \["Intercessor", "Intercessor", "Assault Intercessor", "Hellblaster"\]/);
   assert.match(source, /pod\.deployedUnitCount = deployedUnits\.length/);
   assert.match(source, /unit\.alive && !unit\.incapacitated && unit\.faction === player\.id/);
   assert.doesNotMatch(source, /const unitCap = desiredFieldStrengthFor\(player\);/);

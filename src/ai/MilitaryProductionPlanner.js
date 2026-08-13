@@ -13,6 +13,12 @@ const TOKEN_PATTERNS = Object.freeze({
   "ranged-support": /hellblaster|eliminator|havoc|shoota|broadside|immortal|exocrine/i,
   "precision-ranged": /eliminator|deathmark|ratling|pathfinder/i,
   "heavy-weapons": /hellblaster|havoc|tankbusta|broadside|heavy/i,
+  veteran: /sternguard|vanguard veteran|bladeguard/i,
+  terminator: /terminator/i,
+  spiritual: /chaplain/i,
+  medical: /apothecary|medic|painboy|medical drone/i,
+  psychic: /librarian|psyker|sorcerer|weirdboy/i,
+  judicial: /judiciar/i,
   scout: /scout|infiltrator|eliminator|ratling|sentinel|kommando|deathmark|pathfinder|stealth|gargoyle|ravener|raptor/i,
   stealth: /infiltrator|eliminator|ratling|kommando|deathmark|stealth|lictor/i,
   command: /sergeant|officer|captain|lieutenant|lord|overlord|warden|nob|fireblade|commander|prime|tyrant|champion/i,
@@ -113,8 +119,17 @@ export function scoreProductionCandidate(member, { player = {}, plan, demand = {
       ? 260 + Math.min(220, (marineInfantryFloor - marineInfantry) * 3.5)
       : member.role === "vehicle" ? -300 : -80
     : 0;
+  const marineSpecialist = player.faction === "Space Marines" && marineInfantry >= 18 && sameName === 0
+    ? /apothecary|techmarine|chaplain|librarian|judiciar|ancient|company champion/i.test(member.name || "") ? 135
+      : /sternguard|vanguard veteran|bladeguard/i.test(member.name || "") && marineInfantry >= 24 ? 105
+        : /terminator/i.test(member.name || "") && marineInfantry >= 30 ? 115 : 0
+    : 0;
+  const characterCap = /chapter master/i.test(member.name || "") ? 1
+    : /captain|chaplain|librarian|judiciar|apothecary|techmarine|ancient|company champion/i.test(member.name || "") ? 2
+      : /lieutenant/i.test(member.name || "") ? 3 : Infinity;
+  const cappedCharacter = sameName >= characterCap ? 900 : 0;
   return Object.freeze({ member, tags, producerTypes: producers, facilityAvailable,
-    score: doctrine + battlefield + captureSupport + lineGrowth - oversaturation - (facilityAvailable ? 0 : 160), doctrine, battlefield, captureSupport, lineGrowth, oversaturation });
+    score: doctrine + battlefield + captureSupport + lineGrowth + marineSpecialist - cappedCharacter - oversaturation - (facilityAvailable ? 0 : 160), doctrine, battlefield, captureSupport, lineGrowth, marineSpecialist, cappedCharacter, oversaturation });
 }
 
 export function chooseMilitaryProduction({ player = {}, roster = {}, demand = {}, ownUnits = [], availableProducerTypes = [], sequence = 0 } = {}) {
@@ -127,5 +142,6 @@ export function chooseMilitaryProduction({ player = {}, roster = {}, demand = {}
   const selected = competitive[Math.abs(Math.floor(Number(sequence) || 0)) % competitive.length];
   return Object.freeze({ ...selected.member, producerTypes: selected.producerTypes, productionPlan: plan?.name || player.subfaction || "Default",
     productionStyle: plan?.productionStyle || "adaptive", score: selected.score, scoreBreakdown: Object.freeze({ doctrine: selected.doctrine,
-      battlefield: selected.battlefield, captureSupport: selected.captureSupport, lineGrowth: selected.lineGrowth, oversaturation: selected.oversaturation }) });
+      battlefield: selected.battlefield, captureSupport: selected.captureSupport, lineGrowth: selected.lineGrowth,
+      marineSpecialist: selected.marineSpecialist, cappedCharacter: selected.cappedCharacter, oversaturation: selected.oversaturation }) });
 }
