@@ -27,6 +27,7 @@ import { EXTRACTABLE_RESOURCE_IDS, RESOURCE_DEFINITIONS, RESOURCE_IDS } from "./
 import { allocateArmyRoles, calculateArmyRoleBudget } from "./ai/ArmyRoleAllocator.js";
 import { captureTargetsFor, scoreCaptureTarget, selectCaptureTarget } from "./ai/CaptureObjectiveSystem.js";
 import { actionCost, calculateCost, canAffordCost, costForManifest, mergeCosts, spendCost, trainingDelayFor, unitCostFor } from "./economy/CostSystem.js";
+import { combatProductionCapacity, isActiveProductionRequest, lockProductionManifest, productionRequestsToProcess, selectMilitaryProducer, trimRequestQueue } from "./economy/MilitaryProductionQueueSystem.js";
 import { LOADOUT_RULES, scoreWeapon, selectSpaceMarineWargear } from "./combat/WargearSelectionSystem.js";
 import { RESOURCE_CARRIER_STATES, assignResourceCarrier, desiredResourceCarriers, ensureResourceCarrierState, setResourceCarrierState } from "./logistics/ResourceCarrierSystem.js";
 import { SupplyNetwork } from "./logistics/SupplyNetwork.js";
@@ -280,6 +281,12 @@ globalThis.AWTSystems = Object.freeze({
   ARMY_COMPOSITION_PROFILES,
   armyCompositionProfileFor,
   vehicleCompositionFor,
+  combatProductionCapacity,
+  isActiveProductionRequest,
+  lockProductionManifest,
+  productionRequestsToProcess,
+  selectMilitaryProducer,
+  trimRequestQueue,
   DECISION_WORKFLOW_STAGES,
   evaluateDecisionWorkflow,
   SIMULATION_DATABASE_NAME,

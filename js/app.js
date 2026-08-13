@@ -170,6 +170,13 @@ import { SupplyNetwork } from "../src/logistics/SupplyNetwork.js";
 import { convoyEffectiveSpeed } from "../src/logistics/ConvoyMovementSystem.js";
 import { assessEconomySecurity, assessMacroReadiness, canDispatchEconomicExpedition, criticalProducerClusters, updateEconomySecurityMemory } from "../src/ai/EconomySecurityPolicy.js";
 import { actionCost, calculateCost, canAffordCost, costForManifest, spendCost, trainingDelayFor, unitCostFor } from "../src/economy/CostSystem.js";
+import {
+  combatProductionCapacity,
+  lockProductionManifest,
+  productionRequestsToProcess,
+  selectMilitaryProducer,
+  trimRequestQueue
+} from "../src/economy/MilitaryProductionQueueSystem.js";
 import { allocateForceCaps, commandPresenceFor, createForceState, updateForceState } from "../src/ai/ForceCommitmentSystem.js";
 import { createSimulationDatabase, factionAnalyticsRecord } from "../src/persistence/SimulationDatabase.js";
 import { combineStrategicBias, chaosTargetMultiplier, evaluateChaosStrategy } from "../src/ai/chaos/ChaosStrategySystem.js";
@@ -9686,7 +9693,8 @@ import {
       function updatePlayerForceCommitment(player) {
         const context = forceCommitmentContext(player);
         player.forceState = updateForceState(player.forceState || createForceState(), context);
-        const living = state.units.filter(unit => unit.alive && unit.faction === player.id && !["builder", "supply"].includes(unit.role)).length;
+        const living = state.units.filter(unit => unit.alive && !unit.incapacitated && unit.faction === player.id
+          && !["builder", "supply"].includes(unit.role)).length;
         player.forceState.fieldedStrength = living;
         player.forceState.reinforcementCapacity = unitCapFor(player);
         player.forceState.reserveStrength = Math.max(0, player.forceState.reinforcementCapacity - living);
@@ -10080,7 +10088,8 @@ import {
         if (economy.shortages.includes("food") && !hasType("farm")) addEconomyRequest(player.id, "build-farm", "build", "Build supply farm", 86, { buildType: "farm" });
         if (economy.shortages.includes("materials") && !hasType("mine")) addEconomyRequest(player.id, "build-mine", "build", "Build material mine", 88, { buildType: "mine" });
         const living = state.units.filter(unit => unit.alive && unit.faction === player.id && !["builder", "supply"].includes(unit.role)).length;
-        const unitCap = desiredFieldStrengthFor(player);
+        const unitCap = unitCapFor(player);
+        const productionCapacity = combatProductionCapacity(unitCap, living);
         const livingBuilders = state.units.filter(unit => unit.alive && !unit.incapacitated && unit.faction === player.id && unit.role === "builder").length;
         const desiredBuilders = player.builderWorkforce?.desired || desiredBuilderCount(player, state.structures, player.builderTarget);
         const builderPriority = builderProductionPriority(livingBuilders, desiredBuilders);
@@ -10088,9 +10097,9 @@ import {
           const production = builderProductionProfileFor(player);
           addEconomyRequest(player.id, "train-builder", "train-builder", `Produce builder at ${production.producerLabel}`, builderPriority, { desiredBuilders });
         }
-        if (living < unitCap) {
+        if (productionCapacity.shouldQueue) {
           if (isImperialGuard(player)) {
-            const training = selectGuardTraining(player, unitCap - living);
+            const training = selectGuardTraining(player, productionCapacity.availableSlots);
             const request = economy.queue.find(item => item.key === "train-line" && !["Delivered", "Denied", "Complete"].includes(item.status));
             if (!training) {
               if (request?.lockedAt == null) request.status = "Delayed · atomic Guard detachment does not fit the current population cap";
@@ -10100,7 +10109,19 @@ import {
               if (request && request.lockedAt == null) Object.assign(request, { label, guardTemplateKey: training.templateKey, targetSquadId: training.targetSquadId, memberCount: training.memberCount });
               else addEconomyRequest(player.id, "train-line", "train", label, 76, { guardTemplateKey: training.templateKey, targetSquadId: training.targetSquadId, memberCount: training.memberCount });
             }
-          } else addEconomyRequest(player.id, "train-line", "train", "Train line infantry", 70);
+          } else {
+            const request = economy.queue.find(item => item.key === "train-line" && !["Delivered", "Denied", "Complete"].includes(item.status));
+            if (!request) {
+              const manifest = productionManifestFor(player, productionCapacity.availableSlots);
+              if (manifest.length) addEconomyRequest(player.id, "train-line", "train", `Produce ${manifest[0].name}`, 84, {
+                productionManifest: manifest.map(member => ({ ...member, producerTypes: [...(member.producerTypes || [])] })),
+                producerTypes: [...(manifest[0].producerTypes || ["barracks"])]
+              });
+            }
+          }
+        } else {
+          for (const request of economy.queue.filter(item => item.type === "train" && !item.targetSquadId
+            && !["Delivered", "Denied", "Complete"].includes(item.status))) request.status = "Complete";
         }
         if (player.race === "Imperium" && player.faction === "Space Marines" && living < Math.max(4, unitCap - 1) && shouldUseDropPod(player)) addEconomyRequest(player.id, "drop-pod", "dropPod", "Orbital drop-pod reinforcement", 88);
         economy.emergency = economy.shortages.length
@@ -10249,7 +10270,7 @@ import {
         const economy = economyFor(player.id);
         const reserve = economy.personality === "Frugal" ? 34 : economy.personality === "Aggressive" ? 8 : 20;
         economy.queue.sort((a, b) => b.priority - a.priority || a.createdAt - b.createdAt);
-        for (const request of economy.queue.filter(item => !["Delivered", "Denied", "Complete"].includes(item.status)).slice(0, 2)) {
+        for (const request of productionRequestsToProcess(economy.queue, 2)) {
           if (request.type === "build") {
             const existing = state.structures.find(item => item.faction === player.id && item.type === request.buildType && item.alive !== false);
             if (existing) {
@@ -10300,18 +10321,23 @@ import {
               ? `Approved · ${producer.displayName || factionBuildingLabel(player.id, producer.type)} preparing builder`
               : "Delayed · builder resources unavailable";
           } else if (request.type === "train") {
-            const barracks = state.structures.find(item => item.faction === player.id && item.type === "barracks" && item.progress >= 1 && item.alive !== false);
+            const manifest = isImperialGuard(player) ? [] : lockProductionManifest(request, productionManifestFor(player, Infinity));
+            const producerTypes = isImperialGuard(player) ? ["barracks"] : request.producerTypes?.length
+              ? request.producerTypes : manifest[0]?.producerTypes || ["barracks"];
+            const producer = selectMilitaryProducer({ structures: state.structures, faction: player.id, producerTypes });
             const trainingCargo = isImperialGuard(player)
               ? guardTrainingCost(request.guardTemplateKey || "standard", request.memberCount)
-              : costForManifest(player, productionManifestFor(player, Infinity));
-            if (!barracks) { request.status = "Delayed · barracks unavailable"; continue; }
-            const ready = Object.entries(trainingCargo).every(([key, value]) => (barracks.inventory[key] || 0) >= value);
-            if (ready) { request.status = "Approved · squad preparing"; continue; }
+              : costForManifest(player, manifest);
+            if (!producer) { request.status = `Delayed · ${producerTypes.map(type => factionBuildingLabel(player.id, type)).join(" / ")} unavailable`; continue; }
+            request.producerId = producer.id;
+            request.producerTypes = [...producerTypes];
+            const ready = Object.entries(trainingCargo).every(([key, value]) => (producer.inventory[key] || 0) >= value);
+            if (ready) { request.status = `Approved · ${producer.displayName || factionBuildingLabel(player.id, producer.type)} preparing formation`; continue; }
             if (state.convoys.some(item => !item.finished && item.trainingRequestId === request.id)) { request.status = "Approved · training supplies en route"; continue; }
             const canShip = Object.entries(trainingCargo).every(([key, value]) => (economy.inventory[key] || 0) >= value);
             if (!canShip) { request.status = "Delayed · supplies unavailable"; continue; }
-            const convoy = createConvoy(player.id, trainingCargo, closestStoragePoint(player.id, barracks), barracks, {
-              destinationKind: "structure", destinationId: barracks.id, name: `Barracks Supply #${state.nextConvoyId}`,
+            const convoy = createConvoy(player.id, trainingCargo, closestStoragePoint(player.id, producer), producer, {
+              destinationKind: "structure", destinationId: producer.id, name: `${producer.displayName || factionBuildingLabel(player.id, producer.type)} Training Supply #${state.nextConvoyId}`,
               training: true, trainingRequestId: request.id
             });
             if (!convoy) { request.status = "Delayed · convoy capacity unavailable"; continue; }
@@ -10320,7 +10346,8 @@ import {
             request.status = "Approved · training supplies en route";
           }
         }
-        economy.queue = economy.queue.filter(item => state.time - item.createdAt < 150 || !["Delivered", "Denied", "Complete"].includes(item.status)).slice(0, 12);
+        economy.queue = trimRequestQueue(economy.queue.filter(item => state.time - item.createdAt < 150
+          || !["Delivered", "Denied", "Complete"].includes(item.status)), 12);
       }
 
       function dispatchStructureLogistics(player, structure) {
@@ -10729,7 +10756,7 @@ import {
         refreshSupplyNetwork();
         for (const player of players) {
           updatePlayerForceCommitment(player);
-          const unitCap = desiredFieldStrengthFor(player);
+          const unitCap = unitCapFor(player);
           const economy = economyFor(player.id);
           profiler.profile("economy.constructionQueue", () => planFactionConstruction(player));
           profiler.profile("economy.builderWorkforce", () => refreshBuilderWorkforce(player));
@@ -10743,7 +10770,8 @@ import {
           });
           profiler.profile("economy.consumption", () => updateUnitConsumption(player));
           profiler.profile("economy.tradeConvoys", () => dispatchTradeConvoys(player));
-          const living = state.units.filter(unit => unit.alive && unit.faction === player.id && !["builder", "supply"].includes(unit.role)).length;
+          const living = state.units.filter(unit => unit.alive && !unit.incapacitated && unit.faction === player.id
+            && !["builder", "supply"].includes(unit.role)).length;
           let trainingRequest = economy.queue.find(item => item.key === "train-line" && !["Delivered", "Denied", "Complete"].includes(item.status));
           if (trainingRequest?.targetSquadId && !squadFor(trainingRequest.targetSquadId)) {
             trainingRequest.status = "Denied";
@@ -10778,12 +10806,11 @@ import {
               guardTraining = null;
             }
           }
-          const groupManifest = guardPlayer ? [] : productionManifestFor(player, unitCap - living);
+          const groupManifest = guardPlayer || !trainingRequest ? []
+            : lockProductionManifest(trainingRequest, productionManifestFor(player, unitCap - living));
           if (!guardTraining) guardBatchSize = guardPlayer ? 0 : groupManifest.length;
           const producerTypes = guardPlayer ? ["barracks"] : groupManifest[0]?.producerTypes || ["barracks"];
-          const producer = producerTypes
-            .map(type => state.structures.find(item => item.faction === player.id && item.type === type && item.progress >= 1 && item.alive !== false))
-            .find(Boolean) || null;
+          const producer = selectMilitaryProducer({ structures: state.structures, faction: player.id, producerTypes });
           const trainCost = guardTraining ? guardTrainingCost(guardTraining.templateKey, guardBatchSize) : costForManifest(player, groupManifest);
           const canTrain = producer && Object.entries(trainCost).every(([key, value]) => (producer.inventory[key] || 0) >= value);
           const batchFits = living + guardBatchSize <= unitCap;
