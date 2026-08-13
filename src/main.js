@@ -22,6 +22,7 @@ import { CHAOS_PROFILE_ACTIONS, createChaosStrategicState, selectChaosAction } f
 import { createOperationalMemory, evaluateOperationalPhase } from "./ai/OperationalPhaseSystem.js";
 import { ACTIVITY_RATE_MULTIPLIER, RateGate, activityRateMultiplier, effectiveObjectiveFocus, objectiveInterpretationMethod, resolveWarfareDoctrine, scoreTacticalOpportunity } from "./ai/WarfareDoctrineSystem.js";
 import { StrategicCellIndex } from "./performance/StrategicCellIndex.js";
+import { LIGHTWEIGHT_ENTITY_THRESHOLD, adaptiveEntityUpdatePreset, adaptivePerformanceRequest, adaptiveRenderInterval, adaptiveThinkingBudgets, largeBattleLoadActive } from "./performance/AdaptiveLoadSystem.js";
 import { analyzeDistantSnapshot, analyzeDistantUnits, packDistantUnits } from "./performance/DistantSimulation.js";
 import { EXTRACTABLE_RESOURCE_IDS, RESOURCE_DEFINITIONS, RESOURCE_IDS } from "./economy/ResourceCatalog.js";
 import { allocateArmyRoles, calculateArmyRoleBudget } from "./ai/ArmyRoleAllocator.js";
@@ -94,6 +95,12 @@ globalThis.AWTSystems = Object.freeze({
   SCALE_PRESETS,
   WorkBudget,
   scalePresetFor,
+  LIGHTWEIGHT_ENTITY_THRESHOLD,
+  adaptiveEntityUpdatePreset,
+  adaptivePerformanceRequest,
+  adaptiveRenderInterval,
+  adaptiveThinkingBudgets,
+  largeBattleLoadActive,
   FACTION_GAMEPLAY_BRANCHES,
   createFactionGameplayState,
   Profiler,

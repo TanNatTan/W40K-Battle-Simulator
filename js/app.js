@@ -82,6 +82,13 @@ import { createFactionLearningMemory } from "../src/learning/LearningSystem.js";
 import { assessFactionCapability, battleObjectiveVictoryReady, chooseEndgameDirective } from "../src/victory/VictorySystem.js";
 import { buildAIInspector } from "../src/replay/ReplayAnalysisSystem.js";
 import { WorkBudget, scalePresetFor, shouldUpdateEntity } from "../src/performance/ScaleSystem.js";
+import {
+  adaptiveEntityUpdatePreset,
+  adaptivePerformanceRequest,
+  adaptiveRenderInterval,
+  adaptiveThinkingBudgets,
+  largeBattleLoadActive
+} from "../src/performance/AdaptiveLoadSystem.js";
 import { DISTANT_HINT_NEIGHBORS, packDistantUnits } from "../src/performance/DistantSimulation.js";
 import { createFactionGameplayState, updateFactionGameplay } from "../src/factions/DistinctiveGameplaySystem.js";
 import { expiredDeadUnitIds, scheduleDeathRemoval } from "../src/simulation/DeathLifecycle.js";
@@ -350,6 +357,7 @@ import {
         fullscreenButton: root.querySelector("#awt-fullscreen-button"),
         fogButton: root.querySelector("#awt-fog-button"),
         territoryToggle: root.querySelector("#awt-territory-toggle"),
+        terrainToggle: root.querySelector("#awt-terrain-toggle"),
         squadRoleToggle: root.querySelector("#awt-squad-role-toggle"),
         lightingToggle: root.querySelector("#awt-lighting-toggle"),
         logisticsButton: root.querySelector("#awt-logistics-button"),
@@ -1247,6 +1255,8 @@ import {
         strategicTerritory: null,
         strategicTerritoryVictoryReported: false,
         territoryOverlay: true,
+        showTerrain: true,
+        lightweightRendering: true,
         squadRoleOverlay: true,
         dayNight: {
           enabled: true,
@@ -1669,6 +1679,62 @@ import {
           state.minimapMarkerDirty = true;
           updateExploration(0, true);
           return structuredClone(state.stressFixtureAudit);
+        },
+        prepareExactLoadFixture(targetUnits = 310, targetBuildings = 111) {
+          if (state.mode !== "editor") throw new Error("The exact-load fixture must be prepared from the map editor.");
+          const unitTarget = Math.max(state.units.length, Math.floor(Number(targetUnits) || 310));
+          const buildingTarget = Math.max(state.structures.length, Math.floor(Number(targetBuildings) || 111));
+          const combatRoles = ["trooper", "trooper", "scout", "medic", "engineer", "vehicle", "vehicle", "commander"];
+          while (state.units.length < unitTarget) {
+            const ordinal = state.units.length;
+            const player = state.players[ordinal % state.players.length];
+            const role = combatRoles[ordinal % combatRoles.length];
+            const unit = makeUnit(player.id, role, "Exact large-battle load fixture");
+            const zone = spawnZoneFor(player);
+            const radius = Math.max(20, zone.size * (0.28 + (ordinal % 11) * 0.045));
+            const angle = ordinal * 2.399963229728653 + player.index * 0.3;
+            unit.x = clamp(player.base.x + Math.cos(angle) * radius, 24, worldWidth() - 24);
+            unit.y = clamp(player.base.y + Math.sin(angle) * radius, 24, worldHeight() - 24);
+            unit.exactLoadFixture = true;
+            state.units.push(unit);
+          }
+          const loadTypes = ["barracks", "workshop", "warehouse", "generator", "farm", "mine", "refinery", "bunker", "turret", "observationtower"];
+          while (state.structures.length < buildingTarget) {
+            const ordinal = state.structures.length;
+            const player = state.players[ordinal % state.players.length];
+            const type = loadTypes[ordinal % loadTypes.length];
+            const spec = buildingCatalog[type];
+            const ring = 48 + (Math.floor(ordinal / state.players.length) % 5) * 24;
+            const angle = ordinal * 1.61803398875 + player.index * 0.21;
+            state.structures.push(ensureStructureRuntime({
+              id: `exact-load-building-${ordinal}`,
+              type,
+              faction: player.id,
+              x: clamp(player.base.x + Math.cos(angle) * ring, 24, worldWidth() - 24),
+              y: clamp(player.base.y + Math.sin(angle) * ring, 24, worldHeight() - 24),
+              progress: 1,
+              condition: 1,
+              maxHp: spec.maxHp || 400,
+              hp: spec.maxHp || 400,
+              hitbox: { ...(spec.hitbox || { w: 28, h: 24 }) },
+              displayName: factionBuildingLabel(player.id, type),
+              biological: player.race === "Tyranids",
+              constructionMethod: "exact large-battle load fixture",
+              inventory: Object.fromEntries(economyFor(player.id).activeResources.map(resource => [resource, 200])),
+              alive: true,
+              createdAt: state.time,
+              completedAt: state.time,
+              exactLoadFixture: true,
+              leadBuilderId: null,
+              contributors: {}
+            }));
+          }
+          state.navigationRevision += 1;
+          navigationPlanner.clear();
+          rebuildSpatialGrid();
+          rebuildUnitSelect();
+          state.minimapMarkerDirty = true;
+          return { units: state.units.length, buildings: state.structures.length };
         }
       };
 
@@ -12163,8 +12229,13 @@ import {
       function updateBattle(dt) {
         state.time += dt;
         profiler.profile("simulation.entityIndex", rebuildEntityIdIndex);
-        state.performancePreset = scalePresetFor(state.units.length, state.performanceRequested);
-        const staggerHeavySystems = state.players.length > 4 && ["major", "total"].includes(state.performancePreset.id);
+        const loadEntityCount = state.units.length + state.structures.length * 0.5;
+        const largeBattleLoad = largeBattleLoadActive(loadEntityCount);
+        state.performancePreset = scalePresetFor(
+          state.units.length,
+          adaptivePerformanceRequest(state.performanceRequested, loadEntityCount)
+        );
+        const staggerHeavySystems = largeBattleLoad || state.players.length > 4 && ["major", "total"].includes(state.performancePreset.id);
         let heavySystemRan = false;
         const heavySystemAvailable = () => !staggerHeavySystems || !heavySystemRan;
         const markHeavySystemRun = () => { heavySystemRan = true; };
@@ -12172,8 +12243,9 @@ import {
         navigationWorkBudget.begin(state.performancePreset.pathBudget);
         const denseTotalBattle = state.performancePreset.id === "total";
         const denseMajorBattle = state.performancePreset.id === "major";
-        awarenessWorkBudget.begin(denseTotalBattle ? 6 : denseMajorBattle ? 16 : state.performancePreset.id === "battle" ? 32 : 64);
-        sensorWorkBudget.begin(denseTotalBattle ? 4 : denseMajorBattle ? 10 : state.performancePreset.id === "battle" ? 20 : 40);
+        const thinkingBudgets = adaptiveThinkingBudgets(state.performancePreset.id, loadEntityCount);
+        awarenessWorkBudget.begin(thinkingBudgets.awareness);
+        sensorWorkBudget.begin(thinkingBudgets.sensors);
         state.navigationBudgetUsed = 0;
         state.awarenessBudgetUsed = 0;
         state.sensorBudgetUsed = 0;
@@ -12210,13 +12282,13 @@ import {
           state.spatialAccumulator = 0;
         }
         state.sustainmentAccumulator += dt;
-        const sustainmentInterval = denseTotalBattle ? 4 : denseMajorBattle ? 2 : 1;
+        const sustainmentInterval = denseTotalBattle ? 4 : denseMajorBattle || largeBattleLoad ? 2 : 1;
         if (state.sustainmentAccumulator >= sustainmentInterval || !state.sustainmentInitialized) {
           profiler.profile("support.sustainment", refreshSustainmentRequests);
           state.sustainmentAccumulator = 0;
         }
         state.constructionAccumulator += dt;
-        const constructionInterval = denseTotalBattle ? 2 : 1;
+        const constructionInterval = denseTotalBattle || largeBattleLoad ? 2 : 1;
         if (state.constructionAccumulator >= constructionInterval) {
           profiler.profile("construction.projects", updateConstructionProjects);
           state.constructionAccumulator = 0;
@@ -12285,9 +12357,10 @@ import {
           // A deliberately full-roster fixture can place hundreds of actors inside
           // one camera radius. Amortize their tactical thinking further while the
           // normal Total Battlefield schedule remains unchanged for sparse views.
-          const entityUpdatePreset = denseTotalBattle && state.units.length >= 320
-            ? { ...state.performancePreset, nearStride: 64, nearEngagedStride: 32, distantStride: 96 }
-            : state.performancePreset;
+          const adaptivePreset = adaptiveEntityUpdatePreset(state.performancePreset, loadEntityCount);
+          const entityUpdatePreset = denseTotalBattle && largeBattleLoad
+            ? { ...adaptivePreset, nearStride: 48, nearEngagedStride: 24, distantStride: 72 }
+            : adaptivePreset;
           state.units.forEach((unit, index) => {
             unit.deferredSimulationDt = (unit.deferredSimulationDt || 0) + dt;
             const supportUnit = ["builder", "supply"].includes(unit.role);
@@ -12784,36 +12857,41 @@ import {
         bounds = cameraBounds(CHUNK_SIZE),
         terrainFeatures = state.camera.zoom < 0.15 ? visibleFeatureBuckets(bounds) : visibleFeatures(bounds)
       ) {
-        ctx.fillStyle = terrainPaintColor(state.world.baseTerrain);
+        ctx.fillStyle = state.showTerrain ? terrainPaintColor(state.world.baseTerrain) : colors.background;
         ctx.fillRect(bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top);
-        const basePattern = terrainTextures.pattern(ctx, state.world.baseTerrain, TILE_SIZE) || atlasPatterns[atlasTypeMap[state.world.baseTerrain]];
-        ctx.fillStyle = basePattern || terrainPaintColor(state.world.baseTerrain);
-        ctx.fillRect(bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top);
-        drawSparseTerrainTiles(bounds);
+        if (state.showTerrain) {
+          const basePattern = terrainTextures.pattern(ctx, state.world.baseTerrain, TILE_SIZE) || atlasPatterns[atlasTypeMap[state.world.baseTerrain]];
+          ctx.fillStyle = basePattern || terrainPaintColor(state.world.baseTerrain);
+          ctx.fillRect(bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top);
+          drawSparseTerrainTiles(bounds);
+        }
         for (const player of state.players) {
           if (circleVisible(player.base, spawnZoneFor(player).size, bounds)) drawSpawnZone(player);
         }
-        ctx.globalAlpha = 0.14;
-        ctx.strokeStyle = colors.border;
-        ctx.lineWidth = 1 / state.camera.zoom;
-        const gridSize = state.camera.zoom >= 0.25 ? TILE_SIZE : CHUNK_SIZE * (CHUNK_SIZE * state.camera.zoom < 12 ? 4 : 1);
-        const startX = Math.floor(bounds.left / gridSize) * gridSize;
-        const startY = Math.floor(bounds.top / gridSize) * gridSize;
-        for (let x = startX; x <= bounds.right; x += gridSize) {
-          ctx.beginPath();
-          ctx.moveTo(x, bounds.top);
-          ctx.lineTo(x, bounds.bottom);
-          ctx.stroke();
-        }
-        for (let y = startY; y <= bounds.bottom; y += gridSize) {
-          ctx.beginPath();
-          ctx.moveTo(bounds.left, y);
-          ctx.lineTo(bounds.right, y);
-          ctx.stroke();
+        if (state.showTerrain) {
+          ctx.globalAlpha = 0.14;
+          ctx.strokeStyle = colors.border;
+          ctx.lineWidth = 1 / state.camera.zoom;
+          const gridSize = state.camera.zoom >= 0.25 ? TILE_SIZE : CHUNK_SIZE * (CHUNK_SIZE * state.camera.zoom < 12 ? 4 : 1);
+          const startX = Math.floor(bounds.left / gridSize) * gridSize;
+          const startY = Math.floor(bounds.top / gridSize) * gridSize;
+          for (let x = startX; x <= bounds.right; x += gridSize) {
+            ctx.beginPath();
+            ctx.moveTo(x, bounds.top);
+            ctx.lineTo(x, bounds.bottom);
+            ctx.stroke();
+          }
+          for (let y = startY; y <= bounds.bottom; y += gridSize) {
+            ctx.beginPath();
+            ctx.moveTo(bounds.left, y);
+            ctx.lineTo(bounds.right, y);
+            ctx.stroke();
+          }
+          ctx.globalAlpha = 1;
+          if (state.camera.zoom < 0.15) drawFeatureChunkLod(terrainFeatures);
+          else for (const feature of terrainFeatures) drawFeature(feature);
         }
         ctx.globalAlpha = 1;
-        if (state.camera.zoom < 0.15) drawFeatureChunkLod(terrainFeatures);
-        else for (const feature of terrainFeatures) drawFeature(feature);
         drawRoadNetwork();
         drawEconomicNodes();
         for (const player of state.players) {
@@ -13601,7 +13679,7 @@ import {
         ctx.globalAlpha = 1;
       }
 
-      function drawDenseUnitBatches(visibleUnits) {
+      function drawDenseUnitBatches(visibleUnits, lightweight = false) {
         const batches = new Map();
         const detailed = [];
         for (const unit of visibleUnits) {
@@ -13648,10 +13726,11 @@ import {
           if (batch.commanderCount) { ctx.fill(batch.commanders); ctx.stroke(batch.commanders); }
         }
         ctx.restore();
-        for (const unit of detailed) drawUnit(unit);
+        if (lightweight) drawLightweightUnitDetails(detailed);
+        else for (const unit of detailed) drawUnit(unit);
       }
 
-      function drawDenseStructureBatches(visibleStructures) {
+      function drawDenseStructureBatches(visibleStructures, lightweight = false) {
         const batches = new Map();
         const detailed = [];
         for (const structure of visibleStructures) {
@@ -13686,7 +13765,120 @@ import {
           ctx.stroke(batch.defense);
         }
         ctx.restore();
-        if (detailed.length) drawStructures(null, detailed);
+        if (detailed.length) {
+          if (lightweight) drawLightweightStructureDetails(detailed);
+          else drawStructures(null, detailed);
+        }
+      }
+
+      function drawLightweightUnitDetails(units) {
+        ctx.save();
+        ctx.lineWidth = 1 / state.camera.zoom;
+        for (const unit of units) {
+          if (unit.embarkedInId || !pointVisible(unit, 36)) continue;
+          const color = playerColor(unit.faction);
+          ctx.strokeStyle = unit.alive ? playerSecondaryColor(unit.faction) : colors.mutedForeground;
+          ctx.fillStyle = unit.alive ? color : colors.mutedForeground;
+          ctx.globalAlpha = unit.alive ? 0.96 : 0.42;
+          if (unit.alive) {
+            if (unit.role === "vehicle") {
+              ctx.fillRect(unit.x - 8, unit.y - 5, 16, 10);
+              ctx.strokeRect(unit.x - 8, unit.y - 5, 16, 10);
+            } else if (["builder", "supply", "medic", "engineer"].includes(unit.role)) {
+              ctx.beginPath();
+              ctx.moveTo(unit.x, unit.y - 5);
+              ctx.lineTo(unit.x + 5, unit.y);
+              ctx.lineTo(unit.x, unit.y + 5);
+              ctx.lineTo(unit.x - 5, unit.y);
+              ctx.closePath();
+              ctx.fill();
+              ctx.stroke();
+            } else if (unit.role === "commander") {
+              ctx.beginPath();
+              ctx.moveTo(unit.x, unit.y - 6);
+              ctx.lineTo(unit.x + 6, unit.y + 5);
+              ctx.lineTo(unit.x - 6, unit.y + 5);
+              ctx.closePath();
+              ctx.fill();
+              ctx.stroke();
+            } else ctx.fillRect(unit.x - 3, unit.y - 4, 6, 8);
+          } else {
+            ctx.beginPath();
+            ctx.moveTo(unit.x - 4, unit.y - 4);
+            ctx.lineTo(unit.x + 4, unit.y + 4);
+            ctx.moveTo(unit.x + 4, unit.y - 4);
+            ctx.lineTo(unit.x - 4, unit.y + 4);
+            ctx.stroke();
+          }
+          if (unit.id === state.selectedId) {
+            ctx.strokeStyle = colors.foreground;
+            ctx.globalAlpha = 0.92;
+            ctx.beginPath();
+            ctx.arc(unit.x, unit.y, unit.role === "vehicle" ? 14 : 10, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+        }
+        ctx.restore();
+      }
+
+      function drawLightweightStructureDetails(structures) {
+        ctx.save();
+        ctx.lineWidth = 1 / state.camera.zoom;
+        for (const structure of structures) {
+          if (!pointVisible(structure, 64)) continue;
+          ensureStructureRuntime(structure);
+          const width = Math.max(12, (structure.hitbox?.w || 28) * 0.72);
+          const height = Math.max(10, (structure.hitbox?.h || 24) * 0.72);
+          const progress = clamp(structure.progress, 0, 1);
+          ctx.fillStyle = structure.alive === false ? colors.mutedForeground : playerColor(structure.faction);
+          ctx.strokeStyle = structure.alive === false ? colors.danger : playerSecondaryColor(structure.faction);
+          ctx.globalAlpha = structure.alive === false ? 0.36 : 0.78;
+          ctx.fillRect(structure.x - width / 2, structure.y - height / 2, width * Math.max(0.08, progress), height);
+          ctx.strokeRect(structure.x - width / 2, structure.y - height / 2, width * Math.max(0.08, progress), height);
+          if (structure.alive === false) {
+            ctx.beginPath();
+            ctx.moveTo(structure.x - width / 2, structure.y - height / 2);
+            ctx.lineTo(structure.x + width / 2, structure.y + height / 2);
+            ctx.moveTo(structure.x + width / 2, structure.y - height / 2);
+            ctx.lineTo(structure.x - width / 2, structure.y + height / 2);
+            ctx.stroke();
+          }
+          if (structure.id === state.selectedStructureId) {
+            ctx.strokeStyle = colors.foreground;
+            ctx.globalAlpha = 0.94;
+            ctx.strokeRect(structure.x - width / 2 - 4, structure.y - height / 2 - 4, width + 8, height + 8);
+          }
+        }
+        ctx.restore();
+      }
+
+      function drawLightweightEntityLabels(units, structures) {
+        if (state.camera.zoom < 0.65) return;
+        const priority = item => (item.id === state.selectedId || item.id === state.selectedStructureId ? 1000 : 0)
+          + (item.type === "outpost" || item.role === "commander" ? 400 : 0)
+          + (item.role === "vehicle" || ["barracks", "workshop", "dropbay"].includes(item.type) ? 220 : 0)
+          - distance(item, state.camera) / 100;
+        const structureBudget = state.camera.zoom >= 1.25 ? 72 : 36;
+        const unitBudget = state.camera.zoom >= 1.25 ? 80 : 36;
+        const labeledStructures = [...structures].filter(item => item.alive !== false).sort((a, b) => priority(b) - priority(a)).slice(0, structureBudget);
+        const labeledUnits = [...units].filter(item => item.alive && !item.embarkedInId
+          && (state.camera.zoom >= 1.25 || item.id === state.selectedId || ["vehicle", "builder", "commander"].includes(item.role)))
+          .sort((a, b) => priority(b) - priority(a)).slice(0, unitBudget);
+        ctx.save();
+        ctx.textAlign = "center";
+        ctx.font = `${9 / Math.max(0.8, state.camera.zoom)}px system-ui, sans-serif`;
+        ctx.fillStyle = colors.foreground;
+        ctx.globalAlpha = 0.78;
+        for (const structure of labeledStructures) {
+          const label = structure.displayName || factionBuildingLabel(structure.faction, structure.type);
+          ctx.fillText(label, structure.x, structure.y - (structure.hitbox?.h || 24) * 0.5 - 4 / state.camera.zoom);
+        }
+        for (const unit of labeledUnits) {
+          const label = unit.id === state.selectedId || state.camera.zoom >= 1.6 ? unitLabel(unit)
+            : unit.role === "vehicle" ? unit.specialty || "Vehicle" : roleLabel(unit);
+          ctx.fillText(String(label).slice(0, 24), unit.x, unit.y - (unit.role === "vehicle" ? 10 : 8) / state.camera.zoom);
+        }
+        ctx.restore();
       }
 
       function drawUnit(unit, historical) {
@@ -14524,7 +14716,9 @@ import {
         const scaleY = height / worldHeight();
         minimapCtx.setTransform(1, 0, 0, 1, 0, 0);
         minimapCtx.clearRect(0, 0, width, height);
-        minimapCtx.drawImage(minimapTerrainLayer, 0, 0);
+        minimapCtx.fillStyle = colors.background;
+        minimapCtx.fillRect(0, 0, width, height);
+        if (state.showTerrain) minimapCtx.drawImage(minimapTerrainLayer, 0, 0);
         minimapCtx.drawImage(minimapMarkerLayer, 0, 0);
         const sweep = now / 3200 * Math.PI * 2;
         const radarRadius = Math.hypot(width, height) * 0.58;
@@ -14652,6 +14846,8 @@ import {
         set("phase23Branches", state.players.map(player => `${player.id}:${state.factionAIProfiles[player.id]?.branch}:${state.factionGameplay[player.id]?.doctrine || "forming"}`).join("|"));
         set("squadRoles", state.squads.map(squad => `${squad.id}:${squad.primaryRole || "reserve"}`).join("|"));
         set("squadRoleOverlay", state.squadRoleOverlay);
+        set("terrainVisible", state.showTerrain);
+        set("lightweightRendering", state.lightweightRendering);
         set("dayNightModel", "global-tint-and-visibility");
         set("dynamicLighting", false);
         set("forceCommitment", state.players.map(player => `${player.id}:${player.forceState?.commitmentStage || "contact"}:${Math.round((player.forceState?.commitment || 0.35) * 100)}`).join("|"));
@@ -14678,7 +14874,7 @@ import {
         const chunkColumns = range.maxX - range.minX + 1;
         const chunkRows = range.maxY - range.minY + 1;
         const overviewMode = state.camera.zoom < 0.15;
-        const terrainFeatures = overviewMode ? visibleFeatureBuckets(bounds) : visibleFeatures(bounds);
+        const terrainFeatures = !state.showTerrain ? [] : overviewMode ? visibleFeatureBuckets(bounds) : visibleFeatures(bounds);
         const snapshot = currentSnapshot();
         const snapshotObjects = snapshot ? replayObjectsInBounds(snapshot, bounds) : null;
         const renderObjects = snapshot ? {
@@ -14686,7 +14882,8 @@ import {
           structures: snapshotObjects.structures.filter(item => objectVisibleToFog(item, state.fogPlayer, item.hitbox ? Math.max(item.hitbox.w, item.hitbox.h) / 2 : 0))
         } : visibleObjects;
         const overviewClusters = overviewMode ? buildOverviewClusters(renderObjects) : null;
-        const denseActorMode = !overviewMode && state.performancePreset.id === "total" && renderObjects.units.length >= 280;
+        const lightweightActorMode = !overviewMode && (state.lightweightRendering
+          || largeBattleLoadActive(renderObjects.units.length + renderObjects.structures.length * 0.5));
         const renderedActors = overviewClusters
           ? overviewClusters.units.length + overviewClusters.structures.length
           : renderObjects.units.length + renderObjects.structures.length;
@@ -14707,10 +14904,13 @@ import {
             drawOverviewClusters(overviewClusters);
             drawOverviewSquadRoles(renderObjects.units);
           } else {
-            if (denseActorMode && !snapshot) drawDenseStructureBatches(renderObjects.structures);
+            if (lightweightActorMode) drawDenseStructureBatches(renderObjects.structures, true);
             else drawStructures(snapshot, renderObjects.structures);
             drawTransports();
-            if (denseActorMode) drawDenseUnitBatches(renderObjects.units);
+            if (lightweightActorMode) {
+              drawDenseUnitBatches(renderObjects.units, true);
+              drawLightweightEntityLabels(renderObjects.units, renderObjects.structures);
+            }
             else {
               drawSquads(snapshot, renderObjects.units);
               for (const unit of renderObjects.units) drawUnit(unit);
@@ -16702,6 +16902,14 @@ import {
         if (window.lucide) lucide.createIcons({ attrs: { width: 16, height: 16 } });
         draw();
       });
+      els.terrainToggle.addEventListener("click", () => {
+        state.showTerrain = !state.showTerrain;
+        els.terrainToggle.setAttribute("aria-pressed", String(state.showTerrain));
+        els.terrainToggle.innerHTML = `<i data-lucide="mountain" aria-hidden="true"></i>Terrain ${state.showTerrain ? "on" : "off"}`;
+        root.dataset.terrainVisible = String(state.showTerrain);
+        if (window.lucide) lucide.createIcons({ attrs: { width: 16, height: 16 } });
+        draw();
+      });
       els.squadRoleToggle.addEventListener("click", () => {
         state.squadRoleOverlay = !state.squadRoleOverlay;
         els.squadRoleToggle.setAttribute("aria-pressed", String(state.squadRoleOverlay));
@@ -17528,7 +17736,11 @@ import {
           }
           state.uiAccumulator += rawDt;
           state.renderAccumulator += rawDt;
-          const renderInterval = state.performancePreset.id === "total" ? 1 / 10 : state.speed >= 8 ? 1 / 6 : 1 / 30;
+          const renderInterval = adaptiveRenderInterval(
+            state.performancePreset.id,
+            state.speed,
+            state.units.length + state.structures.length * 0.5
+          );
           const deferOverBudgetTotalDraw = state.performancePreset.id === "total"
             && (state.lastSimulationFrame?.workMs || 0) > 32
             && state.frameCount % 2 === 1;

@@ -250,6 +250,18 @@ try {
   await new Promise(resolve => setTimeout(resolve, 100));
   const cameraAfter = await evaluate("document.querySelector('#autonomous-war-theater').dataset.camera");
   if (cameraAfter === editor.cameraBefore) throw new Error("Interactive minimap did not move the camera.");
+  const terrainVisibilityProbe = await evaluate(`(() => {
+    const root = document.querySelector('#autonomous-war-theater');
+    const button = document.querySelector('#awt-terrain-toggle');
+    button.click();
+    const hidden = root.awtDebugState.showTerrain === false && button.getAttribute('aria-pressed') === 'false';
+    button.click();
+    const shown = root.awtDebugState.showTerrain === true && button.getAttribute('aria-pressed') === 'true';
+    return { hidden, shown, lightweightRendering: root.awtDebugState.lightweightRendering };
+  })()`);
+  if (!terrainVisibilityProbe.hidden || !terrainVisibilityProbe.shown || !terrainVisibilityProbe.lightweightRendering) {
+    throw new Error(`Terrain visibility / lightweight rendering failed: ${JSON.stringify(terrainVisibilityProbe)}`);
+  }
 
   if (process.env.AWT_SMOKE_SCREENSHOT) {
     await evaluate("window.scrollTo({ top: 0, behavior: 'instant' })");
@@ -559,7 +571,7 @@ try {
   }
   const lifecycle = { runningStart, runningEnd, pausedStart, pausedEnd, resumedStart, resumedEnd, faultStart, faultEnd };
 
-  console.log(JSON.stringify({ startup, playerSetup, editor: { ...editor, cameraAfter }, simulation, spawnRelocationProbe, combatBehaviorProbe, builderHealth, repairProbe, carrierHarvestProbe, squadRoleProbe, phase20to23, replayTransport: { replayBefore, replayAfter, liveAfterReplay }, lifecycle }, null, 2));
+  console.log(JSON.stringify({ startup, playerSetup, editor: { ...editor, cameraAfter, terrainVisibilityProbe }, simulation, spawnRelocationProbe, combatBehaviorProbe, builderHealth, repairProbe, carrierHarvestProbe, squadRoleProbe, phase20to23, replayTransport: { replayBefore, replayAfter, liveAfterReplay }, lifecycle }, null, 2));
 } finally {
   socket?.close();
   if (browser && browser.exitCode === null) {

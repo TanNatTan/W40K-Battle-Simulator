@@ -13,10 +13,15 @@ const durationMs = Math.max(10_000, (Number(argumentValue("duration")) || 0) * 1
 const simulationSpeed = Math.max(1, Math.min(8, Number(argumentValue("speed") || process.env.AWT_STRESS_SPEED) || 8));
 const spawnRadius = Math.max(24, Number(argumentValue("spawn-radius") || process.env.AWT_STRESS_SPAWN_RADIUS) || 84);
 const playerCount = Math.max(2, Math.min(12, Number(argumentValue("players")) || 12));
+const performancePreset = ["auto", "skirmish", "battle", "major", "total"].includes(argumentValue("performance"))
+  ? argumentValue("performance")
+  : "total";
 const fullRoster = process.argv.includes("--full-roster") || process.env.AWT_STRESS_FULL_ROSTER === "1";
 const allSpaceMarines = process.argv.includes("--all-space-marines");
 const constructionContinuation = process.argv.includes("--construction-continuation");
 const expandedArmies = process.argv.includes("--expanded-armies");
+const exactLoadUnits = Math.max(0, Math.floor(Number(argumentValue("load-units")) || 0));
+const exactLoadBuildings = Math.max(0, Math.floor(Number(argumentValue("load-buildings")) || 0));
 const territoryDevelopmentCaptures = Math.max(0, Math.floor(Number(argumentValue("territory-development-captures")) || 0));
 const profiling = process.argv.includes("--profile") || process.env.AWT_STRESS_PROFILE === "1";
 const browserPath = [
@@ -161,7 +166,7 @@ try {
     players.value = '${playerCount}';
     players.dispatchEvent(new Event('change', { bubbles: true }));
     const scale = document.querySelector('#awt-scale-preset');
-    scale.value = 'total';
+    scale.value = '${performancePreset}';
     scale.dispatchEvent(new Event('change', { bubbles: true }));
     document.querySelector('#awt-configure-players').click();
     ${allSpaceMarines ? `
@@ -187,6 +192,9 @@ try {
       player.battleObjectiveState = null;
     }
     const fixture = ${fullRoster ? `root.awtDebugControls.prepareFullRosterStressFixture(${spawnRadius})` : "null"};
+    const exactLoad = ${exactLoadUnits || exactLoadBuildings
+      ? `root.awtDebugControls.prepareExactLoadFixture(${exactLoadUnits || 310}, ${exactLoadBuildings || 111})`
+      : "null"};
     if (${expandedArmies}) for (const player of root.awtDebugState.players) player.forceCapOverride = null;
     const territoryDevelopmentProbes = ${territoryDevelopmentCaptures > 0
       ? `root.awtDebugState.players.map(player => root.awtDebugControls.captureTerritoryDevelopmentProbe(player.id, ${territoryDevelopmentCaptures}))`
@@ -209,6 +217,7 @@ try {
       speedRequested: ${simulationSpeed},
       spawnRadii: root.awtDebugState.players.map(player => player.spawnZone?.size || 0),
       fixture,
+      exactLoad,
       territoryDevelopmentProbes,
       fixtureUnits: fixture ? fixture.players.reduce((sum, player) => sum + player.expectedUnitCount, 0) : 0,
       fixtureBuildings: fixture ? fixture.players.reduce((sum, player) => sum + player.expectedBuildingCount, 0) : 0,
@@ -220,14 +229,16 @@ try {
   })()`, 10_000);
   if (setup.value.width !== 1920 || setup.value.height !== 1080 || setup.value.players !== playerCount
     || setup.value.teams !== Math.min(4, playerCount) || setup.value.builders < playerCount * 2 || setup.value.mode !== "sim"
-    || setup.value.preset !== "total" || setup.value.viewport.width !== 1920 || setup.value.viewport.height !== 1080
+    || setup.value.preset !== performancePreset || setup.value.viewport.width !== 1920 || setup.value.viewport.height !== 1080
     || setup.value.spawnRadii.some(radius => radius !== spawnRadius)
     || (fullRoster && setup.value.fixture.players.some(player => player.missingUnits.length || player.missingBuildings.length
       || player.missingBranchUnits.length || player.expectedBuildingCount !== 13 || player.constructionOrder.length !== 13
       || player.productionScheduleLength < 1 || player.caretakerUnfilled !== 0 || player.caretakerAssigned < player.caretakerRequirement
       || player.unitsOutsideSpawnZone.length || player.buildingsOutsideSpawnZone.length))
     || (fullRoster && (setup.value.actualStressRosterUnits !== setup.value.fixtureUnits
-      || setup.value.completedStructures !== setup.value.fixtureBuildings))
+      || (!setup.value.exactLoad && setup.value.completedStructures !== setup.value.fixtureBuildings)))
+    || (exactLoadUnits > 0 && setup.value.exactLoad?.units !== exactLoadUnits)
+    || (exactLoadBuildings > 0 && setup.value.exactLoad?.buildings !== exactLoadBuildings)
     || (allSpaceMarines && (setup.value.races.some(race => race !== "Imperium")
       || setup.value.factions.some(faction => faction !== "Space Marines")))
     || (territoryDevelopmentCaptures > 0 && setup.value.territoryDevelopmentProbes.some(probe => !probe
