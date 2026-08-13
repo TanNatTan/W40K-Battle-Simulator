@@ -5,6 +5,9 @@ import {
   TILE_SIZE,
   CHUNK_SIZE,
   TERRITORY_CELL_SIZE,
+  STRATEGIC_TERRITORY_TARGET_AREA,
+  STRATEGIC_TERRITORY_MIN_CELLS,
+  STRATEGIC_TERRITORY_MAX_CELLS,
   FOG_CELL_SIZE,
   UNIT_DEATH_ANIMATION_SECONDS,
   UNIT_CORPSE_LIFETIME_SECONDS,
@@ -3622,7 +3625,11 @@ import {
 
       function rebuildStrategicTerritorySystem() {
         const seed = [...state.battleSeed].reduce((value, character) => Math.imul(value ^ character.charCodeAt(0), 16777619), 2166136261) >>> 0;
-        const cellCount = clamp(Math.round(worldWidth() * worldHeight() / 26000), 48, 120);
+        const cellCount = clamp(
+          Math.round(worldWidth() * worldHeight() / STRATEGIC_TERRITORY_TARGET_AREA),
+          STRATEGIC_TERRITORY_MIN_CELLS,
+          STRATEGIC_TERRITORY_MAX_CELLS
+        );
         const partition = new globalThis.AWTSystems.SpatialPartition({
           width: worldWidth(),
           height: worldHeight(),
