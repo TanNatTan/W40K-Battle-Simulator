@@ -195,7 +195,7 @@ test("Phase 11-13 persistence migration includes all audit tables", async () => 
 
 test("runtime uses physical captures, faction-owned construction, and warehouse delivery", async () => {
   const app = await readFile(new URL("../js/app.js", import.meta.url), "utf8");
-  assert.match(app, /heavyBuilderRace \? \[6, 8\] : \[2, 4\]/);
+  assert.match(app, /startingBuilderCountFor\(player, battleRandom\)/);
   assert.match(app, /item\.progress < 1 && item\.faction === unit\.faction/);
   assert.match(app, /structure\.faction !== unit\.faction/);
   assert.match(app, /strategicTerritory\.advancePhysical/);

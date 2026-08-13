@@ -40,13 +40,34 @@ function nearest(origin, candidates) {
   }, null)?.candidate || null;
 }
 
+export function vehicleBattlefieldPurpose(unit = {}) {
+  const type = String(unit.vehicleState?.type || "").toLowerCase();
+  const identity = `${identityText(unit)} ${type}`;
+  if (unit.vehicleState?.passengerCapacity > 0 || type === "transport") return "squad transport and protected deployment";
+  if (type === "artillery" || /artillery|whirlwind|basilisk|doomsday|exocrine/.test(identity)) return "protected standoff fire support";
+  if (type === "anti-air" || /anti.?air|hunter|stalker|hydra|skyray/.test(identity)) return "mobile anti-air screen";
+  if (type === "walker" || /walker|dreadnought|defiler|carnifex/.test(identity)) return "close infantry assault support";
+  if (type === "repair" || type === "supply") return "armored sustainment support";
+  return "armored fire support behind infantry";
+}
+
+export function combinedArmsSupportDistance(unit = {}) {
+  const purpose = vehicleBattlefieldPurpose(unit);
+  if (purpose.includes("transport")) return 38;
+  if (purpose.includes("standoff")) return 145;
+  if (purpose.includes("anti-air")) return 105;
+  if (purpose.includes("assault")) return 52;
+  if (purpose.includes("sustainment")) return 90;
+  return 68;
+}
+
 export function assignCombinedArmsSupport(units) {
   const groups = buildCombinedArmsGroups(units);
   const assignments = new Map();
   const lineUnits = [...groups.infantry, ...groups["heavy-infantry"]];
   for (const vehicle of groups.vehicles) {
     const screen = nearest(vehicle, lineUnits);
-    if (screen) assignments.set(vehicle.id, { targetId: screen.id, purpose: "infantry screen" });
+    if (screen) assignments.set(vehicle.id, { targetId: screen.id, purpose: vehicleBattlefieldPurpose(vehicle) });
   }
   for (const infantry of lineUnits) {
     const armor = nearest(infantry, groups.vehicles);
@@ -62,7 +83,7 @@ export function assignCombinedArmsSupport(units) {
   }
   for (const support of [...groups.artillery, ...groups["anti-air"], ...groups.logistics]) {
     const protection = nearest(support, [...lineUnits, ...groups.vehicles]);
-    if (protection) assignments.set(support.id, { targetId: protection.id, purpose: "mutual protection" });
+    if (protection) assignments.set(support.id, { targetId: protection.id, purpose: vehicleBattlefieldPurpose(support) });
   }
   return { groups, assignments };
 }

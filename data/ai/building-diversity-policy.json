@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "duplicateSoftLimit": 3,
+  "duplicatePenaltyAt": {
+    "1": -12,
+    "2": -45
+  },
+  "missingUniqueBonus": 25,
+  "requireUniqueAfterSoftLimit": true,
+  "unlockDuplicatesAfterAllEligibleUnique": true
+}

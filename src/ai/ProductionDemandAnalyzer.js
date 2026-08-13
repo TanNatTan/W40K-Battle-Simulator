@@ -1,3 +1,5 @@
+import { vehicleCompositionFor } from "./ArmyCompositionSystem.js";
+
 const clamp = (value, minimum = 0, maximum = 1) => Math.max(minimum, Math.min(maximum, Number(value) || 0));
 const condition = entity => clamp(Number(entity?.hp) / Math.max(1, Number(entity?.maxHp) || 1));
 
@@ -21,7 +23,11 @@ export function analyzeProductionDemand({
   const damagedVehicles = ownCombat.filter(unit => unit.role === "vehicle" && condition(unit) < 0.72).length;
   const damagedBuildings = structures.filter(item => item?.alive !== false && Number(item.progress) >= 1 && condition(item) < 0.82).length;
   const shortagePressure = clamp((economy.shortages?.length || 0) / 4);
-  const commitment = forceState.allIn ? 1 : clamp((forceState.commitment || forceState.level || 0) / 4);
+  const rawCommitment = Number(forceState.commitment);
+  const commitment = forceState.allIn ? 1 : Number.isFinite(rawCommitment)
+    ? clamp(rawCommitment) : clamp(Number(forceState.level || 0) / 4);
+  const vehicleComposition = vehicleCompositionFor(player, ownCombat);
+  const vehicleDeficit = vehicleComposition.vehicleDeficit;
   const infantryDeficit = clamp(0.62 - roleCount(ownCombat, "trooper") / Math.max(1, ownCombat.length));
   const mobilityDeficit = clamp((ownCombat.length / 6 - ownVehicles) / Math.max(1, ownCombat.length / 6));
   const reconDeficit = clamp((ownCombat.length / 10 - ownScouts) / Math.max(1, ownCombat.length / 10));
@@ -70,6 +76,13 @@ export function analyzeProductionDemand({
     "heavy-command": 14 + commitment * 45,
     "repair-support": 24 + clamp((damagedVehicles + damagedBuildings) / 4) * 72
   };
+  tokenScores.vehicle = 42 + vehicleDeficit * 105 + commitment * 24;
+  tokenScores.transport += vehicleDeficit * 36;
+  tokenScores["light-transport"] += vehicleDeficit * 32;
+  tokenScores.walker += vehicleDeficit * 42;
+  tokenScores.tank += vehicleDeficit * 58;
+  tokenScores["heavy-tank"] += vehicleDeficit * 44;
+  tokenScores.artillery += vehicleDeficit * 30;
 
   const constructionNeeds = {
     Power: shortagePressure * 30 + (economy.shortages || []).includes("energy") * 80,
@@ -77,7 +90,7 @@ export function analyzeProductionDemand({
     Muster: infantryDeficit * 85 + (objectiveSignals.attack || 0) * 30,
     Industry: enemyArmorPressure * 35 + shortagePressure * 45,
     Doctrine: enemyArmorPressure * 55 + (objectiveSignals.scouting || 0) * 20,
-    "War Forge": mobilityDeficit * 45 + enemyArmorPressure * 70 + damagedVehicles * 10,
+    "War Forge": mobilityDeficit * 45 + vehicleDeficit * 95 + enemyArmorPressure * 70 + damagedVehicles * 10,
     Sustainment: casualtyPressure * 85 + damagedBuildings * 12,
     Intel: reconDeficit * 75 + (objectiveSignals.scouting || 0) * 55,
     Deployment: mobilityDeficit * 72 + commitment * 35,
@@ -90,7 +103,8 @@ export function analyzeProductionDemand({
     tokenScores: Object.freeze(tokenScores),
     constructionNeeds: Object.freeze(constructionNeeds),
     signals: Object.freeze({ enemyArmorPressure, enemyHordePressure, casualtyPressure, shortagePressure, commitment,
-      infantryDeficit, mobilityDeficit, reconDeficit, supportDeficit, threat, damagedVehicles, damagedBuildings })
+      infantryDeficit, mobilityDeficit, vehicleDeficit, vehicleRatio: vehicleComposition.vehicleRatio,
+      desiredVehicleRatio: vehicleComposition.desiredVehicleRatio, expectedVehicles: vehicleComposition.expectedVehicles,
+      reconDeficit, supportDeficit, threat, damagedVehicles, damagedBuildings })
   });
 }
-

@@ -283,6 +283,14 @@ try {
     || simulation.dynamicBehaviors.some(behavior => !behavior || !Number.isFinite(behavior.aggression)) || simulation.error) {
     throw new Error(`Simulation smoke check failed: ${JSON.stringify(simulation)}`);
   }
+  const spawnRelocationProbe = await evaluate(`(() => {
+    const root = document.querySelector('#autonomous-war-theater');
+    return root.awtDebugControls.relocateSpawnProbe(root.awtDebugState.players[0].id, 70, 45);
+  })()`);
+  if (!spawnRelocationProbe?.sameObject || !spawnRelocationProbe.movedWithSpawn || !spawnRelocationProbe.offCenter || !spawnRelocationProbe.insideZone
+    || spawnRelocationProbe.before.id !== spawnRelocationProbe.after.id) {
+    throw new Error(`Spawn relocation did not preserve and safely move the headquarters: ${JSON.stringify(spawnRelocationProbe)}`);
+  }
   const combatBehaviorProbe = await evaluate(`(() => {
     const state = document.querySelector('#autonomous-war-theater').awtDebugState;
     const systems = globalThis.AWTSystems;
@@ -551,7 +559,7 @@ try {
   }
   const lifecycle = { runningStart, runningEnd, pausedStart, pausedEnd, resumedStart, resumedEnd, faultStart, faultEnd };
 
-  console.log(JSON.stringify({ startup, playerSetup, editor: { ...editor, cameraAfter }, simulation, combatBehaviorProbe, builderHealth, repairProbe, carrierHarvestProbe, squadRoleProbe, phase20to23, replayTransport: { replayBefore, replayAfter, liveAfterReplay }, lifecycle }, null, 2));
+  console.log(JSON.stringify({ startup, playerSetup, editor: { ...editor, cameraAfter }, simulation, spawnRelocationProbe, combatBehaviorProbe, builderHealth, repairProbe, carrierHarvestProbe, squadRoleProbe, phase20to23, replayTransport: { replayBefore, replayAfter, liveAfterReplay }, lifecycle }, null, 2));
 } finally {
   socket?.close();
   if (browser && browser.exitCode === null) {

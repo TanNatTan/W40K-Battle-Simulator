@@ -47,31 +47,36 @@ test("military selection reacts to enemy armour instead of a production modulo",
   const enemyUnits = Array.from({ length: 8 }, (_, index) => ({ alive: true, faction: "b", role: "vehicle", name: `Tank ${index}`, hp: 100, maxHp: 100, armorProtection: 18 }));
   const demand = analyzeProductionDemand({ player, ownUnits, enemyUnits, economy: { shortages: [] }, objectiveSignals: { attack: 0.5 } });
   const selected = chooseMilitaryProduction({ player, roster: factionConfig.astartes.roster, demand, ownUnits, availableProducerTypes: ["barracks", "workshop"] });
-  assert.ok(["Hellblaster", "Predator", "Dreadnought", "Land Raider"].includes(selected.name), selected.name);
+  assert.ok(["Hellblaster", "Rhino", "Predator", "Dreadnought", "Land Raider"].includes(selected.name), selected.name);
   assert.ok(selected.scoreBreakdown.battlefield > 40);
+  assert.ok(demand.signals.vehicleDeficit > 0.9);
 });
 
-test("every completed Marine building receives one caretaker plus floating reserves", () => {
+test("Marine workers use response homes without one Servitor per completed building", () => {
   const player = { id: "a", race: "Imperium", faction: "Space Marines", subfaction: "Salamanders" };
   const structures = Array.from({ length: 11 }, (_, index) => ({ id: `s${index}`, faction: "a", type: index === 2 ? "workshop" : "barracks", progress: 1, alive: true, hp: 100, maxHp: 100, x: index * 10, y: 0 }));
   const demand = builderWorkforceDemand({ player, structures });
-  assert.equal(demand.caretakerRequirement, 11);
-  assert.equal(demand.desired, 16);
+  assert.equal(demand.caretakerRequirement, 0);
+  assert.equal(demand.desired, 2);
   const builders = Array.from({ length: demand.desired }, (_, index) => ({ id: `b${index}`, faction: "a", role: "builder", alive: true, x: index * 4, y: 2 }));
   const assignment = reconcileBuilderHomes({ player, structures, builders });
-  assert.equal(assignment.assigned, 11);
-  assert.equal(assignment.floating, 5);
-  assert.ok(structures.every(structure => builders.filter(builder => builder.homeStructureId === structure.id).length === 1));
+  assert.equal(assignment.assigned, 2);
+  assert.equal(assignment.floating, 0);
+  assert.equal(new Set(builders.map(builder => builder.homeStructureId)).size, 2);
   structures[0].hp = 60;
   assert.equal(builderHomeStatus(builders.find(builder => builder.homeStructureId === structures[0].id), structures).needsRepair, true);
 });
 
-test("Orks, Necrons, and Repair Cohort receive dense per-building workforces", () => {
+test("Orks and Necrons use larger bounded workforces instead of per-building multiplication", () => {
   const ork = { id: "o", race: "Orks", faction: "Orks", subfaction: "Speed Freeks" };
   const necron = { id: "n", race: "Necrons", faction: "Dynastic Host", subfaction: "Repair Cohort" };
   const orkWorkshop = { faction: "o", type: "workshop", progress: 1, alive: true };
   const necronOutpost = { faction: "n", type: "outpost", progress: 1, alive: true };
-  assert.equal(caretakerRequirementForStructure(ork, orkWorkshop), 3);
-  assert.equal(caretakerRequirementForStructure(necron, necronOutpost), 4);
+  assert.equal(caretakerRequirementForStructure(ork, orkWorkshop), 0);
+  assert.equal(caretakerRequirementForStructure(necron, necronOutpost), 0);
+  assert.equal(builderWorkforceProfileFor(ork).startingMin, 6);
+  assert.equal(builderWorkforceProfileFor(ork).hardCap, 16);
+  assert.equal(builderWorkforceProfileFor(necron).startingMax, 8);
+  assert.equal(builderWorkforceProfileFor(necron).hardCap, 16);
   assert.equal(builderWorkforceProfileFor(necron).repairReserve, 7);
 });

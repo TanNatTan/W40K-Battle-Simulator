@@ -7,6 +7,7 @@ import {
   builderProductionProfileFor,
   desiredBuilderCount
 } from "../src/construction/BuilderProductionSystem.js";
+import { builderWorkforceProfileFor, startingBuilderCountFor } from "../src/construction/BuilderWorkforceSystem.js";
 import {
   constrainPointToSpawnZone,
   structureFitsInsideSpawnZone,
@@ -46,11 +47,17 @@ test("each faction trains builders from its authored producer instead of squad p
   assert.equal(builderProductionPriority(6, 6), 0);
 });
 
-test("builder targets scale from completed buildings without a global maximum", () => {
+test("builder targets use faction ranges, remember demand, and obey hard ceilings", () => {
   const structures = Array.from({ length: 20 }, (_, index) => ({ faction: "sm", progress: 1, alive: true, id: index }));
-  assert.equal(desiredBuilderCount(players.marines, structures, 2), 28);
-  assert.equal(desiredBuilderCount(players.orks, structures.map(item => ({ ...item, faction: "orks" })), 6), 55);
-  assert.equal(desiredBuilderCount(players.necrons, [], 2), 5);
+  assert.equal(desiredBuilderCount(players.marines, structures, 2), 2);
+  assert.equal(desiredBuilderCount(players.marines, structures, 7), 7);
+  assert.equal(desiredBuilderCount(players.marines, structures, 8, { activeProjects: 20, emergency: true }), 8);
+  assert.equal(desiredBuilderCount(players.orks, structures.map(item => ({ ...item, faction: "orks" })), 6), 6);
+  assert.equal(desiredBuilderCount(players.orks, [], 16, { activeProjects: 20, emergency: true }), 16);
+  assert.equal(desiredBuilderCount(players.necrons, [], 2), 6);
+  assert.equal(builderWorkforceProfileFor(players.guard).hardCap, 4);
+  assert.equal(startingBuilderCountFor(players.guard, () => 0), 1);
+  assert.equal(startingBuilderCountFor(players.guard, () => 0.999), 2);
 });
 
 test("builder movement and complete building footprints stay inside an authored spawn zone", () => {

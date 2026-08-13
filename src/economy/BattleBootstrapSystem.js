@@ -28,6 +28,61 @@ const pointInPolygon = (point, polygon) => {
   return inside;
 };
 
+function footprintCorners(point, hitbox = {}) {
+  const halfWidth = Math.max(0, Number(hitbox.w) || 0) * 0.5;
+  const halfHeight = Math.max(0, Number(hitbox.h) || 0) * 0.5;
+  return [
+    { x: point.x - halfWidth, y: point.y - halfHeight },
+    { x: point.x + halfWidth, y: point.y - halfHeight },
+    { x: point.x + halfWidth, y: point.y + halfHeight },
+    { x: point.x - halfWidth, y: point.y + halfHeight }
+  ];
+}
+
+export function pointFitsSpawnZone(point, player = {}, hitbox = {}) {
+  const zone = player.spawnZone || {};
+  const center = { x: Number(player.base?.x) || 0, y: Number(player.base?.y) || 0 };
+  const corners = footprintCorners(point, hitbox);
+  if (zone.shape === "custom" && Array.isArray(zone.points) && zone.points.length >= 3) {
+    return corners.every(corner => pointInPolygon(corner, zone.points));
+  }
+  if (zone.shape === "square") {
+    const size = Math.max(1, Number(zone.size) || 84);
+    return corners.every(corner => Math.abs(corner.x - center.x) <= size && Math.abs(corner.y - center.y) <= size);
+  }
+  const radius = Math.max(1, Number(zone.size) || 84);
+  return corners.every(corner => Math.hypot(corner.x - center.x, corner.y - center.y) <= radius);
+}
+
+export function randomPointInsideSpawnZone(player = {}, hitbox = {}, random = Math.random) {
+  const zone = player.spawnZone || {};
+  const center = spawnZoneCentroid(player);
+  const halfDiagonal = Math.hypot((Number(hitbox.w) || 0) * 0.5, (Number(hitbox.h) || 0) * 0.5);
+  const points = Array.isArray(zone.points) ? zone.points : [];
+  const bounds = zone.shape === "custom" && points.length >= 3 ? {
+    left: Math.min(...points.map(point => point.x)), right: Math.max(...points.map(point => point.x)),
+    top: Math.min(...points.map(point => point.y)), bottom: Math.max(...points.map(point => point.y))
+  } : null;
+  for (let attempt = 0; attempt < 64; attempt += 1) {
+    let candidate;
+    if (bounds) candidate = {
+      x: bounds.left + random() * (bounds.right - bounds.left),
+      y: bounds.top + random() * (bounds.bottom - bounds.top)
+    };
+    else if (zone.shape === "square") {
+      const reach = Math.max(0, (Number(zone.size) || 84) - halfDiagonal);
+      candidate = { x: center.x + (random() * 2 - 1) * reach, y: center.y + (random() * 2 - 1) * reach };
+    } else {
+      const reach = Math.max(0, (Number(zone.size) || 84) - halfDiagonal);
+      const angle = random() * Math.PI * 2;
+      const radius = Math.sqrt(random()) * reach;
+      candidate = { x: center.x + Math.cos(angle) * radius, y: center.y + Math.sin(angle) * radius };
+    }
+    if (pointFitsSpawnZone(candidate, player, hitbox)) return candidate;
+  }
+  return center;
+}
+
 export function spawnZoneCentroid(player = {}) {
   const fallback = { x: Number(player.base?.x) || 0, y: Number(player.base?.y) || 0 };
   const zone = player.spawnZone || {};
@@ -36,10 +91,11 @@ export function spawnZoneCentroid(player = {}) {
   return pointInPolygon(centroid, zone.points) ? centroid : fallback;
 }
 
-export function createStartingHeadquarters({ player, definition, buildingSpec = {}, id = `headquarters-${player?.id || "unknown"}`, now = 0 } = {}) {
+export function createStartingHeadquarters({ player, definition, buildingSpec = {}, id = `headquarters-${player?.id || "unknown"}`, now = 0, random = Math.random } = {}) {
   if (!player?.id) throw new Error("A player id is required to create a starting headquarters.");
   if (!definition || definition.role !== "headquarters") throw new Error(`No racial headquarters production definition is available for ${player.id}.`);
-  const center = spawnZoneCentroid(player);
+  const hitbox = { ...(buildingSpec.hitbox || { w: 40, h: 34 }) };
+  const center = randomPointInsideSpawnZone(player, hitbox, random);
   const maxHp = Math.max(1, Number(buildingSpec.maxHp) || 720);
   return {
     id,
@@ -51,7 +107,7 @@ export function createStartingHeadquarters({ player, definition, buildingSpec = 
     condition: 1,
     maxHp,
     hp: maxHp,
-    hitbox: { ...(buildingSpec.hitbox || { w: 40, h: 34 }) },
+    hitbox,
     supplyRadius: definition.supplyRadius,
     productionRole: definition.role,
     productionTags: [...definition.tags],

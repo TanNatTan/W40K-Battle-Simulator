@@ -11,10 +11,10 @@ export const FORCE_DENSITY = Object.freeze({
 });
 
 export const COMMITMENT_STAGES = Object.freeze({
-  contact: Object.freeze({ commitment: 0.35, label: "Contact" }),
-  engagement: Object.freeze({ commitment: 0.58, label: "Engagement" }),
-  major: Object.freeze({ commitment: 0.78, label: "Major Battle" }),
-  decisive: Object.freeze({ commitment: 0.93, label: "Decisive Commitment" }),
+  contact: Object.freeze({ commitment: 0.55, label: "Contact" }),
+  engagement: Object.freeze({ commitment: 0.72, label: "Engagement" }),
+  major: Object.freeze({ commitment: 0.88, label: "Major Battle" }),
+  decisive: Object.freeze({ commitment: 0.97, label: "Decisive Commitment" }),
   "all-in": Object.freeze({ commitment: 1, label: "All-In" })
 });
 

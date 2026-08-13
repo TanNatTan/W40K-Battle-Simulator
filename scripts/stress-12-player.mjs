@@ -16,6 +16,7 @@ const playerCount = Math.max(2, Math.min(12, Number(argumentValue("players")) ||
 const fullRoster = process.argv.includes("--full-roster") || process.env.AWT_STRESS_FULL_ROSTER === "1";
 const allSpaceMarines = process.argv.includes("--all-space-marines");
 const constructionContinuation = process.argv.includes("--construction-continuation");
+const expandedArmies = process.argv.includes("--expanded-armies");
 const territoryDevelopmentCaptures = Math.max(0, Math.floor(Number(argumentValue("territory-development-captures")) || 0));
 const profiling = process.argv.includes("--profile") || process.env.AWT_STRESS_PROFILE === "1";
 const browserPath = [
@@ -186,6 +187,7 @@ try {
       player.battleObjectiveState = null;
     }
     const fixture = ${fullRoster ? `root.awtDebugControls.prepareFullRosterStressFixture(${spawnRadius})` : "null"};
+    if (${expandedArmies}) for (const player of root.awtDebugState.players) player.forceCapOverride = null;
     const territoryDevelopmentProbes = ${territoryDevelopmentCaptures > 0
       ? `root.awtDebugState.players.map(player => root.awtDebugControls.captureTerritoryDevelopmentProbe(player.id, ${territoryDevelopmentCaptures}))`
       : "[]"};
@@ -300,6 +302,20 @@ try {
             planned: player.territoryAgentMissions?.length || 0
           }))
         },
+        forceProfiles: state.players.map(player => {
+          const living = state.units.filter(unit => unit.alive && !unit.incapacitated && unit.faction === player.id);
+          return {
+            faction: player.id,
+            combatants: living.filter(unit => !['builder', 'supply'].includes(unit.role)).length,
+            vehicles: living.filter(unit => unit.role === 'vehicle').length,
+            builders: living.filter(unit => unit.role === 'builder').length,
+            builderDesired: player.builderWorkforce?.desired || 0,
+            builderHardCap: player.builderWorkforce?.hardCap || 0,
+            reinforcementCapacity: player.forceState?.reinforcementCapacity || 0,
+            commitment: player.forceState?.commitment || 0,
+            workflow: player.decisionWorkflow?.current?.id || null
+          };
+        }),
         frameMonitor: { ...globalThis.awtStressMetrics },
         simulationFrame: { ...(state.lastSimulationFrame || {}) },
         construction: {
@@ -368,6 +384,12 @@ try {
   if (territoryDevelopmentCaptures > 0 && last.construction.developmentOrdersByFaction.some(faction => faction.captures < territoryDevelopmentCaptures
     || faction.evaluated < territoryDevelopmentCaptures)) {
     throw new Error(`Captured territory was not evaluated for natural development: ${JSON.stringify(last.construction.developmentOrdersByFaction)}`);
+  }
+  if (last.forceProfiles.some(profile => profile.builderHardCap > 0 && profile.builders > profile.builderHardCap)) {
+    throw new Error(`A faction exceeded its builder hard ceiling: ${JSON.stringify(last.forceProfiles)}`);
+  }
+  if (expandedArmies && last.forceProfiles.some(profile => profile.reinforcementCapacity <= profile.combatants)) {
+    throw new Error(`Expanded per-player force budget was not available: ${JSON.stringify(last.forceProfiles)}`);
   }
   if (frozen) throw new Error(`${playerCount}-player 1920x1080 simulation froze or became unresponsive: ${JSON.stringify(report)}`);
 } finally {

@@ -34,9 +34,11 @@ test("planned foundations create their full temporary labor demand", () => {
   const projects = [planned("power", "generator", 1), planned("barracks", "barracks", 2), planned("depot", "warehouse", 1)];
   assert.equal(constructionLaborDemand(projects), 4);
   const demand = builderWorkforceDemand({ player: marine, structures: [complete("hq", "outpost"), ...projects], activeProjects: projects });
-  assert.equal(demand.caretakerRequirement, 1);
-  assert.equal(demand.constructionDemand, 4);
-  assert.equal(demand.desired, 8);
+  assert.equal(demand.caretakerRequirement, 0);
+  assert.equal(demand.rawConstructionDemand, 4);
+  assert.equal(demand.constructionDemand, 2);
+  assert.equal(demand.desired, 4);
+  assert.equal(demand.hardCap, 8);
 });
 
 test("construction throughput compounds with completed infrastructure and territory", () => {

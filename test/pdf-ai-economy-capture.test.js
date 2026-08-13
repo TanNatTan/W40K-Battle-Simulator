@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-import { createStartingHeadquarters, spawnZoneCentroid } from "../src/economy/BattleBootstrapSystem.js";
+import { createStartingHeadquarters, pointFitsSpawnZone, spawnZoneCentroid } from "../src/economy/BattleBootstrapSystem.js";
 import { productionDefinitionsFor } from "../src/economy/ProductionBuildingCatalog.js";
 import { enabledProductionOutputs, updateProductionBuilding } from "../src/economy/ProductionSystem.js";
 import { selectConstructionProject } from "../src/economy/ConstructionPlanningSystem.js";
@@ -25,15 +25,17 @@ const factionPlayers = [
   { id: "chaos", race: "Chaos", faction: "Chaos" }
 ];
 
-test("every race receives one completed bootstrap-safe headquarters at its authored spawn center", () => {
+test("every race receives one completed bootstrap-safe headquarters randomly inside its authored spawn", () => {
   for (const [index, player] of factionPlayers.entries()) {
     const configured = { ...player, base: { x: 100 + index * 10, y: 150 }, spawnZone: { shape: "circle", size: 80, points: [] } };
     const definition = productionDefinitionsFor(configured).find(item => item.role === "headquarters");
-    const hq = createStartingHeadquarters({ player: configured, definition, buildingSpec: { maxHp: 900, hitbox: { w: 44, h: 38 } } });
+    const hq = createStartingHeadquarters({ player: configured, definition, buildingSpec: { maxHp: 900, hitbox: { w: 44, h: 38 } },
+      random: (() => { const values = [0.25, 0.36]; let cursor = 0; return () => values[cursor++ % values.length]; })() });
     assert.equal(hq.progress, 1);
     assert.equal(hq.alive, true);
     assert.equal(hq.headquarters, true);
-    assert.deepEqual({ x: hq.x, y: hq.y }, configured.base);
+    assert.equal(pointFitsSpawnZone(hq, configured, hq.hitbox), true);
+    assert.notDeepEqual({ x: hq.x, y: hq.y }, configured.base);
     assert.deepEqual(definition.inputs, {}, `${definition.id} must not depend on a circular bootstrap input`);
   }
   const custom = { id: "custom", base: { x: 0, y: 0 }, spawnZone: { shape: "custom", points: [{ x: 20, y: 20 }, { x: 100, y: 20 }, { x: 100, y: 80 }, { x: 20, y: 80 }] } };

@@ -79,7 +79,10 @@ test("every capture is evaluated and no fifth-capture defense package exists", (
 
 test("Marine Servitors have construction depth and physical capture is exactly three times faster", () => {
   const workforce = builderWorkforceProfileFor(marine);
-  assert.equal(workforce.perBuilding, 1);
+  assert.equal(workforce.perBuilding, 0);
+  assert.equal(workforce.startingMin, 2);
+  assert.equal(workforce.startingMax, 4);
+  assert.equal(workforce.hardCap, 8);
   assert.equal(workforce.reserveBase, 3);
   assert.equal(workforce.repairReserve, 2);
   assert.equal(workforce.constructionReserve, 3);

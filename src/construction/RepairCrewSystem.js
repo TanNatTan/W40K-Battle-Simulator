@@ -4,7 +4,8 @@ export const BUILDER_REPAIR_CREW_LIMIT = 1;
 
 export function builderRepairCrewLimit(player = {}, unit = {}, request = {}, target = {}) {
   if (unit.role !== "builder" || request.targetType !== "building") return Infinity;
-  const residentCrew = Math.max(BUILDER_REPAIR_CREW_LIMIT, caretakerRequirementForStructure(player, target));
+  const massLaborFaction = player.race === "Orks" || player.race === "Necrons";
+  const residentCrew = Math.max(massLaborFaction ? 2 : BUILDER_REPAIR_CREW_LIMIT, caretakerRequirementForStructure(player, target));
   const severe = Number(request.severity) >= 0.18 || Number(target.hp) < Number(target.maxHp) * 0.82;
   return residentCrew + (severe ? builderWorkforceProfileFor(player).repairReserve : 0);
 }

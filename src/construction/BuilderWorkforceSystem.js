@@ -30,7 +30,12 @@ export function builderWorkforceProfileFor(player = {}) {
   return Object.freeze({
     id: branch,
     builder: base.builder,
-    perBuilding: numeric(base, "perBuilding") + numeric(override, "perBuildingAdd"),
+    startingMin: Math.max(1, numeric(base, "startingMin")),
+    startingMax: Math.max(1, numeric(base, "startingMax")),
+    growthMultiplier: Math.max(1, numeric(base, "growthMultiplier")),
+    hardCap: Math.max(1, numeric(base, "hardCap")),
+    replaceDead: base.replaceDead !== false,
+    perBuilding: 0,
     heavyBonus: numeric(base, "heavyBonus") + numeric(override, "heavyBonusAdd"),
     heavyTypes: freezeList(base.heavyTypes),
     reserveBase: numeric(base, "reserveBase") + numeric(override, "reserveBaseBonus"),
@@ -43,8 +48,7 @@ export function builderWorkforceProfileFor(player = {}) {
 
 export function caretakerRequirementForStructure(player = {}, structure = {}) {
   if (!structure || structure.alive === false || Number(structure.progress) < 1) return 0;
-  const profile = builderWorkforceProfileFor(player);
-  return profile.perBuilding + (profile.heavyTypes.includes(structure.type) ? profile.heavyBonus : 0);
+  return 0;
 }
 
 export function builderWorkforceDemand({ player = {}, structures = [], configuredTarget = 0, damagedStructures = null,
@@ -53,20 +57,23 @@ export function builderWorkforceDemand({ player = {}, structures = [], configure
   const completed = structures.filter(structure => structure?.faction === player.id && structure.alive !== false && Number(structure.progress) >= 1);
   const projects = activeProjects ?? structures.filter(structure => structure?.faction === player.id && structure.alive !== false && Number(structure.progress) < 1);
   const damaged = damagedStructures ?? completed.filter(structure => Number(structure.hp) < Number(structure.maxHp) * 0.98).length;
-  const caretakerRequirement = completed.reduce((total, structure) => total + caretakerRequirementForStructure(player, structure), 0);
-  const growthReserve = Math.floor(completed.length / profile.reserveEvery);
-  const baselineReserve = profile.reserveBase + growthReserve;
+  const caretakerRequirement = 0;
+  const growthReserve = 0;
+  const baselineReserve = Math.max(profile.startingMin, Math.min(profile.startingMax, Number(configuredTarget) || profile.startingMin));
   const repairDemand = damaged > 0 ? Math.min(profile.repairReserve, Math.max(1, damaged)) : 0;
   const gatherDemand = harvestSourceCount > 0 ? Math.min(profile.gatherReserve, Math.max(1, Math.ceil(harvestSourceCount / 2))) : 0;
-  const constructionDemand = Array.isArray(projects)
+  const rawConstructionDemand = Array.isArray(projects)
     ? projects.reduce((total, project) => total + Math.max(1,
       Number(project.desiredBuilders) || desiredBuildersFor(project.type, project.spec)), 0)
     : Math.max(0, Number(projects) || 0);
-  const emergencyDemand = emergency ? Math.max(profile.repairReserve, profile.constructionReserve) : 0;
-  const workloadReserve = repairDemand + gatherDemand + constructionDemand + emergencyDemand;
-  const desired = Math.max(Number(configuredTarget) || 0, caretakerRequirement + baselineReserve + workloadReserve);
+  const constructionDemand = Math.min(profile.constructionReserve, Math.ceil(rawConstructionDemand / 2));
+  const emergencyDemand = emergency ? Math.max(1, Math.min(profile.repairReserve, 2)) : 0;
+  const workloadReserve = constructionDemand + repairDemand + gatherDemand + emergencyDemand;
+  const rememberedTarget = Math.max(baselineReserve, Number(configuredTarget) || 0);
+  const desired = Math.min(profile.hardCap, Math.max(rememberedTarget, baselineReserve + workloadReserve));
   return Object.freeze({ desired, caretakerRequirement, completedBuildings: completed.length, baselineReserve, growthReserve,
-    workloadReserve, repairDemand, gatherDemand, constructionDemand, emergencyDemand, profile });
+    workloadReserve, repairDemand, gatherDemand, constructionDemand, rawConstructionDemand, emergencyDemand,
+    hardCap: profile.hardCap, replaceDead: profile.replaceDead, profile });
 }
 
 function structurePriority(player, structure) {
@@ -96,6 +103,17 @@ export function reconcileBuilderHomes({ player = {}, structures = [], builders =
     assigned.get(structure.id).push(builder);
     filled += 1;
   }
+  // A home is a response anchor, not a permanent staffing requirement. Spread
+  // floating workers across the live base without increasing workforce demand.
+  const homePool = [...completed].sort((a, b) => structurePriority(player, b) - structurePriority(player, a));
+  for (let index = 0; index < unassigned.length && homePool.length; index += 1) {
+    const builder = unassigned[index];
+    const home = homePool[index % homePool.length];
+    builder.homeStructureId = home.id;
+    builder.homeAssignedAt ??= 0;
+    assigned.get(home.id).push(builder);
+  }
+  if (homePool.length) unassigned.length = 0;
   return Object.freeze({ assigned: livingBuilders.length - unassigned.length, floating: unassigned.length,
     required: completed.reduce((sum, structure) => sum + caretakerRequirementForStructure(player, structure), 0), unfilled: Math.max(0, targets.length - filled) });
 }
@@ -109,3 +127,9 @@ export function builderHomeStatus(builder = {}, structures = []) {
 
 export const BUILDER_WORKFORCE_PRIORITY = Object.freeze([...workforcePolicyData.priorityOrder]);
 export const BUILDER_WORKFORCE_POLICY_VERSION = workforcePolicyData.version;
+
+export function startingBuilderCountFor(player = {}, random = Math.random) {
+  const profile = builderWorkforceProfileFor(player);
+  const roll = Math.max(0, Math.min(0.999999, Number(random()) || 0));
+  return profile.startingMin + Math.floor(roll * (profile.startingMax - profile.startingMin + 1));
+}

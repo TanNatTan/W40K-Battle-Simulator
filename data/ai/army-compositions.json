@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "profiles": {
+    "space_marines": { "desiredVehicleRatio": 0.22, "transportShare": 0.28, "armoredSupportShare": 0.52 },
+    "imperial_guard": { "desiredVehicleRatio": 0.25, "transportShare": 0.22, "armoredSupportShare": 0.58 },
+    "adeptus_mechanicus": { "desiredVehicleRatio": 0.3, "transportShare": 0.16, "armoredSupportShare": 0.64 },
+    "chaos": { "desiredVehicleRatio": 0.21, "transportShare": 0.2, "armoredSupportShare": 0.58 },
+    "orks": { "desiredVehicleRatio": 0.24, "transportShare": 0.34, "armoredSupportShare": 0.46 },
+    "necrons": { "desiredVehicleRatio": 0.25, "transportShare": 0.2, "armoredSupportShare": 0.6 },
+    "tau": { "desiredVehicleRatio": 0.3, "transportShare": 0.24, "armoredSupportShare": 0.58 },
+    "tyranids": { "desiredVehicleRatio": 0.18, "transportShare": 0.08, "armoredSupportShare": 0.72 }
+  }
+}
