@@ -52,6 +52,16 @@ test("military selection reacts to enemy armour instead of a production modulo",
   assert.ok(demand.signals.vehicleDeficit > 0.9);
 });
 
+test("Marine growth fields a missing Skull Probe before saturating late armour", () => {
+  const player = { id: "a", faction: "Space Marines", race: "Imperium", subfaction: "Ultramarines",
+    forceState: { reinforcementCapacity: 220 } };
+  const ownUnits = Array.from({ length: 10 }, (_, index) => ({ alive: true, faction: "a", role: "scout", name: `Scout Marine ${index}` }));
+  const selected = chooseMilitaryProduction({ player, roster: factionConfig.astartes.roster,
+    demand: { tokenScores: {} }, ownUnits, availableProducerTypes: ["barracks", "workshop"] });
+  assert.equal(selected.name, "Skull Probe");
+  assert.ok(selected.scoreBreakdown.captureSupport >= 300);
+});
+
 test("Marine workers use response homes without one Servitor per completed building", () => {
   const player = { id: "a", race: "Imperium", faction: "Space Marines", subfaction: "Salamanders" };
   const structures = Array.from({ length: 11 }, (_, index) => ({ id: `s${index}`, faction: "a", type: index === 2 ? "workshop" : "barracks", progress: 1, alive: true, hp: 100, maxHp: 100, x: index * 10, y: 0 }));

@@ -8,7 +8,7 @@ export const factionConfig = Object.freeze({
         builder: ["Servitor"],
         supply: ["Chapter Supply Servitor", "Rhino Supply Carrier"],
         trooper: ["Tactical Marine", "Intercessor", "Assault Intercessor", "Assault Marine", "Devastator", "Hellblaster", "Inceptor", "Aggressor", "Reiver", "Incursor", "Infiltrator"],
-        scout: ["Scout Marine", "Eliminator", "Infiltrator"],
+        scout: ["Scout Marine", "Skull Probe", "Eliminator", "Infiltrator"],
         medic: ["Apothecary"], engineer: ["Techmarine"],
         commander: ["Sergeant", "Lieutenant", "Captain", "Chapter Master", "Chaplain", "Librarian", "Judiciar"],
         standard: ["Ancient", "Company Champion", "Bladeguard Veteran", "Sternguard", "Vanguard Veteran", "Terminator", "Assault Terminator"],

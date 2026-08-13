@@ -87,7 +87,7 @@ function rosterMembers(roster = {}) {
     (roster[role] || []).map(name => Object.freeze({ name, role })));
 }
 
-export function scoreProductionCandidate(member, { plan, demand = {}, ownUnits = [], availableProducerTypes = [] } = {}) {
+export function scoreProductionCandidate(member, { player = {}, plan, demand = {}, ownUnits = [], availableProducerTypes = [] } = {}) {
   const tags = productionTagsFor(member);
   const priorities = member.role === "vehicle" ? plan?.vehiclePriority || [] : plan?.unitPriority || [];
   let doctrine = 12;
@@ -98,13 +98,28 @@ export function scoreProductionCandidate(member, { plan, demand = {}, ownUnits =
   const oversaturation = sameName * 14 + Math.max(0, sameRole - Math.max(2, ownUnits.length * 0.32)) * 3;
   const producers = producerTypesForProduction(member);
   const facilityAvailable = !availableProducerTypes.length || producers.some(type => availableProducerTypes.includes(type));
+  const captureSpecialist = /scout marine|skull probe/i.test(member.name || "");
+  const sameCaptureSpecialist = ownUnits.filter(unit => unit?.alive !== false
+    && normalize(unit.specialty || unit.name).includes(normalize(member.name))).length;
+  // Scouts and probes are complementary. A Scout Marine batch must not make
+  // the planner believe that it has also fulfilled the Skull Probe need.
+  const captureSupport = player.faction === "Space Marines" && captureSpecialist && sameCaptureSpecialist < 2
+    ? /skull probe/i.test(member.name || "") && sameCaptureSpecialist === 0 ? 800 : 92 - sameCaptureSpecialist * 40 : 0;
+  const marineInfantry = ownUnits.filter(unit => unit?.alive !== false && unit.role !== "vehicle"
+    && !["builder", "supply"].includes(unit.role) && !/skull probe|servo.?skull/i.test(`${unit.specialty || ""} ${unit.name || ""}`)).length;
+  const marineInfantryFloor = Math.min(120, Math.max(20, Math.floor((Number(player.forceState?.reinforcementCapacity) || 36) * 0.6)));
+  const lineGrowth = player.faction === "Space Marines" && marineInfantry < marineInfantryFloor
+    ? member.role === "trooper" || /scout marine/i.test(member.name || "")
+      ? 260 + Math.min(220, (marineInfantryFloor - marineInfantry) * 3.5)
+      : member.role === "vehicle" ? -300 : -80
+    : 0;
   return Object.freeze({ member, tags, producerTypes: producers, facilityAvailable,
-    score: doctrine + battlefield - oversaturation - (facilityAvailable ? 0 : 160), doctrine, battlefield, oversaturation });
+    score: doctrine + battlefield + captureSupport + lineGrowth - oversaturation - (facilityAvailable ? 0 : 160), doctrine, battlefield, captureSupport, lineGrowth, oversaturation });
 }
 
 export function chooseMilitaryProduction({ player = {}, roster = {}, demand = {}, ownUnits = [], availableProducerTypes = [], sequence = 0 } = {}) {
   const plan = subfactionProductionPlanFor(player);
-  const ranked = rosterMembers(roster).map(member => scoreProductionCandidate(member, { plan, demand, ownUnits, availableProducerTypes }))
+  const ranked = rosterMembers(roster).map(member => scoreProductionCandidate(member, { player, plan, demand, ownUnits, availableProducerTypes }))
     .filter(candidate => candidate.facilityAvailable)
     .sort((a, b) => b.score - a.score || String(a.member.name).localeCompare(String(b.member.name)));
   if (!ranked.length) return null;
@@ -112,6 +127,5 @@ export function chooseMilitaryProduction({ player = {}, roster = {}, demand = {}
   const selected = competitive[Math.abs(Math.floor(Number(sequence) || 0)) % competitive.length];
   return Object.freeze({ ...selected.member, producerTypes: selected.producerTypes, productionPlan: plan?.name || player.subfaction || "Default",
     productionStyle: plan?.productionStyle || "adaptive", score: selected.score, scoreBreakdown: Object.freeze({ doctrine: selected.doctrine,
-      battlefield: selected.battlefield, oversaturation: selected.oversaturation }) });
+      battlefield: selected.battlefield, captureSupport: selected.captureSupport, lineGrowth: selected.lineGrowth, oversaturation: selected.oversaturation }) });
 }
-

@@ -66,6 +66,8 @@ test("territory agents select scouts and disengage except at self-defense range"
   ];
   assert.equal(isTerritoryAgentCandidate(units[0]), false);
   assert.deepEqual(selectTerritoryAgents({ units, playerId: "p1", desired: 4 }).map(unit => unit.id).sort(), ["probe", "scout"]);
+  assert.equal(isTerritoryAgentCandidate({ id: "eliminator", faction: "p1", role: "scout", name: "Eliminator", alive: true }), false);
+  assert.deepEqual(selectTerritoryAgents({ units, playerId: "p1", desired: 1 }).map(unit => unit.id), ["scout"]);
   const unit = { x: 0, y: 0 };
   assert.equal(territoryAgentContactResponse({ unit, enemies: [{ id: "far", x: 80, y: 0, alive: true }] }).action, "disengage");
   assert.equal(territoryAgentContactResponse({ unit, enemies: [{ id: "close", x: 20, y: 0, alive: true }] }).action, "self-defense");

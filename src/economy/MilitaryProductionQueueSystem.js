@@ -10,13 +10,20 @@ export function combatProductionCapacity(hardCap = 0, livingCombatants = 0) {
   return Object.freeze({ target, living, availableSlots: Math.max(0, target - living), shouldQueue: living < target });
 }
 
-export function selectMilitaryProducer({ structures = [], faction = "", producerTypes = [] } = {}) {
+export function selectMilitaryProducer({ structures = [], faction = "", producerTypes = [], now = 0 } = {}) {
   const allowed = new Set(producerTypes);
-  return structures.find(structure => structure?.faction === faction
+  return structures.filter(structure => structure?.faction === faction
     && allowed.has(structure.type)
     && structure.progress >= 1
     && structure.alive !== false
-    && (structure.condition ?? 1) >= 0.35) || null;
+    && (structure.condition ?? 1) >= 0.35)
+    .sort((left, right) => {
+      const leftReadyAt = Number(left.nextTrainingAt) || 0;
+      const rightReadyAt = Number(right.nextTrainingAt) || 0;
+      const leftCooling = leftReadyAt > now ? 1 : 0;
+      const rightCooling = rightReadyAt > now ? 1 : 0;
+      return leftCooling - rightCooling || leftReadyAt - rightReadyAt || String(left.id).localeCompare(String(right.id));
+    })[0] || null;
 }
 
 export function productionRequestsToProcess(queue = [], strategicLimit = 2) {

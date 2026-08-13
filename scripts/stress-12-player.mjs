@@ -24,6 +24,8 @@ const exactLoadUnits = Math.max(0, Math.floor(Number(argumentValue("load-units")
 const exactLoadBuildings = Math.max(0, Math.floor(Number(argumentValue("load-buildings")) || 0));
 const territoryDevelopmentCaptures = Math.max(0, Math.floor(Number(argumentValue("territory-development-captures")) || 0));
 const profiling = process.argv.includes("--profile") || process.env.AWT_STRESS_PROFILE === "1";
+const duelAuditEnabled = process.argv.includes("--duel-audit");
+const spaceMarineGrowthAuditEnabled = process.argv.includes("--space-marine-growth");
 const browserPath = [
   "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
   "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
@@ -73,7 +75,7 @@ try {
   const serverPort = server.address().port;
   const debugPort = await freePort();
   browser = spawn(browserPath, [
-    "--headless=new", "--disable-gpu", "--disable-extensions", "--no-first-run",
+    "--headless=new", "--disable-extensions", "--no-first-run",
     `--user-data-dir=${profile}`, `--remote-debugging-port=${debugPort}`,
     "--window-size=1920,1080", "about:blank"
   ], { stdio: "ignore" });
@@ -169,6 +171,25 @@ try {
     scale.value = '${performancePreset}';
     scale.dispatchEvent(new Event('change', { bubbles: true }));
     document.querySelector('#awt-configure-players').click();
+    ${spaceMarineGrowthAuditEnabled ? `
+    const setGrowthSelect = (selector, value) => {
+      const select = document.querySelector(selector);
+      select.value = value;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    document.querySelector('[data-player-tab="0"]').click();
+    setGrowthSelect('#awt-player-race', 'Imperium');
+    setGrowthSelect('#awt-player-faction', 'Space Marines');
+    setGrowthSelect('#awt-player-subfaction', 'Ultramarines');
+    setGrowthSelect('#awt-player-team', '1');
+    setGrowthSelect('#awt-player-battle-objective', 'annihilation');
+    document.querySelector('[data-player-tab="1"]').click();
+    setGrowthSelect('#awt-player-race', 'Orks');
+    setGrowthSelect('#awt-player-faction', 'Orks');
+    setGrowthSelect('#awt-player-subfaction', 'Goffs');
+    setGrowthSelect('#awt-player-team', '2');
+    setGrowthSelect('#awt-player-battle-objective', 'annihilation');
+    ` : ""}
     ${allSpaceMarines ? `
     const chapters = ['Ultramarines', 'Blood Angels', 'Emerald Suns', 'Salamanders', 'White Scars', 'Imperial Fists'];
     const setSelect = (selector, value) => {
@@ -190,6 +211,17 @@ try {
       player.battleObjective = 'annihilation';
       player.battleObjectivePlan = null;
       player.battleObjectiveState = null;
+      if (${spaceMarineGrowthAuditEnabled}) player.spawnZone.size = ${spawnRadius};
+    }
+    if (${spaceMarineGrowthAuditEnabled}) {
+      const marine = root.awtDebugState.players.find(player => player.faction === 'Space Marines');
+      const opponent = root.awtDebugState.players.find(player => player.id !== marine?.id);
+      if (marine) {
+        marine.forceCapOverride = 220;
+        const inventory = root.awtDebugState.economies[marine.id].inventory;
+        for (const resource of Object.keys(inventory)) inventory[resource] = Math.max(inventory[resource], 6000);
+      }
+      if (opponent) opponent.forceCapOverride = 40;
     }
     const fixture = ${fullRoster ? `root.awtDebugControls.prepareFullRosterStressFixture(${spawnRadius})` : "null"};
     const exactLoad = ${exactLoadUnits || exactLoadBuildings
@@ -200,8 +232,26 @@ try {
       ? `root.awtDebugState.players.map(player => root.awtDebugControls.captureTerritoryDevelopmentProbe(player.id, ${territoryDevelopmentCaptures}))`
       : "[]"};
     globalThis.awtStressInitialStructureIds = new Set(root.awtDebugState.structures.map(structure => structure.id));
+    globalThis.awtStressInitialUnitIds = new Set(root.awtDebugState.units.map(unit => unit.id));
     globalThis.awtStressConstructionLifecycle = { firstCompletionAt: null, maxConcurrentProjects: 0 };
     document.querySelector('#awt-deploy-map').click();
+    if (${spaceMarineGrowthAuditEnabled}) {
+      const marine = root.awtDebugState.players.find(player => player.faction === 'Space Marines');
+      const opponent = root.awtDebugState.players.find(player => player.id !== marine?.id);
+      // Keep a real hostile economy and combat force in the test, but make its
+      // initial infrastructure durable enough that annihilation cannot stop the
+      // mandatory ten-minute growth observation early.
+      for (const structure of root.awtDebugState.structures.filter(item => item.faction === opponent?.id)) {
+        structure.maxHp = Math.max(structure.maxHp || 1, 10_000_000);
+        structure.hp = structure.maxHp;
+        structure.condition = 1;
+      }
+      const recoveryBuilder = root.awtDebugState.units.find(unit => unit.faction === opponent?.id && unit.role === 'builder');
+      if (recoveryBuilder) {
+        recoveryBuilder.maxHp = Math.max(recoveryBuilder.maxHp || 1, 10_000_000);
+        recoveryBuilder.hp = recoveryBuilder.maxHp;
+      }
+    }
     return {
       width: root.awtDebugState.world.width,
       height: root.awtDebugState.world.height,
@@ -285,6 +335,109 @@ try {
       lifecycle.maxConcurrentProjects = Math.max(lifecycle.maxConcurrentProjects, ...activeProjectsByFaction);
       const continuedStructures = lifecycle.firstCompletionAt == null ? []
         : newStructures.filter(structure => structure.createdAt > lifecycle.firstCompletionAt + 0.0001);
+      const duelAudit = ${duelAuditEnabled} ? state.players.map(player => {
+        const structures = state.structures.filter(structure => structure.faction === player.id);
+        const operational = structures.filter(structure => structure.alive !== false && structure.progress >= 1);
+        const livingUnits = state.units.filter(unit => unit.alive && !unit.incapacitated && unit.faction === player.id);
+        const producedUnits = livingUnits.filter(unit => unit.deployment?.sourceType === 'building');
+        const combatUnits = livingUnits.filter(unit => !['builder', 'supply'].includes(unit.role));
+        const footprint = structure => ({
+          left: structure.x - (structure.hitbox?.w || 24) / 2,
+          right: structure.x + (structure.hitbox?.w || 24) / 2,
+          top: structure.y - (structure.hitbox?.h || 20) / 2,
+          bottom: structure.y + (structure.hitbox?.h || 20) / 2
+        });
+        const placementOverlaps = [];
+        for (let leftIndex = 0; leftIndex < operational.length; leftIndex += 1) {
+          for (let rightIndex = leftIndex + 1; rightIndex < operational.length; rightIndex += 1) {
+            const left = footprint(operational[leftIndex]);
+            const right = footprint(operational[rightIndex]);
+            if (left.left < right.right && left.right > right.left && left.top < right.bottom && left.bottom > right.top) {
+              placementOverlaps.push([operational[leftIndex].id, operational[rightIndex].id]);
+            }
+          }
+        }
+        const economy = state.economies[player.id];
+        const completionOrder = [...structures]
+          .filter(structure => structure.completedAt != null)
+          .sort((left, right) => left.completedAt - right.completedAt)
+          .map(structure => ({ type: structure.type, name: structure.displayName || structure.type, completedAt: structure.completedAt }));
+        return {
+          faction: player.id,
+          race: player.race,
+          army: player.faction,
+          subfaction: player.subfaction,
+          defeated: Boolean(state.strategicOutcomes?.[player.id]?.defeated),
+          combatants: combatUnits.length,
+          producedUnits: producedUnits.length,
+          producedVehicles: producedUnits.filter(unit => unit.role === 'vehicle').length,
+          productionSequence: player.productionSequence || 0,
+          lastProductionDirective: player.lastProductionDirective || null,
+          activeTrainingOrders: (economy?.queue || []).filter(request => request.type === 'train'
+            && !['Delivered', 'Denied', 'Complete'].includes(request.status)).map(request => ({ status: request.status, producerId: request.producerId || null })),
+          operationalBuildings: operational.map(structure => structure.type),
+          chapterBarracksAlive: operational.some(structure => structure.type === 'barracks'),
+          headquartersAlive: operational.some(structure => structure.type === 'outpost'),
+          completionOrder,
+          placementOverlaps,
+          squads: state.squads.filter(squad => squad.faction === player.id
+            && state.units.some(unit => unit.alive && unit.squadId === squad.id))
+            .map(squad => ({ formation: squad.formation, role: squad.primaryRole || null, order: squad.orderType || squad.currentObjective || null })),
+          tacticalStates: [...new Set(combatUnits.map(unit => unit.status))].slice(0, 12),
+          assignedCombatants: combatUnits.filter(unit => unit.squadId || unit.territoryAgentMission || unit.cachedObjective).length,
+          combatantsAwayFromBase: combatUnits.filter(unit => Math.hypot(unit.x - player.base.x, unit.y - player.base.y) >= 60).length
+        };
+      }) : [];
+      const spaceMarineGrowthAudit = ${spaceMarineGrowthAuditEnabled} ? (() => {
+        const player = state.players.find(candidate => candidate.faction === 'Space Marines');
+        if (!player) return null;
+        const livingInfantry = state.units.filter(unit => unit.alive && !unit.incapacitated
+          && unit.faction === player.id && !['builder', 'supply', 'vehicle'].includes(unit.role)
+          && !/skull probe|servo.?skull/i.test((unit.specialty || '') + ' ' + (unit.name || '')));
+        const squadAudits = state.squads.filter(squad => squad.faction === player.id).map(squad => {
+          const members = livingInfantry.filter(unit => unit.squadId === squad.id);
+          return { id: squad.id, nominalSize: squad.nominalSize || 0, livingMembers: members.length, templateId: squad.templateId || null };
+        }).filter(squad => squad.livingMembers > 0);
+        const captureHistory = player.territoryAgentHistory || [];
+        const operationalDefenses = state.structures.filter(structure => structure.faction === player.id
+          && structure.alive !== false && structure.progress >= 1 && ['bunker', 'turret'].includes(structure.type));
+        const deployedPods = state.dropPods.filter(pod => pod.faction === player.id && pod.deployedUnitCount != null);
+        return {
+          infantry: livingInfantry.length,
+          productionSequence: player.productionSequence || 0,
+          lastProductionDirective: player.lastProductionDirective || null,
+          forceCap: player.forceCapOverride || null,
+          productionQueue: (state.economies[player.id]?.queue || []).filter(request => request.type === 'train')
+            .map(request => ({ key: request.key, status: request.status, producerTypes: request.producerTypes || [], manifest: request.productionManifest?.map(member => member.name) || [] })),
+          economyInventory: { ...(state.economies[player.id]?.inventory || {}) },
+          productionBuildings: state.structures.filter(structure => structure.faction === player.id
+            && ['barracks', 'armory', 'airpad'].includes(structure.type)).map(structure => ({
+              type: structure.type,
+              progress: structure.progress,
+              condition: structure.condition,
+              nextTrainingAt: structure.nextTrainingAt || 0,
+              inventory: { ...(structure.inventory || {}) }
+            })),
+          squads: squadAudits.length,
+          fullTenMarineSquads: squadAudits.filter(squad => squad.nominalSize === 10 && squad.livingMembers === 10).length,
+          squadAudits,
+          scoutCaptureAssignments: captureHistory.filter(entry => /scout marine/i.test(entry.unitName || '')).length,
+          skullProbeCaptureAssignments: captureHistory.filter(entry => /skull probe|servo.?skull/i.test(entry.unitName || '')).length,
+          eliminatorCaptureAssignments: captureHistory.filter(entry => /eliminator/i.test(entry.unitName || '')).length,
+          buildingsLost: player.buildingsLost || 0,
+          capturedTerritoriesLost: player.capturedTerritoryCellsLost || 0,
+          operationalDefenses: operationalDefenses.map(structure => structure.type),
+          deployedDropPods: deployedPods.length,
+          dropPodDeployments: deployedPods.map(pod => ({
+            units: pod.deployedUnitCount,
+            landingScore: pod.landingScore,
+            minimumLandingScore: pod.minimumLandingScore,
+            antiAir: pod.antiAirRisk || 0
+          })),
+          smartDropPods: deployedPods.length > 0 && deployedPods.every(pod => pod.deployedUnitCount === 4
+            && Number(pod.landingScore) >= Number(pod.minimumLandingScore) && (Number(pod.antiAirRisk) || 0) <= 2.5)
+        };
+      })() : null;
       return {
         wallTime: performance.now(), simulationTime: state.time, frameCount: state.frameCount,
         lastSuccessfulSimulationAt: state.lastSuccessfulSimulationAt, paused: state.paused, ended: state.ended,
@@ -351,7 +504,9 @@ try {
               && state.structures.some(structure => structure.id === order.structureId && structure.developsTerritoryCell === order.cellKey)).length,
             complete: (player.territoryDevelopmentOrders || []).filter(order => order.status === 'complete').length
           }))
-        }
+        },
+        duelAudit,
+        spaceMarineGrowthAudit
       };
     })()`);
     samples.push({ ...sample.value, probeLatencyMs: sample.latencyMs });
@@ -401,6 +556,21 @@ try {
   }
   if (expandedArmies && last.forceProfiles.some(profile => profile.reinforcementCapacity <= profile.combatants)) {
     throw new Error(`Expanded per-player force budget was not available: ${JSON.stringify(last.forceProfiles)}`);
+  }
+  if (spaceMarineGrowthAuditEnabled) {
+    const growth = last.spaceMarineGrowthAudit;
+    const failures = [];
+    if (!growth || growth.infantry < 100) failures.push(`infantry ${growth?.infantry || 0}/100`);
+    if (!growth || growth.fullTenMarineSquads < 10) failures.push(`full ten-Marine squads ${growth?.fullTenMarineSquads || 0}/10`);
+    if (!growth || growth.scoutCaptureAssignments < 1) failures.push('Scout Marines never received a capture assignment');
+    if (!growth || growth.skullProbeCaptureAssignments < 1) failures.push('Skull Probes never received a capture assignment');
+    if (growth?.eliminatorCaptureAssignments > 0) failures.push(`Eliminators received ${growth.eliminatorCaptureAssignments} capture assignments`);
+    if (!growth || growth.buildingsLost >= 7) failures.push(`lost ${growth?.buildingsLost ?? 'unknown'} buildings (limit 6)`);
+    if (!growth || growth.capturedTerritoriesLost >= 5) failures.push(`lost ${growth?.capturedTerritoriesLost ?? 'unknown'} captured territories (limit 4)`);
+    if (!growth || growth.operationalDefenses.length < 2) failures.push(`operational defenses ${growth?.operationalDefenses.length || 0}/2`);
+    if (!growth || growth.deployedDropPods < 1) failures.push('no Drop Pod deployed');
+    if (!growth?.smartDropPods) failures.push('Drop Pod safety or four-unit deployment rule failed');
+    if (failures.length) throw new Error(`Space Marine growth audit failed: ${failures.join('; ')}. Snapshot: ${JSON.stringify(growth)}`);
   }
   if (frozen) throw new Error(`${playerCount}-player 1920x1080 simulation froze or became unresponsive: ${JSON.stringify(report)}`);
 } finally {

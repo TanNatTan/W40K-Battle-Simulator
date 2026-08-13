@@ -1,29 +1,45 @@
 const clamp = (value, minimum, maximum) => Math.max(minimum, Math.min(maximum, value));
 const distanceBetween = (a = {}, b = {}) => Math.hypot((Number(a.x) || 0) - (Number(b.x) || 0), (Number(a.y) || 0) - (Number(b.y) || 0));
 
-const TERRITORY_AGENT_PATTERN = /scout|infiltrator|incursor|eliminator|reiver|probe|servo.?skull|raptor|warp talon|kommando|deathmark|praetorian|pathfinder|stealth|gargoyle|ravener|dragoon|skystalker|ratling|sentinel/i;
+const TERRITORY_AGENT_PATTERN = /scout|infiltrator|incursor|reiver|probe|servo.?skull|raptor|warp talon|kommando|deathmark|praetorian|pathfinder|stealth|gargoyle|ravener|dragoon|skystalker|ratling|sentinel/i;
+const DEDICATED_CAPTURE_PATTERN = /skull probe|servo.?skull|scout marine/i;
 
 export function isTerritoryAgentCandidate(unit = {}) {
   if (!unit.alive || unit.incapacitated || unit.embarkedInId || unit.retreating) return false;
   if (["builder", "supply", "medic", "engineer", "commander"].includes(unit.role)) return false;
+  if (/eliminator/i.test(`${unit.name || ""} ${unit.type || ""}`)) return false;
   return unit.role === "scout" || TERRITORY_AGENT_PATTERN.test(`${unit.name || ""} ${unit.type || ""}`);
 }
 
 export function selectTerritoryAgents({ units = [], playerId, desired = 3, base = { x: 0, y: 0 }, existingIds = [] } = {}) {
   const retained = new Set(existingIds || []);
-  return units
+  const ranked = units
     .filter(unit => unit.faction === playerId && isTerritoryAgentCandidate(unit))
     .map(unit => ({
       unit,
       score: (retained.has(unit.id) ? 80 : 0)
+        + (DEDICATED_CAPTURE_PATTERN.test(`${unit.name || ""} ${unit.type || ""}`) ? 90 : 0)
         + (unit.role === "scout" ? 48 : 20)
         + (unit.squadId ? -18 : 12)
         + clamp((Number(unit.hp) || 0) / Math.max(1, Number(unit.maxHp) || 1), 0, 1) * 18
         - distanceBetween(unit, base) * 0.012
     }))
-    .sort((a, b) => b.score - a.score || String(a.unit.id).localeCompare(String(b.unit.id)))
-    .slice(0, clamp(Math.floor(desired), 0, 6))
-    .map(candidate => candidate.unit);
+    .sort((a, b) => b.score - a.score || String(a.unit.id).localeCompare(String(b.unit.id)));
+  const limit = clamp(Math.floor(desired), 0, 6);
+  const selected = ranked.slice(0, limit);
+  if (limit >= 2) {
+    const requireSpecialist = pattern => {
+      const label = candidate => `${candidate.unit.name || ""} ${candidate.unit.type || ""}`;
+      if (selected.some(candidate => pattern.test(label(candidate)))) return;
+      const specialist = ranked.find(candidate => pattern.test(label(candidate)));
+      if (!specialist) return;
+      const replaceAt = selected.findLastIndex(candidate => !/skull probe|servo.?skull|scout marine/i.test(label(candidate)));
+      selected[replaceAt >= 0 ? replaceAt : selected.length - 1] = specialist;
+    };
+    requireSpecialist(/scout marine/i);
+    requireSpecialist(/skull probe|servo.?skull/i);
+  }
+  return [...new Map(selected.map(candidate => [candidate.unit.id, candidate.unit])).values()].slice(0, limit);
 }
 
 export function territoryAgentContactResponse({ unit = {}, enemies = [], selfDefenseRadius = 30, disengageRadius = 125 } = {}) {

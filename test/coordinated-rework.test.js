@@ -69,7 +69,7 @@ test("the shared ledger prices every manifest member and spends atomically", () 
   const manifest = [{ name: "Sergeant", role: "commander" }, ...Array.from({ length: 4 }, () => ({ name: "Tactical Marine", role: "trooper" }))];
   const cost = costForManifest(marine, manifest, costCatalog);
   assert.ok(cost.requisition >= 126);
-  assert.equal(trainingDelayFor(marine, manifest), 33);
+  assert.equal(trainingDelayFor(marine, manifest), 10);
   const inventory = Object.fromEntries(Object.entries(cost).map(([resource, amount]) => [resource, amount]));
   assert.equal(canAffordCost(inventory, cost), true);
   assert.equal(spendCost(inventory, cost), true);

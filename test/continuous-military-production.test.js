@@ -23,6 +23,10 @@ test("training supplies go to the facility that can produce the locked unit", ()
   assert.equal(selectMilitaryProducer({ structures, faction: "a", producerTypes: ["workshop"] }).id, "forge");
   assert.equal(selectMilitaryProducer({ structures, faction: "a", producerTypes: ["fieldhospital"] }), null);
 
+  structures.push({ id: "fresh-barracks", faction: "a", type: "barracks", progress: 1, alive: true, condition: 1, nextTrainingAt: 0 });
+  structures[0].nextTrainingAt = 80;
+  assert.equal(selectMilitaryProducer({ structures, faction: "a", producerTypes: ["barracks"], now: 20 }).id, "fresh-barracks");
+
   const request = { type: "train", status: "Requested" };
   const locked = lockProductionManifest(request, [{ name: "Predator", role: "vehicle", producerTypes: ["workshop"] }]);
   assert.equal(locked[0].name, "Predator");
@@ -47,8 +51,20 @@ test("runtime keeps a locked military queue, excludes builders, and uses the rea
   const source = fs.readFileSync(new URL("../js/app.js", import.meta.url), "utf8");
   assert.match(source, /const unitCap = unitCapFor\(player\)/);
   assert.match(source, /productionManifest: manifest\.map/);
-  assert.match(source, /selectMilitaryProducer\(\{ structures: state\.structures, faction: player\.id, producerTypes \}\)/);
+  assert.match(source, /selectMilitaryProducer\(\{ structures: state\.structures, faction: player\.id, producerTypes, now: state\.time \}\)/);
   assert.match(source, /destinationId: producer\.id/);
+  assert.match(source, /const producerReadyAt = Number\(producer\?\.nextTrainingAt\) \|\| 0/);
+  assert.match(source, /producer\.nextTrainingAt = state\.time \+ /);
+  assert.doesNotMatch(source, /state\.time >= state\.nextTrain\[player\.id\]/);
+  assert.match(source, /const reservedTrainingRequest = economy\.queue\.find/);
+  assert.match(source, /reservedTrainingRequest \? 0 : 5/);
+  assert.match(source, /reservedTrainingCargo\[key\] \|\| 0/);
+  assert.match(source, /const remainingCapacity = Math\.max\(0, unitCap - \(living \+ guardBatchSize\)\)/);
+  assert.match(source, /const nextManifest = productionManifestFor\(player, remainingCapacity\)/);
+  assert.match(source, /const marineBattleSquad = player\.faction === "Space Marines"/);
+  assert.match(source, /restore ten-Marine squad integrity/);
+  assert.match(source, /const podRoles = \["commander", "trooper", "trooper", "medic"\]/);
+  assert.match(source, /pod\.deployedUnitCount = deployedUnits\.length/);
   assert.match(source, /unit\.alive && !unit\.incapacitated && unit\.faction === player\.id/);
   assert.doesNotMatch(source, /const unitCap = desiredFieldStrengthFor\(player\);/);
 });

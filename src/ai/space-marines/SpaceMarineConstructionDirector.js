@@ -59,10 +59,15 @@ export function selectSpaceMarineConstructionIntent({ player = {}, candidates = 
     .filter(candidate => Number.isFinite(candidate.strategicScore))
     .sort((a, b) => b.strategicScore - a.strategicScore || String(a.buildingType).localeCompare(String(b.buildingType)));
   if (!ranked.length) return null;
+  // The authored subfaction branch owns the next unique foundation. Live
+  // scoring still chooses duplicates, extractors, and defenses once that
+  // branch requirement is committed, but it may not starve the opening chain.
+  const authoredBranch = ranked.find(candidate => candidate.branchNext);
   const incumbent = currentIntent?.expiresAt > now
     ? ranked.find(candidate => candidate.buildingType === currentIntent.buildingType) : null;
-  const chosen = incumbent && (now < currentIntent.stickyUntil || incumbent.strategicScore + 18 >= ranked[0].strategicScore)
-    ? incumbent : ranked[0];
+  const chosen = authoredBranch || (incumbent
+    && (now < currentIntent.stickyUntil || incumbent.strategicScore + 18 >= ranked[0].strategicScore)
+    ? incumbent : ranked[0]);
   if (currentIntent?.buildingType === chosen.buildingType) return Object.freeze({
     ...currentIntent,
     priority: Math.round(chosen.marinePriority),

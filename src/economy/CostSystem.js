@@ -57,7 +57,10 @@ export function calculateCost(action = {}, catalog = globalThis.AWTData?.costs) 
 }
 
 export function trainingDelayFor(player, manifest = []) {
-  if (player?.faction === "Space Marines") return 24 + manifest.length * 1.8;
+  // A Chapter Barracks raises one complete squad at a time. Keep the atomic
+  // deployment, but let multiple barracks sustain chapter-scale growth within
+  // a normal observed battle instead of taking several real minutes per squad.
+  if (player?.faction === "Space Marines") return 8 + manifest.length * 0.4;
   if (player?.race === "Chaos") return 14 + manifest.length * 1.25;
   if (player?.race === "Imperium") return 10 + manifest.length * 0.85;
   return 10 + manifest.length * 0.9;

@@ -708,7 +708,7 @@ import {
           deployment: "Drop Pods, Thunderhawks, teleportation",
           buildings: { outpost: "Fortress Monastery", barracks: "Chapter Barracks", workshop: "Armoury", researchcenter: "Librarius", fieldhospital: "Apothecarion", generator: "Plasma Reactor", warehouse: "Supply Depot", refinery: "Manufactorum", dropbay: "Landing Pad", observationtower: "Listening Post", bunker: "Fortress Wall", turret: "Heavy Bolter Turret" },
           command: { squad: ["Sergeant"], field: ["Lieutenant"], company: ["Captain", "Chaplain", "Librarian"], exceptional: ["Chapter Master"] },
-          roster: { builder: ["Servitor"], supply: ["Chapter Supply Servitor", "Rhino Supply Carrier"], trooper: ["Tactical Marine", "Intercessor", "Assault Intercessor", "Hellblaster"], scout: ["Scout Marine", "Infiltrator", "Eliminator"], medic: ["Apothecary"], engineer: ["Techmarine"], commander: ["Sergeant", "Lieutenant", "Captain"], standard: ["Ancient", "Company Champion"], vehicle: ["Rhino", "Predator", "Dreadnought", "Land Raider"] }
+          roster: { builder: ["Servitor"], supply: ["Chapter Supply Servitor", "Rhino Supply Carrier"], trooper: ["Tactical Marine", "Intercessor", "Assault Intercessor", "Hellblaster"], scout: ["Scout Marine", "Skull Probe", "Infiltrator", "Eliminator"], medic: ["Apothecary"], engineer: ["Techmarine"], commander: ["Sergeant", "Lieutenant", "Captain"], standard: ["Ancient", "Company Champion"], vehicle: ["Rhino", "Predator", "Dreadnought", "Land Raider"] }
         },
         guard: {
           deployment: "Ground deployment, convoys, Valkyries",
@@ -3768,6 +3768,11 @@ import {
           player.scenarioTags = [];
           player.constructionCooldowns = {};
           player.territoryCaptureCount = 0;
+          player.buildingsLost = 0;
+          player.capturedTerritoryCellsLost = 0;
+          player.capturedTerritoryCellKeys = new Set();
+          player.lostCapturedTerritoryCellKeys = new Set();
+          player.territoryAgentHistory = [];
           player.territoryDevelopmentOrders = [];
           player.territoryDevelopmentHistory = [];
           player.spaceMarineStrategy = null;
@@ -4185,10 +4190,11 @@ import {
         return player.strategicDirector;
       }
 
-      function chooseBuilding(faction) {
+      function chooseBuilding(faction, excludedTypes = new Set()) {
         const player = playerFor(faction);
         const economy = economyFor(faction);
-        const approved = economy.approvedBuilds.find(type => buildingCatalog[type] && !state.structures.some(item => item.faction === faction && item.type === type && item.alive !== false));
+        const approved = economy.approvedBuilds.find(type => !excludedTypes.has(type) && buildingCatalog[type]
+          && !state.structures.some(item => item.faction === faction && item.type === type && item.alive !== false));
         if (approved) {
           economy.approvedBuilds.splice(economy.approvedBuilds.indexOf(approved), 1);
           return approved;
@@ -4196,7 +4202,11 @@ import {
         const complete = type => state.structures.filter(item => item.faction === faction && item.type === type && item.progress >= 1 && item.alive !== false).length;
         const committed = type => state.structures.filter(item => item.faction === faction && item.type === type && item.alive !== false
           && item.construction?.state !== "cancelled").length;
-        if (!complete("outpost")) return "outpost";
+        if (!complete("outpost")) return excludedTypes.has("outpost") ? null : "outpost";
+        const matureMarineTerritory = player.faction === "Space Marines"
+          && ((primaryTerritoryFor(faction)?.claimedCells?.size || 0) >= 5 || (player.territoryCaptureCount || 0) >= 5);
+        if (matureMarineTerritory && !committed("bunker") && !excludedTypes.has("bunker")) return "bunker";
+        if (matureMarineTerritory && !committed("turret") && !excludedTypes.has("turret")) return "turret";
         const productionDoctrine = subfactionProductionPlanFor(player);
         const constructionBranch = productionDoctrine ? planConstructionRoles(productionDoctrine).map(buildingTypeForOperationalRole).filter(type => buildingCatalog[type]) : [];
         const demand = productionDemandFor(player);
@@ -4295,6 +4305,7 @@ import {
         const diversityPressure = diversityEligibleTypes.some(type => (diversityCounts[type] || 0) >= 3)
           && diversityEligibleTypes.some(type => (diversityCounts[type] || 0) === 0);
         let scored = Object.keys(buildingCatalog)
+          .filter(type => !excludedTypes.has(type))
           .filter(type => type !== "outpost" && (type !== "signature" || complete("signature") < 1))
           .filter(type => {
             const role = operationalRoleForBuildingType(type);
@@ -4342,7 +4353,8 @@ import {
               prerequisitesSatisfied: dependencyReady,
               dependenciesCanEverBeSatisfied: !spec.requires || Object.hasOwn(buildingCatalog, spec.requires),
               affordableNow: canAffordCost(economy.inventory, buildCost),
-              intendedOutputs: Object.keys(production?.outputs || spec.produces || {})
+              intendedOutputs: Object.keys(production?.outputs || spec.produces || {}),
+              branchNext: type === nextBranchType
             };
           })
           .sort((a, b) => b.utility - a.utility);
@@ -4638,21 +4650,26 @@ import {
         // projects remain fully parallel; staggering only removes site-search and
         // navigation-cache spikes when several mature factions expand together.
         const availableAtStart = Math.min(1, snapshot.available);
+        const attemptedTypes = new Set();
         while (approved < availableAtStart) {
           const developmentOrder = pendingTerritoryDevelopmentOrder(player, state.structures);
-          const type = developmentOrder?.buildingType || chooseBuilding(player.id);
-          if (!type) break;
-          let project = approveConstructionProject(player, type, {
-            preferredCellKey: developmentOrder?.cellKey || null,
-            developmentOrderId: developmentOrder?.id || null,
-            developmentPriority: developmentOrder?.priority || null
-          });
+          let project = null;
+          for (let attempt = 0; attempt < 5 && !project; attempt += 1) {
+            const type = attempt === 0 && developmentOrder?.buildingType && !attemptedTypes.has(developmentOrder.buildingType)
+              ? developmentOrder.buildingType : chooseBuilding(player.id, attemptedTypes);
+            if (!type) break;
+            attemptedTypes.add(type);
+            project = approveConstructionProject(player, type, attempt === 0 && developmentOrder ? {
+              preferredCellKey: developmentOrder.cellKey || null,
+              developmentOrderId: developmentOrder.id || null,
+              developmentPriority: developmentOrder.priority || null
+            } : {});
+            if (!project && player.constructionIntent?.buildingType === type) player.constructionIntent = null;
+          }
           if (!project && developmentOrder) {
             developmentOrder.attempts = (developmentOrder.attempts || 0) + 1;
             developmentOrder.lastAttemptAt = state.time;
             developmentOrder.status = "waiting";
-            const fallbackType = chooseBuilding(player.id);
-            if (fallbackType && fallbackType !== type) project = approveConstructionProject(player, fallbackType);
           }
           if (!project) break;
           if (developmentOrder && project.territoryDevelopmentOrderId === developmentOrder.id) {
@@ -7453,6 +7470,8 @@ import {
       function destroyStructure(structure, attacker = null) {
         ensureStructureRuntime(structure);
         if (structure.alive === false) return;
+        const structureOwner = playerFor(structure.faction);
+        structureOwner.buildingsLost = (structureOwner.buildingsLost || 0) + 1;
         structure.hp = 0;
         structure.condition = 0.04;
         structure.alive = false;
@@ -8185,8 +8204,13 @@ import {
             const memory = state.factionLearning[player.id];
             if (profile && memory) storageAdapter.save(`ai-memory:${profile.id}`, memory.toJSON());
           }
-          const socialMemory = serializeRelationshipMemory(state.units, state.battleSeed);
-          storageAdapter.save(`relationship-memory:${state.battleSeed}`, socialMemory);
+          // Relationship history is the largest persistence payload in a mature
+          // battle. Save it at decisive events; rebuilding it every two minutes
+          // caused a visible main-thread stall during large growth tests.
+          if (reason !== "interval") {
+            const socialMemory = serializeRelationshipMemory(state.units, state.battleSeed);
+            storageAdapter.save(`relationship-memory:${state.battleSeed}`, socialMemory);
+          }
           const snapshot = {
             id: `${state.battleSeed}:${reason}:${Math.floor(state.time)}`,
             battleId: state.battleSeed,
@@ -10038,6 +10062,22 @@ import {
       function productionManifestFor(player, availableSlots) {
         const roster = factionProfile(player).roster;
         const ownUnits = state.units.filter(unit => unit.alive && !unit.incapacitated && unit.faction === player.id);
+        if (player.faction === "Space Marines") {
+          const lineSquads = state.squads.filter(squad => squad.faction === player.id && squad.nominalSize === 10
+            && squad.templateId === "group-imperium");
+          const replacementTarget = lineSquads.length >= 10
+            ? lineSquads.map(squad => ({ squad, living: squadMembers(squad.id).filter(unit => !unit.incapacitated).length }))
+              .filter(entry => entry.living < 10).sort((left, right) => left.living - right.living)[0]
+            : null;
+          if (replacementTarget && availableSlots > 0) {
+            const count = Math.min(10 - replacementTarget.living, Math.floor(availableSlots));
+            const name = roster.trooper[(player.productionSequence || 0) % roster.trooper.length] || "Tactical Marine";
+            player.lastProductionDirective = { name, role: "trooper", producerTypes: ["barracks"], score: 999,
+              scoreBreakdown: { replacement: count }, productionStyle: "restore ten-Marine squad integrity", sequence: player.productionSequence || 0 };
+            return Array.from({ length: count }, () => ({ name, role: "trooper", producerTypes: ["barracks"],
+              productionBranchId: "Astartes squad replacement", targetSquadId: replacementTarget.squad.id }));
+          }
+        }
         const availableProducerTypes = [...new Set(state.structures.filter(structure => structure.faction === player.id
           && structure.alive !== false && structure.progress >= 1 && structure.condition >= 0.35).map(structure => structure.type))];
         const directive = chooseMilitaryProduction({
@@ -10053,13 +10093,16 @@ import {
           player.pendingChaosManifestSequence = player.productionSequence || 0;
           player.pendingChaosManifestSize = 3 + Math.floor(battleRandom() * 4);
         }
-        const groupSize = directive.role === "trooper"
+        const marineBattleSquad = player.faction === "Space Marines" && (directive.role === "trooper"
+          || directive.role === "scout" && !/skull probe|servo.?skull/i.test(directive.name));
+        const groupSize = marineBattleSquad ? 10 : directive.role === "trooper"
           ? player.race === "Chaos" ? player.pendingChaosManifestSize
             : player.race === "Orks" || player.race === "Tyranids" ? 10
             : player.race === "Necrons" || player.race === "T'au" ? 8
-              : player.faction === "Space Marines" ? 5 : 6
+              : player.faction === "Space Marines" ? 10 : 6
           : directive.role === "scout"
-            ? player.race === "Orks" || player.race === "Tyranids" || player.race === "Necrons" || player.race === "T'au" ? 5 : 3
+            ? player.faction === "Space Marines" && /skull probe|servo.?skull/i.test(directive.name) ? 2
+              : player.race === "Orks" || player.race === "Tyranids" || player.race === "Necrons" || player.race === "T'au" ? 5 : 3
             : 1;
         const memberCount = Math.max(1, Math.min(groupSize, Math.floor(availableSlots)));
         let manifest = Array.from({ length: memberCount }, () => ({
@@ -10125,14 +10168,24 @@ import {
         });
         const leader = units.find(unit => unit.role === "commander") || units[0];
         const template = player.faction === "Space Marines" ? "Astartes combat squad" : player.race === "Chaos" ? "Chaos warband" : player.race === "Orks" ? "Ork mob" : player.race === "Tyranids" ? "Tyranid brood" : player.race === "Necrons" ? "Necron phalanx" : player.race === "T'au" ? "Fire Warrior team" : "formation";
-        const squad = createSquad(player.id, leader, { name: `${template} ${state.nextSquadId}`, templateId: `group-${player.race.toLowerCase()}`, nominalSize: units.length, formation: player.race === "Orks" ? "circle" : player.race === "Tyranids" ? "wedge" : "line", reinforcementState: "Full strength" });
+        const reinforcementSquadId = manifest.every(member => member.targetSquadId && member.targetSquadId === manifest[0].targetSquadId)
+          ? manifest[0].targetSquadId : null;
+        const squad = reinforcementSquadId ? squadFor(reinforcementSquadId)
+          : createSquad(player.id, leader, { name: `${template} ${state.nextSquadId}`, templateId: `group-${player.race.toLowerCase()}`, nominalSize: units.length, formation: player.race === "Orks" ? "circle" : player.race === "Tyranids" ? "wedge" : "line", reinforcementState: "Full strength" });
+        if (!squad) return [];
         for (const unit of units) unit.squadId = squad.id;
         state.units.push(...units);
+        if (reinforcementSquadId) {
+          if (!unitById(squad.leaderId)?.alive) squad.leaderId = leader.id;
+          squad.reinforcementState = "Replacement detachment arrived";
+        }
         seedSquadRelationships(units, leader);
         player.productionSequence = (player.productionSequence || 0) + 1;
         player.pendingChaosManifestSequence = null;
         player.pendingChaosManifestSize = null;
-        incident(`${player.faction} deployed ${template} atomically with ${units.length} members.`, leader.id, "info");
+        incident(reinforcementSquadId
+          ? `${player.faction} restored ${squad.name} with a ${units.length}-Marine replacement detachment.`
+          : `${player.faction} deployed ${template} atomically with ${units.length} members.`, leader.id, "info");
         rebuildUnitSelect();
         return units;
       }
@@ -10307,9 +10360,14 @@ import {
           request.status = "Approved · launch materials in transit";
           return false;
         }
+        const landing = bestDropPodLandingZone(player);
+        const minimumLandingScore = player.forceState?.allIn ? 18 : 34;
+        if (landing.score < minimumLandingScore || landing.antiAir > 2.5) {
+          request.status = `Delayed · landing zone rejected (${Math.round(landing.score)} score, ${landing.antiAir || 0} anti-air risk)`;
+          return false;
+        }
         Object.entries(costs).forEach(([key, value]) => { bay.inventory[key] -= value; });
         economy.availablePods -= 1;
-        const landing = bestDropPodLandingZone(player);
         const destination = landing.point;
         state.dropPods.push({
           id: `drop-pod-${state.nextDropPodId++}`,
@@ -10320,6 +10378,7 @@ import {
           stageEndsAt: state.time + 4,
           destination: { x: destination.x, y: destination.y },
           landingScore: Math.round(landing.score),
+          minimumLandingScore,
           landingOwnership: landing.ownership,
           landingThreats: landing.enemyCount || 0,
           antiAirRisk: landing.antiAir || 0,
@@ -10390,7 +10449,7 @@ import {
             const manifest = isImperialGuard(player) ? [] : lockProductionManifest(request, productionManifestFor(player, Infinity));
             const producerTypes = isImperialGuard(player) ? ["barracks"] : request.producerTypes?.length
               ? request.producerTypes : manifest[0]?.producerTypes || ["barracks"];
-            const producer = selectMilitaryProducer({ structures: state.structures, faction: player.id, producerTypes });
+            const producer = selectMilitaryProducer({ structures: state.structures, faction: player.id, producerTypes, now: state.time });
             const trainingCargo = isImperialGuard(player)
               ? guardTrainingCost(request.guardTemplateKey || "standard", request.memberCount)
               : costForManifest(player, manifest);
@@ -10424,6 +10483,11 @@ import {
         const activeResourceSet = new Set(economy.activeResources);
         const productionDefinition = productionDefinitionForStructure(player, structure);
         if (productionDefinition) structure.productionDefinitionId = productionDefinition.id;
+        const reservedTrainingRequest = economy.queue.find(request => request.type === "train"
+          && request.producerId === structure.id
+          && !["Delivered", "Denied", "Complete"].includes(request.status));
+        const reservedTrainingCargo = reservedTrainingRequest?.productionManifest?.length
+          ? costForManifest(player, reservedTrainingRequest.productionManifest) : {};
         delete structure.resourceNodeId;
         delete structure.depositStatus;
         const consumes = Object.fromEntries(Object.entries(productionDefinition?.inputs || spec.consumes || {}).filter(([resource]) => activeResourceSet.has(resource)));
@@ -10442,7 +10506,9 @@ import {
           }
         }
         const demand = Object.fromEntries(economy.activeResources.map(resource => [resource, clamp(resourceNeedScore(player, resource) / 180, 0.2, 1)]));
-        const production = updateProductionBuilding(structure, productionDefinition, state.supplyNetwork.connectionFor(structure), 5, {
+        // Do not let the facility's ordinary resource recipe consume or export
+        // cargo already assigned to a physical unit/vehicle training order.
+        const production = updateProductionBuilding(structure, productionDefinition, state.supplyNetwork.connectionFor(structure), reservedTrainingRequest ? 0 : 5, {
           activeResources: economy.activeResources,
           factionMultiplier: landmarkModifierFor(player.id, "productionRateMultiplier"),
           demand
@@ -10469,7 +10535,7 @@ import {
         delete structure.resourceNodeId;
         delete structure.depositStatus;
         for (const key of Object.keys(productionDefinition?.outputs || {}).filter(key => activeResourceSet.has(key))) {
-          const amount = structure.inventory[key] || 0;
+          const amount = Math.max(0, (structure.inventory[key] || 0) - (reservedTrainingCargo[key] || 0));
           if (amount >= 4) output[key] = amount;
         }
         const assignedCarrier = state.units.find(unit => unit.alive && unit.faction === player.id && unit.role === "supply" && unit.logisticsState?.sourceId === structure.id);
@@ -10876,11 +10942,15 @@ import {
             : lockProductionManifest(trainingRequest, productionManifestFor(player, unitCap - living));
           if (!guardTraining) guardBatchSize = guardPlayer ? 0 : groupManifest.length;
           const producerTypes = guardPlayer ? ["barracks"] : groupManifest[0]?.producerTypes || ["barracks"];
-          const producer = selectMilitaryProducer({ structures: state.structures, faction: player.id, producerTypes });
+          const producer = selectMilitaryProducer({ structures: state.structures, faction: player.id, producerTypes, now: state.time });
           const trainCost = guardTraining ? guardTrainingCost(guardTraining.templateKey, guardBatchSize) : costForManifest(player, groupManifest);
           const canTrain = producer && Object.entries(trainCost).every(([key, value]) => (producer.inventory[key] || 0) >= value);
           const batchFits = living + guardBatchSize <= unitCap;
-          if (producer && living < unitCap && canTrain && batchFits && (!guardPlayer || guardTraining) && state.time >= state.nextTrain[player.id]) {
+          // Production cooldown belongs to the physical facility. A Chapter
+          // Barracks training infantry must not lock a newly supplied Armoury
+          // out of vehicle production for the remainder of that global timer.
+          const producerReadyAt = Number(producer?.nextTrainingAt) || 0;
+          if (producer && living < unitCap && canTrain && batchFits && (!guardPlayer || guardTraining) && state.time >= producerReadyAt) {
             let trainingSucceeded = false;
             if (guardTraining) {
               const spawned = spawnGuardSquad(player, producer, guardTraining.templateKey, guardTraining.targetSquadId, guardBatchSize);
@@ -10890,8 +10960,17 @@ import {
             if (trainingSucceeded) {
               spendCost(producer.inventory, trainCost);
               const hasSupply = insideSupplyRadius(producer, player.id);
-              state.nextTrain[player.id] = state.time + (guardTraining ? 18 + guardBatchSize * 1.2 : trainingDelayFor(player, groupManifest)) + (hasSupply ? 0 : 6);
+              producer.nextTrainingAt = state.time + (guardTraining ? 18 + guardBatchSize * 1.2 : trainingDelayFor(player, groupManifest)) + (hasSupply ? 0 : 6);
+              state.nextTrain[player.id] = producer.nextTrainingAt;
               if (trainingRequest) trainingRequest.status = "Complete";
+              const remainingCapacity = Math.max(0, unitCap - (living + guardBatchSize));
+              if (!guardPlayer && remainingCapacity > 0) {
+                const nextManifest = productionManifestFor(player, remainingCapacity);
+                if (nextManifest.length) addEconomyRequest(player.id, "train-line", "train", `Produce ${nextManifest[0].name}`, 84, {
+                  productionManifest: nextManifest.map(member => ({ ...member, producerTypes: [...(member.producerTypes || [])] })),
+                  producerTypes: [...(nextManifest[0].producerTypes || ["barracks"])]
+                });
+              }
             }
           } else if (trainingRequest && guardTraining && !batchFits) {
             trainingRequest.status = `Delayed · full ${guardBatchSize}-member detachment exceeds population cap`;
@@ -11121,14 +11200,16 @@ import {
           if (pod.stage === "Impact") { pod.x = pod.destination.x; pod.y = pod.destination.y; }
           if (pod.stage === "Deployed") {
             pod.deployed = true;
-            for (const [index, role] of ["commander", "trooper", "medic"].entries()) {
+            const deployedUnits = [];
+            const podRoles = ["commander", "trooper", "trooper", "medic"];
+            for (const [index, role] of podRoles.entries()) {
               const unit = makeUnit(pod.faction, role, {
                 method: "drop-pod",
                 sourceId: pod.id,
                 sourceType: "drop-pod",
                 label: "Orbital drop pod"
               });
-              const angle = index * Math.PI * 2 / 3;
+              const angle = index * Math.PI * 2 / podRoles.length;
               let landingPoint = { x: pod.destination.x + Math.cos(angle) * 14, y: pod.destination.y + Math.sin(angle) * 14 };
               for (let attempt = 0; attempt < 10; attempt += 1) {
                 const candidate = { x: clamp(pod.destination.x + Math.cos(angle + attempt * 0.63) * (14 + attempt * 3), 24, worldWidth() - 24), y: clamp(pod.destination.y + Math.sin(angle + attempt * 0.63) * (14 + attempt * 3), 24, worldHeight() - 24) };
@@ -11137,10 +11218,22 @@ import {
               unit.x = landingPoint.x;
               unit.y = landingPoint.y;
               state.units.push(unit);
+              deployedUnits.push(unit);
             }
+            const leader = deployedUnits[0];
+            const squad = createSquad(pod.faction, leader, {
+              name: `Drop Pod squad ${state.nextSquadId}`,
+              templateId: "drop-pod-four",
+              nominalSize: 4,
+              formation: "defensive-ring",
+              reinforcementState: "Full strength"
+            });
+            for (const unit of deployedUnits) unit.squadId = squad.id;
+            pod.deployedUnitIds = deployedUnits.map(unit => unit.id);
+            pod.deployedUnitCount = deployedUnits.length;
             const request = economyFor(pod.faction).queue.find(item => item.id === pod.requestId);
             if (request) request.status = "Delivered";
-            incident(`${playerFor(pod.faction).faction} drop pod impacted; three Marines deployed.`, null, "info");
+            incident(`${playerFor(pod.faction).faction} drop pod impacted; four Marines deployed.`, null, "info");
             rebuildUnitSelect();
           }
         }
@@ -11250,6 +11343,12 @@ import {
         if (previous?.owner === faction) return false;
         if (previous && operationalBuildingAnchorsTerritoryCell(key, previous.owner)) return false;
         if (previous) {
+          const previousPlayer = playerFor(previous.owner);
+          previousPlayer.lostCapturedTerritoryCellKeys ||= new Set();
+          if (previousPlayer.capturedTerritoryCellKeys?.has(key) && !previousPlayer.lostCapturedTerritoryCellKeys.has(key)) {
+            previousPlayer.lostCapturedTerritoryCellKeys.add(key);
+            previousPlayer.capturedTerritoryCellsLost = (previousPlayer.capturedTerritoryCellsLost || 0) + 1;
+          }
           previous.claimedCells.delete(key);
           previous.controlledCells.delete(key);
           previous.influencedCells.delete(key);
@@ -11263,6 +11362,8 @@ import {
         target.claimedAt = state.time;
         target.reason = reason;
         const player = playerFor(faction);
+        player.capturedTerritoryCellKeys ||= new Set();
+        player.capturedTerritoryCellKeys.add(key);
         const developmentDecision = territoryDevelopmentDecisionFor(player, key);
         const development = recordTerritoryDevelopment(player, key, state.time, developmentDecision);
         incident(development.order
@@ -11486,6 +11587,10 @@ import {
           unit.cachedObjective = null;
           unit.objectiveCooldown = 0;
           unit.combatPolicy = "avoid-except-self-defense";
+          player.territoryAgentHistory ||= [];
+          if (!player.territoryAgentHistory.some(entry => entry.unitId === unit.id && entry.cellKey === mission.cellKey)) {
+            player.territoryAgentHistory.push({ unitId: unit.id, unitName: unit.specialty || unit.name, cellKey: mission.cellKey, assignedAt: state.time });
+          }
           missions.push(mission);
         }
         player.territoryAgentMissions = missions;

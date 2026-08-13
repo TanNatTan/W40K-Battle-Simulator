@@ -51,6 +51,20 @@ test("Marine construction creates sticky command intents with operational priori
   assert.ok(sticky.stickyUntil - sticky.createdAt >= 24);
 });
 
+test("the next authored Marine branch building cannot be starved by a higher transient score", () => {
+  const strategy = evaluateSpaceMarineAI({ player: marine, operationalPhase: "shape", context: { resourceHealth: 0.8, armyCondition: 0.9 } });
+  const intent = selectSpaceMarineConstructionIntent({
+    player: marine,
+    strategy,
+    now: 5,
+    candidates: [
+      { buildingType: "generator", operationalRole: "Power", utility: 55, liveNeed: 30, prerequisitesSatisfied: true, branchNext: true },
+      { buildingType: "barracks", operationalRole: "Muster", utility: 220, liveNeed: 95, prerequisitesSatisfied: true }
+    ]
+  });
+  assert.equal(intent.buildingType, "generator");
+});
+
 test("captured Marine territory can become defensive, production, resource, or empty", () => {
   const decide = (subfaction, context) => evaluateSpaceMarineTerritoryDevelopment({ player: { ...marine, subfaction }, context });
   assert.equal(decide("Imperial Fists", { enemyThreat: 1, frontierExposure: 1, objectiveValue: 0.8, chokePointValue: 1, supplyConnectivity: 1 }).category, "defensive");
