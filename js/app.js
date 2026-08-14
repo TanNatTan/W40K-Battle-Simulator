@@ -252,6 +252,12 @@ import {
   updateFactionPressure,
   withdrawalDecisionFor
 } from "../src/ai/FactionBreakPolicy.js";
+import {
+  hasRecentEnemyContact,
+  markEnemyContact,
+  squadHasRecentEnemyContact,
+  withdrawalOrderAppliesTo
+} from "../src/ai/WithdrawalContactSystem.js";
 import { assessEnemyCondition, scoreTargetCandidate, selectTarget } from "../src/ai/TargetSelectionSystem.js";
 import { estimatedFriendlyDamageAssigned, finishOpportunityFor } from "../src/ai/TargetAssessmentSystem.js";
 import { resolveFactionObjectiveDoctrine } from "../src/ai/FactionObjectiveDoctrine.js";
@@ -5055,6 +5061,7 @@ import {
         unit.builderDecisionCd = (unit.builderDecisionCd || 0) - dt;
         const builderWithdrawal = withdrawalDecisionFor(unit, playerFor(unit.faction), {
           hasRangedWeapon: false,
+          inEnemyContact: hasRecentEnemyContact(unit, state.time),
           safeWithdrawalAvailable: true,
           criticalObjective: Boolean(unit.buildProject)
         });
@@ -6317,11 +6324,14 @@ import {
       }
 
       function orderSquadToRegroup(squad, members, reason) {
+        const combatWithdrawal = squadHasRecentEnemyContact(squad, members, state.time);
         squad.orderType = "Regroup";
+        squad.regroupMode = combatWithdrawal ? "withdrawal" : "reposition";
+        squad.withdrawalContactAt = combatWithdrawal ? state.time : null;
         squad.roadId = null;
         squad.routeSegmentId = null;
         squad.routeAnchor = null;
-        squad.routePhase = "withdrawing";
+        squad.routePhase = combatWithdrawal ? "withdrawing under contact" : "repositioning";
         squad.protectedAssetId = null;
         squad.targetId = null;
         squad.regroupSerial = (squad.regroupSerial || 0) + 1;
@@ -6355,6 +6365,17 @@ import {
         const localUnits = nearbyCombatObjects(anchor, 92).units.filter(unit => unit.alive);
         const friendlies = localUnits.filter(unit => areAllies(unit.faction, squad.faction));
         const hostiles = localUnits.filter(unit => !areAllies(unit.faction, squad.faction));
+        if (hostiles.length) {
+          const closestHostile = [...hostiles].sort((left, right) => distance(center, left) - distance(center, right))[0];
+          squad.combatContact = refreshSquadCombatContact(squad.combatContact, closestHostile, state.time, {
+            confidence: 1,
+            reason: "route position under direct contact"
+          });
+          for (const member of members) {
+            const personalThreat = hostiles.find(hostile => distance(member, hostile) <= Math.max(120, (member.range || 0) * 1.35));
+            if (personalThreat) markEnemyContact(member, personalThreat, state.time);
+          }
+        }
         const friendlyPower = friendlies.reduce((sum, unit) => sum + combatPowerScore(unit), 0)
           + (segment.checkpoint && areAllies(segment.checkpoint.faction, squad.faction) ? 0.8 * segment.checkpoint.integrity : 0);
         const hostilePower = hostiles.reduce((sum, unit) => sum + combatPowerScore(unit), 0)
@@ -6523,10 +6544,13 @@ import {
             }
             addUnitLog(senior, `Took formal command of ${squad.name} after joining the formation.`);
           }
-          const retreatRatio = members.filter(member => member.retreating || member.hp < member.maxHp * 0.34).length / members.length;
+          const squadInEnemyContact = squadHasRecentEnemyContact(squad, members, state.time);
+          const retreatRatio = members.filter(member => member.retreating
+            || hasRecentEnemyContact(member, state.time) && member.hp < member.maxHp * 0.34).length / members.length;
           const squadBreakPolicy = breakPolicyFor(playerFor(squad.faction));
           const averageCombatStress = members.reduce((sum, member) => sum + (member.combatStress || 0), 0) / members.length;
-          if (squad.orderType !== "Regroup" && (retreatRatio >= 0.45 || squadBreakPolicy.usesMoraleRout && averageCombatStress >= 75)) {
+          if (squad.orderType !== "Regroup" && squadInEnemyContact
+            && (retreatRatio >= 0.45 || squadBreakPolicy.usesMoraleRout && averageCombatStress >= 75)) {
             orderSquadToRegroup(squad, members, `Ordered ${squad.name} to regroup after casualties or faction-specific break pressure crossed the combat threshold.`);
           }
           const protectedAsset = squadAssetById(squad.protectedAssetId);
@@ -7750,6 +7774,7 @@ import {
         }
 
         const intendedHit = battleRandom() < chance;
+        markEnemyContact(unit, target, state.time);
         const visual = projectileVisualForWeapon(weapon);
         const projectileRuntime = compactProjectileRuntime(weapon);
         const intercept = predictedInterceptPoint(unit, target, weapon.projectileSpeed);
@@ -7978,6 +8003,10 @@ import {
           : !armoredTarget && projectileHasFlag(projectile, "antiInfantry") ? 1.12 : 1;
         const impactPenetration = projectile.penetration * (projectileHasFlag(projectile, "piercing") ? 1.18 : 1);
         const shooter = unitById(projectile.shooterId);
+        if (shooter && target && !areAllies(shooter.faction, target.faction)) {
+          markEnemyContact(shooter, target, state.time);
+          if (!buildingCatalog[target.type]) markEnemyContact(target, shooter, state.time);
+        }
         if (shooter && target.role && shooter.id !== target.id && areAllies(shooter.faction, target.faction)) {
           recordRelationshipEvent(target, shooter, "friendlyFire", "was struck by friendly fire", { cooldown: 60, reciprocal: 0 });
         }
@@ -8108,6 +8137,7 @@ import {
           const casualtyWithdrawal = withdrawalDecisionFor(target, playerFor(target.faction), {
             hasRangedWeapon: weaponProfileFor(target).magazineSize > 0,
             hasReserveAmmo: (target.weaponState?.reserveAmmo || 0) > 0,
+            inEnemyContact: true,
             safeWithdrawalAvailable: true,
             criticalObjective: false
           });
@@ -9263,7 +9293,11 @@ import {
           ecology.sporeSaturation = clamp(ecology.sporeSaturation + (unit.role === "commander" ? 12 : unit.role === "builder" ? 2 : 5), 0, 100);
           addIndexedFeature({ type: "biomassremains", orkSpores: true, orkLoot: true, recoverableEquipment: true, x: unit.x, y: unit.y, r: unit.role === "commander" ? 15 : 9, shape: "circle", opacity: 0.72, condition: 1, age: 0, visual: "vegetation" });
           for (const other of nearbyCombatObjects(unit, 95).units.filter(other => other.alive && other.faction === unit.faction)) {
-            if (other.role === "builder") { other.retreating = true; other.morale = clamp(other.morale - 0.3, 0, 1); }
+            if (other.role === "builder") {
+              if (killer?.alive && !areAllies(killer.faction, other.faction)) markEnemyContact(other, killer, state.time);
+              if (hasRecentEnemyContact(other, state.time)) other.retreating = true;
+              other.morale = clamp(other.morale - 0.3, 0, 1);
+            }
             else { other.morale = clamp(other.morale + 0.12, 0, 1); other.aggression = clamp(other.aggression + 0.08, 0, 1); }
           }
           if (ecology.warbossId === unit.id || unit.orkRank === "Warboss") {
@@ -9384,6 +9418,8 @@ import {
         const rawDamage = strike.damage * scale * (attacker.waaaghMeleeMultiplier || 1)
           * ((target.psychicBarrierUntil || 0) > state.time ? 0.75 : target.shieldWallActive ? 0.78 : 1);
         const damage = absorbSpaceMarineDamage(target, rawDamage, state.time, { frontal: false }).damage;
+        markEnemyContact(attacker, target, state.time);
+        if (!buildingCatalog[target.type]) markEnemyContact(target, attacker, state.time);
         target.hp -= damage;
         if (buildingCatalog[target.type]) {
           target.condition = clamp(target.hp / target.maxHp, 0.04, 1);
@@ -9495,6 +9531,7 @@ import {
           .slice(0, state.performancePreset.id === "total" ? 6 : state.performancePreset.id === "major" ? 8 : 16);
         const hostiles = hostileCandidates.filter(candidate => canDetectTarget(unit, candidate.unit));
         for (const candidate of hostiles) publishFactionContact(unit, candidate.unit);
+        if (hostiles[0]) markEnemyContact(unit, hostiles[0].unit, state.time);
         if (hostiles.length && distance(unit, baseFor(unit.faction)) <= Math.max(150, spawnZoneFor(playerFor(unit.faction)).size * 1.4)) {
           assignVoxResponders(state.tacticalVox.publish({
             factionId: unit.faction,
@@ -9906,10 +9943,13 @@ import {
         if (updateSpaceMarineSpecialist(unit, dt, assignedSquad)) return;
         const combatWeapon = weaponProfileFor(unit);
         const playerBreakPolicy = breakPolicyFor(playerFor(unit.faction));
+        const withdrawalContact = withdrawalOrderAppliesTo(unit, assignedSquad, state.time);
         let retreatReason = withdrawalDecisionFor(unit, playerFor(unit.faction), {
           hasRangedWeapon: combatWeapon.magazineSize > 0,
           hasReserveAmmo: (unit.weaponState?.reserveAmmo || 0) > 0,
-          commandWithdrawal: assignedSquad?.orderType === "Regroup",
+          inEnemyContact: withdrawalContact,
+          commandWithdrawal: assignedSquad?.orderType === "Regroup"
+            && assignedSquad.regroupMode === "withdrawal" && withdrawalContact,
           safeWithdrawalAvailable: true,
           criticalObjective: ["Defend Base", "Defend Territory", "Hold Route"].includes(assignedSquad?.orderType)
         });
@@ -9948,6 +9988,7 @@ import {
             retreatReason = withdrawalDecisionFor(unit, playerFor(unit.faction), {
               hasRangedWeapon: combatWeapon.magazineSize > 0,
               hasReserveAmmo: (unit.weaponState?.reserveAmmo || 0) > 0,
+              inEnemyContact: withdrawalContact,
               safeWithdrawalAvailable: true
             });
           }

@@ -17,6 +17,13 @@ import {
   evaluateCombatResponse,
   refreshSquadCombatContact
 } from "../src/ai/CombatResponseSystem.js";
+import {
+  WITHDRAWAL_CONTACT_GRACE_SECONDS,
+  hasRecentEnemyContact,
+  markEnemyContact,
+  squadHasRecentEnemyContact,
+  withdrawalOrderAppliesTo
+} from "../src/ai/WithdrawalContactSystem.js";
 
 const marinePlayer = { race: "Imperium", faction: "Space Marines" };
 const guardPlayer = { race: "Imperium", faction: "Imperial Guard" };
@@ -31,7 +38,25 @@ test("only Imperial Guard uses fear-driven combat stress and rout", () => {
   const marine = { hp: 100, maxHp: 100, morale: 0.01, ammo: 8 };
   assert.equal(withdrawalDecisionFor(marine, marinePlayer, { hasRangedWeapon: true }), null);
   const guard = { hp: 100, maxHp: 100, combatStress: 94, breakThreshold: 82, ammo: 8 };
-  assert.equal(withdrawalDecisionFor(guard, guardPlayer, { hasRangedWeapon: true }), "ROUT");
+  assert.equal(withdrawalDecisionFor(guard, guardPlayer, { hasRangedWeapon: true, inEnemyContact: true }), "ROUT");
+});
+
+test("withdrawal orders apply only to units participating in current enemy contact", () => {
+  const enemy = { id: "enemy", x: 100, y: 0 };
+  const engaged = markEnemyContact({ id: "engaged", x: 40, y: 0, range: 90, hp: 16, maxHp: 100, ammo: 8 }, enemy, 20);
+  const moving = { id: "moving", x: 500, y: 0, range: 90, hp: 16, maxHp: 100, ammo: 8, status: "Moving" };
+  const atBase = { id: "base", x: 600, y: 0, range: 90, hp: 16, maxHp: 100, ammo: 8, status: "Holding at base" };
+  const squad = { combatContact: { targetId: enemy.id, lastSeenAt: 20, lastKnownX: 100, lastKnownY: 0 } };
+  assert.equal(WITHDRAWAL_CONTACT_GRACE_SECONDS, 8);
+  assert.equal(hasRecentEnemyContact(engaged, 27.9), true);
+  assert.equal(hasRecentEnemyContact(engaged, 28.1), false);
+  assert.equal(squadHasRecentEnemyContact(squad, [engaged, moving, atBase], 21), true);
+  assert.equal(withdrawalOrderAppliesTo(engaged, squad, 21), true);
+  assert.equal(withdrawalOrderAppliesTo(moving, squad, 21), false);
+  assert.equal(withdrawalOrderAppliesTo(atBase, squad, 21), false);
+  assert.equal(withdrawalDecisionFor(engaged, marinePlayer, { hasRangedWeapon: true, inEnemyContact: true }), "CASUALTY_PRESERVATION");
+  assert.equal(withdrawalDecisionFor(moving, marinePlayer, { hasRangedWeapon: true, inEnemyContact: false }), null);
+  assert.equal(withdrawalDecisionFor(atBase, marinePlayer, { hasRangedWeapon: true, commandWithdrawal: true, inEnemyContact: false }), null);
 });
 
 test("non-Guard psychology contains resolve but no universal fear property", () => {
@@ -96,5 +121,7 @@ test("browser runtime delegates fear, withdrawal, and immediate response to focu
   assert.match(source, /evaluateCombatResponse\(\{/);
   assert.match(source, /refreshSquadCombatContact\(/);
   assert.match(source, /combatContactPoint\(/);
+  assert.match(source, /withdrawalOrderAppliesTo\(unit, assignedSquad, state\.time\)/);
+  assert.match(source, /squadInEnemyContact\s*&&/);
   assert.doesNotMatch(source, /intent\s*=.*"Ignore"/);
 });

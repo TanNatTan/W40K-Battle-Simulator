@@ -92,8 +92,11 @@ export function updateFactionPressure(unit = {}, player = {}, context = {}, dt =
 
 export function withdrawalDecisionFor(unit = {}, player = {}, context = {}) {
   const policy = breakPolicyFor(player);
-  if (unit.retreatReason === "objective" || unit.retreatReason === "command") return unit.retreatReason.toUpperCase();
   if (context.hasRangedWeapon !== false && (unit.ammo || 0) <= 0 && context.hasReserveAmmo !== true) return "RESUPPLY";
+  // Tactical withdrawal is a response to an actual fight. Strategic movement,
+  // base duty, and old wounds cannot create a fresh retreat order by themselves.
+  if (context.inEnemyContact !== true) return null;
+  if (unit.retreatReason === "objective" || unit.retreatReason === "command") return unit.retreatReason.toUpperCase();
   if (policy.usesMoraleRout && (unit.combatStress || 0) >= (unit.breakThreshold || 80)) return "ROUT";
   if (policy.tacticalWithdrawal && context.commandWithdrawal) return "TACTICAL_WITHDRAWAL";
   const healthRatio = clamp((unit.hp || 0) / Math.max(1, unit.maxHp || 1), 0, 1);

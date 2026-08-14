@@ -308,16 +308,21 @@ try {
     const systems = globalThis.AWTSystems;
     const unit = { id: 'marine', squadId: 'squad', x: 0, y: 0, range: 100, damage: 12, ammo: 8 };
     const enemy = { id: 'ork', alive: true, x: 30, y: 0, hp: 100, maxHp: 100, range: 20, role: 'trooper' };
+    const engagedCasualty = systems.markEnemyContact({ id: 'engaged', x: 20, y: 0, hp: 15, maxHp: 100, ammo: 8 }, enemy, 40);
+    const baseCasualty = { id: 'base', x: 600, y: 0, hp: 15, maxHp: 100, ammo: 8 };
     return {
       universalFearProperties: state.units.filter(candidate => Object.hasOwn(candidate, 'fear')).length,
       marineUsesFear: systems.breakPolicyFor({ race: 'Imperium', faction: 'Space Marines' }).usesFear,
       guardUsesFear: systems.breakPolicyFor({ race: 'Imperium', faction: 'Imperial Guard' }).usesFear,
       defensiveResponse: systems.evaluateCombatResponse({ unit, squad: {}, visibleEnemies: [enemy], context: { confidence: 15 } }).action,
-      finishResponse: systems.evaluateCombatResponse({ unit, squad: {}, visibleEnemies: [enemy], context: { confidence: 85, finishRecommended: true } }).action
+      finishResponse: systems.evaluateCombatResponse({ unit, squad: {}, visibleEnemies: [enemy], context: { confidence: 85, finishRecommended: true } }).action,
+      engagedWithdrawal: systems.withdrawalDecisionFor(engagedCasualty, { race: 'Imperium', faction: 'Space Marines' }, { hasRangedWeapon: true, inEnemyContact: systems.hasRecentEnemyContact(engagedCasualty, 41) }),
+      baseWithdrawal: systems.withdrawalDecisionFor(baseCasualty, { race: 'Imperium', faction: 'Space Marines' }, { hasRangedWeapon: true, commandWithdrawal: true, inEnemyContact: false })
     };
   })()`);
   if (combatBehaviorProbe.universalFearProperties !== 0 || combatBehaviorProbe.marineUsesFear || !combatBehaviorProbe.guardUsesFear
-    || !["TAKE_COVER", "CONTAIN"].includes(combatBehaviorProbe.defensiveResponse) || combatBehaviorProbe.finishResponse !== "FINISH") {
+    || !["TAKE_COVER", "CONTAIN"].includes(combatBehaviorProbe.defensiveResponse) || combatBehaviorProbe.finishResponse !== "FINISH"
+    || combatBehaviorProbe.engagedWithdrawal !== "CASUALTY_PRESERVATION" || combatBehaviorProbe.baseWithdrawal !== null) {
     throw new Error(`Combat response / break-policy probe failed: ${JSON.stringify(combatBehaviorProbe)}`);
   }
 

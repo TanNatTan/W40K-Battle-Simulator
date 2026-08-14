@@ -87,12 +87,13 @@ export function synchronizeAmmoState(unit, { refill = false, catalog } = {}) {
   return unit.weaponState;
 }
 
-export function retreatReasonFor(unit, { tyranid = false, usesFear = false, usesMoraleRout = false, casualtyThreshold = 0.3 } = {}) {
+export function retreatReasonFor(unit, { tyranid = false, usesFear = false, usesMoraleRout = false, casualtyThreshold = 0.3, inEnemyContact = false } = {}) {
   if (tyranid) return null;
+  if ((unit.ammo || 0) <= 0 && weaponProfileFor(unit).magazineSize > 0) return "ammo";
+  if (!inEnemyContact) return null;
   if ((unit.hp || 0) < (unit.maxHp || 1) * casualtyThreshold) return "health";
   if (usesMoraleRout && (unit.morale ?? 1) < 0.23) return "morale";
   if (usesFear && (unit.combatStress ?? 0) >= (unit.breakThreshold ?? 90)) return "fear";
-  if ((unit.ammo || 0) <= 0 && weaponProfileFor(unit).magazineSize > 0) return "ammo";
   return unit.retreatReason === "objective" || unit.retreatReason === "command" ? unit.retreatReason : null;
 }
 

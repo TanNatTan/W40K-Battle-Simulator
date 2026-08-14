@@ -78,6 +78,7 @@ import { CHAPTER_FORCE_STRUCTURE_PROFILES, assignChapterSquad, chapterAllowsUnit
 import { CHAPTER_EVOLUTION_SEQUENCE, CHAPTER_EVOLUTION_THRESHOLDS, DOCTRINE_DIFFERENCE_MINIMUM, DOCTRINE_VECTOR_KEYS, beginChapterEvolutionTest, chapterDecisionPriorities, chapterEvolutionPanelSnapshot, createChapterEvolutionTest, doctrineBehaviorVector, doctrineDifferenceScore, evaluateChapterEvolutionRun, recordChapterEvolutionRun, runAllChapterCapacityTests } from "./ai/space-marines/ChapterEvolutionTestSystem.js";
 import { COMBAT_RESPONSES, chooseImmediateThreat, chooseSquadTarget, combatContactPhase, combatContactPoint, evaluateCombatResponse, refreshSquadCombatContact } from "./ai/CombatResponseSystem.js";
 import { BREAK_POLICIES, BREAK_POLICY_IDS, breakPolicyFor, breakPolicyIdFor, commissarInterventionFor, createPsychologyState, guardBreakStateFor, isCommissar, updateFactionPressure, withdrawalDecisionFor } from "./ai/FactionBreakPolicy.js";
+import { WITHDRAWAL_CONTACT_GRACE_SECONDS, hasRecentEnemyContact, markEnemyContact, squadHasRecentEnemyContact, withdrawalOrderAppliesTo } from "./ai/WithdrawalContactSystem.js";
 
 globalThis.AWTSystems = Object.freeze({
   EconomyZoneManager,
@@ -405,7 +406,12 @@ globalThis.AWTSystems = Object.freeze({
   guardBreakStateFor,
   isCommissar,
   updateFactionPressure,
-  withdrawalDecisionFor
+  withdrawalDecisionFor,
+  WITHDRAWAL_CONTACT_GRACE_SECONDS,
+  hasRecentEnemyContact,
+  markEnemyContact,
+  squadHasRecentEnemyContact,
+  withdrawalOrderAppliesTo
 });
 globalThis.AWTData ||= {};
 try {
