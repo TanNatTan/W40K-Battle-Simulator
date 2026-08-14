@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "source": "Projectileset(v2.0)",
+  "image": "projectile-v2-runtime.png",
+  "columns": 6,
+  "rows": 37,
+  "frameWidth": 140,
+  "frameHeight": 140,
+  "sourceFrameWidth": 560,
+  "sourceFrameHeight": 560
+}

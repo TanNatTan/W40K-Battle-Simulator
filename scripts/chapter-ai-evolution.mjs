@@ -8,12 +8,18 @@ import {
 } from "../src/ai/space-marines/ChapterEvolutionTestSystem.js";
 import { CHAPTER_FORCE_STRUCTURE_PROFILES } from "../src/ai/space-marines/ChapterForceStructureProfile.js";
 
-const scenarios = Object.freeze([
-  { id: "open-annihilation", opponent: "Goffs", objective: "annihilation", map: "open", spawn: "opposed" },
-  { id: "urban-stronghold", opponent: "Cadian", objective: "stronghold_assault", map: "urban", spawn: "corner" },
-  { id: "broken-territory", opponent: "Kraken", objective: "territorial_domination", map: "broken", spawn: "diagonal" },
-  { id: "supply-resource", opponent: "Sautekh", objective: "resource_supremacy", map: "route-heavy", spawn: "ring" }
+const orkSubfactions = Object.freeze(["Goff Mob", "Evil Sunz", "Bad Moon Mob", "Ironjaw Mob", "Speed Freeks"]);
+const scenarioTemplates = Object.freeze([
+  { id: "open-annihilation", objective: "annihilation", map: "open", spawn: "opposed", speed: 2 },
+  { id: "urban-stronghold", objective: "stronghold_assault", map: "urban", spawn: "corner", speed: 2 },
+  { id: "broken-territory", objective: "territorial_domination", map: "broken", spawn: "diagonal", speed: 2 },
+  { id: "supply-resource", objective: "resource_supremacy", map: "route-heavy", spawn: "ring", speed: 2 }
 ]);
+const scenarioFor = (chapterIndex, runIndex) => Object.freeze({
+  ...scenarioTemplates[(chapterIndex + runIndex) % scenarioTemplates.length],
+  opponentRace: "Orks",
+  opponent: orkSubfactions[(chapterIndex * 7 + runIndex * 3) % orkSubfactions.length]
+});
 
 function acceleratedPolicyMetrics(chapter, scenario, runIndex) {
   const profile = CHAPTER_FORCE_STRUCTURE_PROFILES[chapter];
@@ -32,10 +38,21 @@ function acceleratedPolicyMetrics(chapter, scenario, runIndex) {
     mapPresence: 0.95,
     economyControl: 0.92,
     compositionDiversity: 0.86,
-    vehicleUtilization: Math.max(0.68, profile.vehicleBudgetRatio * 2.1),
+    vehicleUtilization: Math.max(0.8, profile.vehicleBudgetRatio * 2.1),
     specialistNeedResponse: 0.88,
     weaponLoadoutDiversity: 0.82,
     antiHomogenization: 0.95,
+    appropriateWargear: 0.9,
+    formationAccuracy: 0.86,
+    commanderPresence: 1,
+    troopsOutsideHeadquarters: 0.84,
+    formationStuckRatio: 0.006,
+    transportOpportunities: 4,
+    transportUtilization: 0.82,
+    frontlineDistant: true,
+    forwardOutposts: 2,
+    deploymentAccuracy: 0.91,
+    tacticalInnovation: 0.72,
     engagementDistance: /long-range|precision|fire-support|suppression/.test(doctrineText) ? 0.82 : /close-range|melee|assault/.test(doctrineText) ? 0.28 : 0.55,
     formationDiversity: /combined-arms|objective-flexibility|controlled-escalation/.test(doctrineText) ? 0.9 : 0.62,
     reconUsage: /recon|scout|infiltration|ambush|isolate/.test(doctrineText) ? 0.9 : 0.34,
@@ -56,8 +73,9 @@ assert.ok(capacity.every(result => result.passed), "A Chapter force structure wa
 const evolution = createChapterEvolutionTest({ runDurationMs: 10 * 60 * 1000, startedAt: 0 });
 let timestamp = 0;
 for (const chapter of CHAPTER_EVOLUTION_SEQUENCE) {
+  const chapterIndex = CHAPTER_EVOLUTION_SEQUENCE.indexOf(chapter);
   for (let runIndex = 0; runIndex < 3; runIndex += 1) {
-    const scenario = scenarios[(CHAPTER_EVOLUTION_SEQUENCE.indexOf(chapter) + runIndex) % scenarios.length];
+    const scenario = scenarioFor(chapterIndex, runIndex);
     const metrics = acceleratedPolicyMetrics(chapter, scenario, runIndex);
     const preflight = evaluateChapterEvolutionRun(chapter, metrics);
     assert.equal(preflight.passed, true, `${chapter} failed accelerated policy preflight: ${preflight.failedChecks.join(", ")}`);

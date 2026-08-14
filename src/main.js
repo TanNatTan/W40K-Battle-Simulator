@@ -427,6 +427,15 @@ try {
 }
 
 try {
+  const response = await fetch(new URL("../data/projectiles.json", import.meta.url));
+  if (!response.ok) throw new Error(`Projectile data returned ${response.status}`);
+  globalThis.AWTData.projectiles = await response.json();
+} catch (error) {
+  globalThis.AWTData.projectiles = { version: 2, engineClassCount: 15, behaviorFlags: [], classes: {} };
+  console.warn("Projectile archetype data could not be loaded; built-in projectile definitions will be used.", error);
+}
+
+try {
   const response = await fetch(new URL("../data/ai/faction-branches.json", import.meta.url));
   if (!response.ok) throw new Error(`Faction AI data returned ${response.status}`);
   globalThis.AWTData.factionAI = await response.json();

@@ -48,6 +48,22 @@ export const SPACE_MARINE_ROSTER = Object.freeze({
   command: Object.freeze(["Sergeant", "Lieutenant", "Captain", "Chapter Master"])
 });
 
+export function spaceMarineCommandRequirements(marineInfantry = 0) {
+  const count = Math.max(0, Math.floor(Number(marineInfantry) || 0));
+  return Object.freeze({
+    Sergeant: Math.floor(count / 10),
+    Lieutenant: count >= 20 ? Math.max(1, Math.floor(count / 40)) : 0,
+    Captain: count >= 30 ? 1 : 0,
+    Chaplain: count >= 40 ? 1 : 0,
+    Apothecary: count >= 40 ? 1 : 0,
+    Techmarine: count >= 50 ? 1 : 0,
+    Librarian: count >= 60 ? 1 : 0,
+    Judiciar: count >= 70 ? 1 : 0,
+    Ancient: count >= 80 ? 1 : 0,
+    "Company Champion": count >= 90 ? 1 : 0
+  });
+}
+
 export function spaceMarineProfileFor(unitOrName = {}) {
   const primary = normalize(typeof unitOrName === "string" ? unitOrName : unitOrName.specialty || unitOrName.name || "");
   const fallback = normalize(typeof unitOrName === "string" ? "" : unitOrName.name || "");

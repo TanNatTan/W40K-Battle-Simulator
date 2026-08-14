@@ -1,3 +1,5 @@
+import { projectileHasFlag } from "./ProjectileArchetypeSystem.js";
+
 const FALLBACK_WEAPON = Object.freeze({
   id: "rifle",
   label: "Service Rifle",
@@ -206,11 +208,13 @@ export function armorFacingFor(target, projectile) {
 
 export function resolveArmorHit(target, projectile, random = Math.random) {
   const facing = armorFacingFor(target, projectile);
-  const base = Math.max(0, Number(target?.armorProtection) || 0);
+  const base = Math.max(0, Number(target?.armorProtection) || 0) * (1 - Math.max(0, Math.min(0.45, Number(target?.armorCorrosion) || 0)));
   const armor = facing === "front" ? base * 1.28 : facing === "side" ? base : facing === "rear" ? base * 0.62 : base;
   const penetration = Math.max(0, Number(projectile?.penetration) || 0);
   const obliquity = facing === "front" ? 0.12 : facing === "side" ? 0.22 : 0.06;
-  const ricochetChance = clamp(obliquity + (armor - penetration) / Math.max(20, armor * 2.5), 0.02, 0.72);
+  const flagsDefined = projectile?.flags || Number.isInteger(projectile?.flagMask);
+  const ricochetEnabled = !flagsDefined || projectileHasFlag(projectile, "ricochet");
+  const ricochetChance = ricochetEnabled ? clamp(obliquity + (armor - penetration) / Math.max(20, armor * 2.5), 0.02, 0.72) : 0;
   const penetrationChance = clamp(0.42 + (penetration - armor) / Math.max(16, armor * 1.65), 0.04, 0.97);
   const roll = random();
   if (roll < ricochetChance) return { facing, armor, result: "ricochet", multiplier: 0.03, critical: false };

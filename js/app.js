@@ -30,6 +30,7 @@ import { clamp, distance } from "../src/utilities/math.js";
 import { formatElapsed, pad2 } from "../src/utilities/format.js";
 import { seededRandom } from "../src/utilities/random.js";
 import { NavigationPlanner } from "../src/map/NavigationPlanner.js";
+import { ignoresGroundObstacles, shouldSeparateUnits } from "../src/physics/CollisionLayers.js";
 import {
   createNavigationMonitor,
   ensureNavigationMonitor,
@@ -44,11 +45,16 @@ import {
   updateAstartesCohesionMode,
   assignCombinedArmsSupport,
   combinedArmsSupportDistance,
-  formationLocalPosition as formationSlotFor
+  formationLocalPosition as formationSlotFor,
+  resolveFormationSlot,
+  degradedFormationFor
 } from "../src/formations/FormationSystem.js";
 import { shouldUseArmyBattleFormation, updateArmyBattleFormation } from "../src/formations/ArmyBattleFormationSystem.js";
 import {
   boardTransport,
+  reserveTransportForSquad,
+  transportReadyToDeploy,
+  clearTransportReservation,
   createAircraftState,
   createVehicleState,
   disembarkTransport,
@@ -57,6 +63,8 @@ import {
 } from "../src/vehicles/VehicleAircraftSystem.js";
 import {
   chooseDeploymentMethod,
+  chooseDropPodPayload,
+  DROP_POD_PAYLOADS,
   createDeploymentRecord,
   validateDeploymentRecord
 } from "../src/deployment/DeploymentSystem.js";
@@ -283,15 +291,18 @@ import {
 } from "../src/combat/SpaceMarineAbilitySystem.js";
 import {
   PROJECTILE_ATLAS_COLUMNS,
+  PROJECTILE_ATLAS_ROW_COUNT,
   PROJECTILE_ATLAS_URL,
   guideProjectile,
   predictedInterceptPoint,
   projectileArcOffset,
   projectileVisualForWeapon
 } from "../src/combat/ProjectileVisualizationSystem.js";
+import { compactProjectileRuntime, projectileHasFlag } from "../src/combat/ProjectileArchetypeSystem.js";
 import { isMobilizationProtected } from "../src/combat/MobilizationProtectionSystem.js";
 import {
   createWaaaghFieldState,
+  desiredWaaaghBannerCount,
   isBuiltWaaaghBanner,
   isMobileWaaaghBanner,
   registerWaaaghBannerDestruction,
@@ -305,7 +316,10 @@ import {
 import {
   FORWARD_OUTPOST_STOCK_TARGETS,
   FORWARD_OUTPOST_TYPE,
+  FORWARD_OUTPOST_LIMIT,
+  FORWARD_OUTPOST_MINIMUM_SPACING,
   forwardOutpostRestockManifest,
+  predictForwardOutpostPosition,
   selectForwardResupplyPoint,
   shouldBuildForwardOutpost
 } from "../src/logistics/ForwardOutpostSystem.js";
@@ -533,6 +547,10 @@ import {
         playerColorValue: root.querySelector("#awt-player-color-value"),
         playerSecondaryColor: root.querySelector("#awt-player-secondary-color"),
         playerSecondaryColorValue: root.querySelector("#awt-player-secondary-color-value"),
+        playerTertiaryColor: root.querySelector("#awt-player-tertiary-color"),
+        playerTertiaryColorValue: root.querySelector("#awt-player-tertiary-color-value"),
+        playerBodyColor: root.querySelector("#awt-player-body-color"),
+        playerBodyColorValue: root.querySelector("#awt-player-body-color-value"),
         playerPattern: root.querySelector("#awt-player-pattern"),
         spritePanel: root.querySelector("#awt-sprite-panel"),
         spriteFamily: root.querySelector("#awt-sprite-family"),
@@ -1038,6 +1056,8 @@ import {
       setupPlayers.forEach((player, index) => {
         player.name = `Player ${index + 1}`;
         player.secondaryColor = defaultColors[(index + 5) % defaultColors.length];
+        player.tertiaryColor = defaultColors[(index + 8) % defaultColors.length];
+        player.bodyColor = player.color;
         player.pattern = identificationPatterns[index % identificationPatterns.length];
       });
 
@@ -2526,7 +2546,13 @@ import {
       }
 
       function playerAccentColor(faction) {
-        return chapterVisualDefaultsFor(playerFor(faction))?.accent || colors.foreground;
+        const player = playerFor(faction);
+        return player.tertiaryColor || chapterVisualDefaultsFor(player)?.accent || colors.foreground;
+      }
+
+      function playerBodyColor(faction) {
+        const player = playerFor(faction);
+        return player.bodyColor || player.color;
       }
 
       function economicPersonality(player) {
@@ -4427,6 +4453,19 @@ import {
         }
         if (matureMarineTerritory && !committed("bunker") && !excludedTypes.has("bunker")) return "bunker";
         if (matureMarineTerritory && !committed("turret") && !excludedTypes.has("turret")) return "turret";
+        const unfortifiedOutpost = state.structures.find(structure => structure.faction === faction && structure.type === FORWARD_OUTPOST_TYPE
+          && structure.progress >= 1 && structure.alive !== false
+          && !state.structures.some(defense => defense.faction === faction && defense.alive !== false
+            && ["bunker", "turret", "observationtower"].includes(defense.type) && distance(defense, structure) <= TERRITORY_CELL_SIZE * 0.85));
+        if (unfortifiedOutpost) {
+          const outpostDefense = ["bunker", "turret", "observationtower"].find(type => !excludedTypes.has(type)
+            && !state.structures.some(defense => defense.faction === faction && defense.alive !== false && defense.type === type
+              && distance(defense, unfortifiedOutpost) <= TERRITORY_CELL_SIZE * 0.85));
+          if (outpostDefense) {
+            player.lastConstructionProject = { buildingType: outpostDefense, utility: 132, reason: "fortify an intelligence-confirmed forward resupply outpost" };
+            return outpostDefense;
+          }
+        }
         const productionDoctrine = subfactionProductionPlanFor(player);
         const constructionBranch = productionDoctrine ? planConstructionRoles(productionDoctrine).map(buildingTypeForOperationalRole).filter(type => buildingCatalog[type]) : [];
         const demand = productionDemandFor(player);
@@ -4455,9 +4494,16 @@ import {
         const claimedTerritoryCount = primaryTerritoryFor(faction)?.claimedCells?.size || 0;
         const frontlineDistance = Math.max(0, ...state.units.filter(unit => unit.alive && unit.faction === faction && !["builder", "supply"].includes(unit.role))
           .map(unit => distance(unit, baseFor(faction))));
-        const nearestForwardOutpostDistance = Math.min(Infinity, ...state.structures.filter(structure => structure.faction === faction
-          && structure.type === FORWARD_OUTPOST_TYPE && structure.alive !== false).map(structure => distance(structure, baseFor(faction))));
-        const forwardOutpostNeeded = shouldBuildForwardOutpost({ frontlineDistance, nearestOutpostDistance: nearestForwardOutpostDistance, threat, territorySafe: claimedTerritoryCount >= 4 });
+        const forwardOutposts = state.structures.filter(structure => structure.faction === faction
+          && structure.type === FORWARD_OUTPOST_TYPE && structure.alive !== false);
+        const hostileAnchor = state.players.filter(other => !areAllies(other.id, faction)).map(other => knownHostileAnchor(faction, other.id))
+          .filter(Boolean).sort((a, b) => (b.confidence || 0) - (a.confidence || 0))[0] || null;
+        const predictedOutpost = hostileAnchor ? predictForwardOutpostPosition({ base: baseFor(faction), enemy: hostileAnchor, existingOutposts: forwardOutposts,
+          bounds: { left: 34, right: worldWidth() - 34, top: 34, bottom: worldHeight() - 34 } }) : null;
+        const nearestForwardOutpostDistance = predictedOutpost
+          ? Math.min(Infinity, ...forwardOutposts.map(structure => distance(structure, predictedOutpost))) : Infinity;
+        const forwardOutpostNeeded = shouldBuildForwardOutpost({ frontlineDistance, nearestOutpostDistance: nearestForwardOutpostDistance, threat,
+          territorySafe: claimedTerritoryCount >= 4, enemyBaseConfidence: hostileAnchor?.confidence || 0, outpostCount: forwardOutposts.length });
         const requisitionIncome = claimedTerritoryCount * 5 + complete("observationtower") * 5;
         const projectedRequisitionDemand = Math.max(5, armyCount * 0.2 + structureCount * 0.35);
         const marineListeningPostNeeded = player.faction === "Space Marines" && listeningPostNeeded({
@@ -4482,7 +4528,10 @@ import {
             ? Math.max(1, Math.min(claimedTerritoryCount, Math.ceil(structureCount / 9))) : 0,
           forwardoutpost: forwardOutpostNeeded ? Math.max(1, Math.ceil(frontlineDistance / 620)) : 0,
           bunker: nextBranchType === "bunker" ? 1 : threat > 0.2 ? Math.max(2, Math.ceil(structureCount / 7)) : 0,
-          waaaghbanner: player.race === "Orks" && armyCount >= 24 ? (armyCount >= 70 ? 2 : 1) : 0,
+          waaaghbanner: player.race === "Orks" ? desiredWaaaghBannerCount(armyCount, {
+            majorAssault: Boolean(player.forceState?.allIn || behavior.aggression >= 78),
+            recentlyDestroyed: state.waaaghFields[player.id]?.events?.some(event => event.type === "banner-destroyed" && state.time - event.at < 45)
+          }) : 0,
           turret: nextBranchType === "turret" ? 1 : threat > 0.35 ? Math.max(1, Math.ceil(structureCount / 9)) : 0,
           fueldepot: ratio("fuel") > 0.72 ? Math.ceil(structureCount / 12) : 0,
           ammodepot: ratio("ammunition") > 0.72 ? Math.ceil(structureCount / 12) : 0,
@@ -4651,6 +4700,10 @@ import {
         if (type === "observationtower" && playerFor(faction).faction === "Space Marines"
           && state.structures.some(structure => structure.alive !== false && structure.faction === faction
             && structure.type === "observationtower" && territoryCellKey(structure.x, structure.y) === cellKey)) return false;
+        if (type === FORWARD_OUTPOST_TYPE) {
+          const outposts = state.structures.filter(structure => structure.alive !== false && structure.faction === faction && structure.type === FORWARD_OUTPOST_TYPE);
+          if (outposts.length >= FORWARD_OUTPOST_LIMIT || outposts.some(outpost => distance(outpost, site) < FORWARD_OUTPOST_MINIMUM_SPACING)) return false;
+        }
         return constructionCapacityForCell({
           type,
           spec,
@@ -4670,6 +4723,19 @@ import {
         const startAngle = (count * 2.31 + playerFor(faction).index * 0.7) % (Math.PI * 2);
         const candidates = [];
         if (type === "outpost") candidates.push({ x: Math.round(base.x / 16) * 16, y: Math.round(base.y / 16) * 16 });
+        if (type === FORWARD_OUTPOST_TYPE) {
+          const outposts = state.structures.filter(structure => structure.faction === faction && structure.type === FORWARD_OUTPOST_TYPE && structure.alive !== false);
+          const enemy = state.players.filter(other => !areAllies(other.id, faction)).map(other => knownHostileAnchor(faction, other.id))
+            .filter(Boolean).sort((a, b) => (b.confidence || 0) - (a.confidence || 0))[0];
+          if (enemy) {
+            const corridor = predictForwardOutpostPosition({ base, enemy, existingOutposts: outposts,
+              bounds: { left: 34, right: worldWidth() - 34, top: 34, bottom: worldHeight() - 34 } });
+            for (let index = 0; index < 16; index += 1) {
+              const angle = index * Math.PI / 8;
+              candidates.push({ x: clamp(corridor.x + Math.cos(angle) * 36, 34, worldWidth() - 34), y: clamp(corridor.y + Math.sin(angle) * 36, 34, worldHeight() - 34) });
+            }
+          }
+        }
         const primary = primaryTerritoryFor(faction);
         if (preferredCellKey && primary?.claimedCells?.has(preferredCellKey)) {
           const center = territoryCellCenter(preferredCellKey);
@@ -5598,6 +5664,7 @@ import {
 
       function moveToward(unit, point, dt, speedFactor = 1) {
         const radius = unit.collisionRadius || (unit.role === "vehicle" ? 14 : 3);
+        const airborne = ignoresGroundObstacles(unit);
         if (unit.role === "builder") {
           point = builderTaskPointAllowed(unit, point, radius) ? point : baseFor(unit.faction);
           if (unit.navigationPath?.some(candidate => !builderTaskPointAllowed(unit, candidate, radius))
@@ -5606,7 +5673,7 @@ import {
           }
         }
         const ignoreId = unit.buildProject || null;
-        const enclosingStructure = structureCollisionAt(unit, radius, ignoreId);
+        const enclosingStructure = airborne ? null : structureCollisionAt(unit, radius, ignoreId);
         if (enclosingStructure) moveUnitOutsideStructure(unit, enclosingStructure);
         if (unit.navigationPath?.length && unit.navigationDestination && distance(unit.navigationDestination, point) > 128) {
           unit.navigationPath = [];
@@ -5643,7 +5710,7 @@ import {
         const fuelFactor = unit.role === "vehicle" && (unit.fuelReserve ?? 1) <= 0 ? 0.22 : 1;
         const legCondition = unit.bodyZones ? ((unit.bodyZones.leftLeg || 0) + (unit.bodyZones.rightLeg || 0)) / 2 : 1;
         const suppressionFactor = clamp(1 - (unit.suppression || 0) * 0.42, 0.45, 1);
-        const obstacleMovement = environmentalMovementFactor(unit, unit);
+        const obstacleMovement = airborne ? 1 : environmentalMovementFactor(unit, unit);
         const vehicleFactor = unit.role === "vehicle"
           ? (unit.vehiclePerformance?.speedFactor ?? 1) * clamp(unit.waaaghVehicleReliability || 1, 0.65, 1.18)
           : 1;
@@ -5685,6 +5752,7 @@ import {
         const next = { x: clamp(unit.x + dx / d * step, 24, worldWidth() - 24), y: clamp(unit.y + dy / d * step, 24, worldHeight() - 24) };
         const blockedAt = candidate => {
           if (unit.role === "builder" && !builderTaskPointAllowed(unit, candidate)) return { boundary: true };
+          if (airborne) return null;
           return structureCollisionAt(candidate, radius, ignoreId)
             || environmentCollisionAt(candidate, unit, radius);
         };
@@ -6104,21 +6172,14 @@ import {
 
       function safeFormationPosition(point, unit) {
         const radius = unit.collisionRadius || (unit.role === "vehicle" ? 14 : 3);
-        const invalid = candidate => structureCollisionAt(candidate, radius, null)
-          || environmentCollisionAt(candidate, unit, radius)
-          || ["deepwater", "lava", "cliff", "mountain"].includes(terrainAt(candidate).type);
-        if (!invalid(point)) return point;
-        for (let ring = 1; ring <= 10; ring += 1) {
-          for (let index = 0; index < 12; index += 1) {
-            const angle = index * Math.PI / 6;
-            const candidate = {
-              x: clamp(point.x + Math.cos(angle) * ring * 8, 20, worldWidth() - 20),
-              y: clamp(point.y + Math.sin(angle) * ring * 8, 20, worldHeight() - 20)
-            };
-            if (!invalid(candidate)) return candidate;
-          }
-        }
-        return { x: unit.x, y: unit.y };
+        const walkable = candidate => !structureCollisionAt(candidate, radius, null)
+          && !environmentCollisionAt(candidate, unit, radius)
+          && !["deepwater", "lava", "cliff", "mountain"].includes(terrainAt(candidate).type);
+        const resolved = resolveFormationSlot(point, { unit, searchRings: 10, step: 8, isWalkable: candidate => {
+          const bounded = candidate.x >= 20 && candidate.y >= 20 && candidate.x <= worldWidth() - 20 && candidate.y <= worldHeight() - 20;
+          return bounded && walkable(candidate);
+        } });
+        return { ...resolved.position, formationSlotAvailable: resolved.available, formationSlotDisplaced: resolved.displaced };
       }
 
       function squadAssetById(id) {
@@ -6580,6 +6641,7 @@ import {
           const forward = { x: Math.cos(squad.heading), y: Math.sin(squad.heading) };
           const right = { x: -forward.y, y: forward.x };
           let inPosition = 0;
+          let unavailableSlots = 0;
           const groupRanks = new Map();
           if (!marineSquad || squad.formationActive) {
             members.forEach((member, index) => {
@@ -6591,10 +6653,25 @@ import {
                 x: clamp(anchor.x + right.x * local.x + forward.x * local.y, 20, worldWidth() - 20),
                 y: clamp(anchor.y + right.y * local.x + forward.y * local.y, 20, worldHeight() - 20)
               }, member);
+              if (!slot.formationSlotAvailable) {
+                unavailableSlots += 1;
+                member.formationSlotBlockedSince ??= state.time;
+                if (state.time - member.formationSlotBlockedSince >= 2) {
+                  member.formationSlot = null;
+                  delete squad.slotAssignments[member.id];
+                  return;
+                }
+              } else member.formationSlotBlockedSince = null;
               member.formationSlot = slot;
               squad.slotAssignments[member.id] = slot;
               if (distance(member, slot) < 24) inPosition += 1;
             });
+            const deformedFormation = degradedFormationFor(squad.formation, unavailableSlots, members.length);
+            if (deformedFormation !== squad.formation) {
+              squad.formation = deformedFormation;
+              squad.formationSince = state.time;
+              squad.formationDeformations = (squad.formationDeformations || 0) + 1;
+            }
             squad.cohesion = inPosition / members.length;
           } else {
             for (const member of members) member.formationSlot = null;
@@ -6637,7 +6714,19 @@ import {
               for (const member of deployed) member.status = "Deployed from transport";
               transport.transportDeploymentPoint = null;
               transport.transportMissionSquadId = null;
+              clearTransportReservation(transport.vehicleState);
               incident(`${unitLabel(transport)} deployed ${deployed.length} passengers into contact.`, transport.id, "info");
+            } else if (embarked.length && transport.vehicleState.transportReservation) {
+              const reservation = transport.vehicleState.transportReservation;
+              const squad = squadFor(reservation.squadId);
+              const waiting = reservation.memberIds.map(id => unitById(id))
+                .filter(member => member?.alive && !member.embarkedInId && distance(member, transport) < 46);
+              waiting.forEach(member => boardTransport(transport.vehicleState, member));
+              if (transportReadyToDeploy(transport.vehicleState, state.time)) {
+                transport.transportingSquadId = reservation.squadId;
+                transport.transportDeploymentPoint = squad?.objective ? { ...squad.objective } : null;
+                transport.status = "Transporting squad";
+              } else transport.status = `Embarking squad (${transport.vehicleState.passengerIds.length}/${reservation.memberIds.length})`;
             } else if (!embarked.length) {
               const squad = state.squads
                 .filter(candidate => candidate.faction === player.id)
@@ -6648,16 +6737,19 @@ import {
                   - ((b.squad.id === transport.transportMissionSquadId ? -1000 : 0) + distance(squadCenterFor(b.members, player.base), transport)))[0];
               if (squad) {
                 transport.transportMissionSquadId = squad.squad.id;
+                reserveTransportForSquad(transport.vehicleState, squad.squad.id, squad.members.map(member => member.id), state.time);
                 const leader = unitById(squad.squad.leaderId) || squad.members[0];
                 transport.combinedArmsTargetId = leader.id;
                 transport.combinedArmsPurpose = "squad transport rendezvous";
                 const boarded = squad.members.filter(member => distance(member, transport) < 46)
                   .filter(member => boardTransport(transport.vehicleState, member));
-                if (boarded.length) {
+                if (boarded.length && transportReadyToDeploy(transport.vehicleState, state.time)) {
                   transport.transportingSquadId = squad.squad.id;
                   transport.transportDeploymentPoint = squad.squad.objective ? { ...squad.squad.objective } : null;
                   transport.status = "Transporting squad";
                   incident(`${unitLabel(transport)} embarked ${boarded.length} members of ${squad.squad.name}.`, transport.id, "info");
+                } else if (boarded.length) {
+                  transport.status = `Embarking squad (${transport.vehicleState.passengerIds.length}/${transport.vehicleState.transportReservation?.memberIds.length || transport.vehicleState.passengerCapacity})`;
                 }
               }
             }
@@ -7030,6 +7122,7 @@ import {
             squads,
             assignments: armyAllocation.assignments,
             baseThreat: battle.context.baseThreat,
+            enemyKnown: battle.enemyStructures.length > 0 || state.players.some(other => !areAllies(other.id, player.id) && knownHostileAnchor(player.id, other.id)),
             preserveBaseDefense: armyAllocation.budget["base-defense"]?.min || 0,
             preserveEconomyDefense: armyAllocation.budget["economy-defense"]?.min || 0
           });
@@ -7654,6 +7747,7 @@ import {
 
         const intendedHit = battleRandom() < chance;
         const visual = projectileVisualForWeapon(weapon);
+        const projectileRuntime = compactProjectileRuntime(weapon);
         const intercept = predictedInterceptPoint(unit, target, weapon.projectileSpeed);
         const targetPoint = visual.guided ? target : intercept;
         const dx = targetPoint.x - unit.x;
@@ -7685,6 +7779,9 @@ import {
           splashRadius: weapon.splashRadius,
           tracerColor: weapon.tracerColor,
           weaponId: weapon.id,
+          projectileType: visual.projectileType,
+          flagMask: projectileRuntime.flagMask,
+          flags: visual.flags,
           visualId: visual.id,
           visualRow: visual.row,
           visualKind: visual.kind,
@@ -7872,6 +7969,10 @@ import {
       function applyProjectileImpact(projectile, target) {
         applySuppression(target || projectile, projectile.faction, projectile.suppression);
         if (!target) return;
+        const armoredTarget = Boolean(buildingCatalog[target.type] || target.role === "vehicle");
+        const impactMultiplier = armoredTarget && projectileHasFlag(projectile, "antiArmor") ? 1.18
+          : !armoredTarget && projectileHasFlag(projectile, "antiInfantry") ? 1.12 : 1;
+        const impactPenetration = projectile.penetration * (projectileHasFlag(projectile, "piercing") ? 1.18 : 1);
         const shooter = unitById(projectile.shooterId);
         if (shooter && target.role && shooter.id !== target.id && areAllies(shooter.faction, target.faction)) {
           recordRelationshipEvent(target, shooter, "friendlyFire", "was struck by friendly fire", { cooldown: 60, reciprocal: 0 });
@@ -7885,7 +7986,7 @@ import {
           const armor = buildingCatalog[target.type].military * 1.8 + 5;
           const penetrationChance = clamp(0.28 + (projectile.penetration - armor) / 24, 0.06, 0.96);
           const penetrated = battleRandom() < penetrationChance;
-          target.hp -= projectile.damage * (penetrated ? rand(0.72, 1.18) : 0.12);
+          target.hp -= projectile.damage * impactMultiplier * (penetrated ? rand(0.72, 1.18) : 0.12);
           target.condition = clamp(target.hp / target.maxHp, 0.04, 1);
           if (target.hp <= 0) destroyStructure(target, shooter);
           else if (target.hp < target.maxHp * 0.28 && !target.criticalReported) {
@@ -7903,14 +8004,23 @@ import {
 
         const zones = ["head", "chest", "chest", "leftArm", "rightArm", "leftLeg", "rightLeg"];
         const zone = zones[Math.floor(battleRandom() * zones.length)];
-        const armorHit = resolveArmorHit(target, projectile, battleRandom);
+        const armorHit = resolveArmorHit(target, { ...projectile, penetration: impactPenetration }, battleRandom);
         const penetrated = armorHit.result === "penetrated";
         const zoneMultiplier = zone === "head" ? 1.55 : zone === "chest" ? 1.15 : zone.includes("Leg") ? 0.82 : 0.72;
         const protection = (target.psychicBarrierUntil || 0) > state.time ? 0.75 : target.shieldWallActive ? 0.78 : 1;
-        const rawDamage = projectile.damage * zoneMultiplier * armorHit.multiplier * protection;
+        const rawDamage = projectile.damage * impactMultiplier * zoneMultiplier * armorHit.multiplier * protection;
         const resolvedDamage = absorbSpaceMarineDamage(target, rawDamage, state.time, { frontal: armorHit.facing === "front" });
         const damage = resolvedDamage.damage;
         target.hp -= damage;
+        if (projectileHasFlag(projectile, "incendiary")) {
+          target.burningRemaining = Math.max(target.burningRemaining || 0, projectileHasFlag(projectile, "persistent") ? 5 : 2.5);
+          target.burningDamagePerSecond = Math.max(target.burningDamagePerSecond || 0, projectile.damage * 0.08);
+        }
+        if (projectileHasFlag(projectile, "corrosive")) {
+          target.corrodedUntil = Math.max(target.corrodedUntil || 0, state.time + 7);
+          target.armorCorrosion = Math.max(target.armorCorrosion || 0, 0.18);
+        }
+        if (projectileHasFlag(projectile, "stun")) target.knockedDownRemaining = Math.max(target.knockedDownRemaining || 0, 1.8);
         target.bodyZones[zone] = clamp((target.bodyZones[zone] || 1) - damage / target.maxHp * 1.8, 0, 1);
         target.bleeding = clamp((target.bleeding || 0) + (penetrated ? damage / target.maxHp * 0.42 : 0.01), 0, 0.55);
         target.injuries += penetrated ? 1 : 0;
@@ -8007,7 +8117,7 @@ import {
       }
 
       function applyExplosion(projectile, directTarget) {
-        const radius = Number(projectile.splashRadius) || 0;
+        const radius = Number(projectile.splashRadius) || (projectileHasFlag(projectile, "chain") ? 28 : projectileHasFlag(projectile, "explosive") ? 6 : 0);
         if (radius <= 0) return;
         const units = nearbyCombatObjects(projectile, radius).units
           .filter(unit => unit.alive && unit.id !== directTarget?.id && !areAllies(unit.faction, projectile.faction)
@@ -9682,6 +9792,16 @@ import {
         }
         unit.fireCd -= dt;
         unit.healCd -= dt;
+        if ((unit.burningRemaining || 0) > 0) {
+          unit.burningRemaining = Math.max(0, unit.burningRemaining - dt);
+          unit.hp -= Math.max(0.5, unit.burningDamagePerSecond || 1) * dt;
+          unit.status = "Burning";
+          if (unit.hp <= 0) {
+            enterIncapacitated(unit, "persistent incendiary damage");
+            return;
+          }
+        } else unit.burningDamagePerSecond = 0;
+        unit.armorCorrosion = Math.max(0, (unit.armorCorrosion || 0) - dt * 0.025);
         unit.fatigue = clamp(unit.fatigue + dt * 0.0009, 0, 0.94);
         const litanySuppression = (unit.litanyUntil || 0) > state.time ? unit.litanySuppressionResistance || 0.2 : 0;
         const waaaghSuppression = unit.waaaghSuppressionResistance || 0;
@@ -11409,6 +11529,14 @@ import {
         Object.entries(costs).forEach(([key, value]) => { bay.inventory[key] -= value; });
         economy.availablePods -= 1;
         const destination = landing.point;
+        const dreadnoughtAvailable = state.structures.some(item => item.faction === player.id && item.type === "workshop" && item.progress >= 1 && item.alive !== false);
+        const payload = chooseDropPodPayload({
+          decisiveAssault: Boolean(player.forceState?.allIn || request.priority >= 90),
+          enemyCount: landing.enemyCount || 0,
+          fortificationCount: landing.enemyStructures || 0,
+          antiAirRisk: landing.antiAir || 0,
+          dreadnoughtAvailable
+        });
         state.dropPods.push({
           id: `drop-pod-${state.nextDropPodId++}`,
           faction: player.id,
@@ -11422,6 +11550,7 @@ import {
           landingOwnership: landing.ownership,
           landingThreats: landing.enemyCount || 0,
           antiAirRisk: landing.antiAir || 0,
+          payloadType: payload.id,
           x: destination.x,
           y: -40,
           deployed: false
@@ -12323,9 +12452,10 @@ import {
           if (pod.stage === "Deployed") {
             pod.deployed = true;
             const deployedUnits = [];
-            const podRoles = ["Intercessor", "Intercessor", "Assault Intercessor", "Hellblaster"];
+            const podRoles = pod.payloadType === DROP_POD_PAYLOADS.DREADNOUGHT.id
+              ? ["Dreadnought"] : ["Intercessor", "Intercessor", "Assault Intercessor", "Hellblaster"];
             for (const [index, specialty] of podRoles.entries()) {
-              const role = "trooper";
+              const role = specialty === "Dreadnought" ? "vehicle" : "trooper";
               const unit = makeUnit(pod.faction, role, {
                 method: "drop-pod",
                 sourceId: pod.id,
@@ -12335,6 +12465,10 @@ import {
               unit.specialty = specialty;
               unit.name = `${specialty} ${unit.index + 1}`;
               configureSpaceMarineUnit(unit, specialty);
+              if (role === "vehicle") {
+                unit.vehicleState = createVehicleState(unit);
+                unit.speed = unit.vehicleState.baseSpeed;
+              }
               const angle = index * Math.PI * 2 / podRoles.length;
               let landingPoint = { x: pod.destination.x + Math.cos(angle) * 14, y: pod.destination.y + Math.sin(angle) * 14 };
               for (let attempt = 0; attempt < 10; attempt += 1) {
@@ -12346,30 +12480,32 @@ import {
               state.units.push(unit);
               deployedUnits.push(unit);
             }
-            const leader = deployedUnits[0];
-            const squad = createSquad(pod.faction, leader, {
-              name: `Drop Pod squad ${state.nextSquadId}`,
-              templateId: "drop-pod-four",
-              nominalSize: 10,
-              astartesSquadClass: "line",
-              cohesionMode: "BATTLE_FORMATION",
-              formationActive: true,
-              formation: "defensive-ring",
-              reinforcementState: "4/10 Marines deployed by Drop Pod"
-            });
-            for (const unit of deployedUnits) unit.squadId = squad.id;
-            synchronizeAstartesSquad(squad, state.units);
+            if (pod.payloadType !== DROP_POD_PAYLOADS.DREADNOUGHT.id) {
+              const leader = deployedUnits[0];
+              const squad = createSquad(pod.faction, leader, {
+                name: `Drop Pod squad ${state.nextSquadId}`,
+                templateId: "drop-pod-four",
+                nominalSize: 10,
+                astartesSquadClass: "line",
+                cohesionMode: "BATTLE_FORMATION",
+                formationActive: true,
+                formation: "defensive-ring",
+                reinforcementState: "4/10 Marines deployed by Drop Pod"
+              });
+              for (const unit of deployedUnits) unit.squadId = squad.id;
+              synchronizeAstartesSquad(squad, state.units);
+            }
             pod.deployedUnitIds = deployedUnits.map(unit => unit.id);
             pod.deployedUnitCount = deployedUnits.length;
             state.factionLearning[pod.faction]?.observe("drop-pod-result", {
               zone: pod.targetCellKey || "battlefield",
               targetType: pod.targetType || "objective",
-              success: deployedUnits.length === 4 && Number(pod.landingScore) >= Number(pod.minimumLandingScore),
+              success: deployedUnits.length === (pod.payloadType === DROP_POD_PAYLOADS.DREADNOUGHT.id ? 1 : 4) && Number(pod.landingScore) >= Number(pod.minimumLandingScore),
               magnitude: clamp((Number(pod.landingScore) || 0) / Math.max(1, Number(pod.minimumLandingScore) || 1), 0.25, 2)
             }, { visible: true, observedAt: state.time });
             const request = economyFor(pod.faction).queue.find(item => item.id === pod.requestId);
             if (request) request.status = "Delivered";
-            incident(`${playerFor(pod.faction).faction} drop pod impacted; four Marines deployed.`, null, "info");
+            incident(`${playerFor(pod.faction).faction} drop pod impacted; ${pod.payloadType === DROP_POD_PAYLOADS.DREADNOUGHT.id ? "one Dreadnought" : "four Marines"} deployed.`, null, "info");
             state.unitSelectDirty = true;
           }
         }
@@ -13211,6 +13347,7 @@ import {
               for (const b of bucket.units) {
                 if (!b.alive || b.embarkedInId) continue;
                 if (b.separationIndex <= a.separationIndex) continue;
+                if (!shouldSeparateUnits(a, b)) continue;
                 const dx = b.x - a.x;
                 const dy = b.y - a.y;
                 const d = Math.hypot(dx, dy) || 0.01;
@@ -15265,7 +15402,7 @@ import {
           }
           ctx.rotate((unit.index % 2 ? 1 : -1) * deathProgress * 0.42);
           ctx.scale(1 + deathProgress * 0.18, 1 - deathProgress * 0.3);
-          const forgedBody = unitSpriteForge?.draw(ctx, { ...unit, alive: false }, { primary: color, secondary, accent: playerAccentColor(unit.faction) }, currentSnapshot()?.t ?? state.time);
+          const forgedBody = unitSpriteForge?.draw(ctx, { ...unit, alive: false }, { primary: color, secondary, tertiary: playerAccentColor(unit.faction), body: playerBodyColor(unit.faction) }, currentSnapshot()?.t ?? state.time);
           if (forgedBody) {
             ctx.fillStyle = colors.danger;
             ctx.globalAlpha = fade * 0.55;
@@ -15326,7 +15463,7 @@ import {
         ctx.fillStyle = color;
         ctx.strokeStyle = color;
         ctx.globalAlpha = 0.96;
-        const forgedSprite = unitSpriteForge?.draw(ctx, unit, { primary: color, secondary, accent: playerAccentColor(unit.faction) }, currentSnapshot()?.t ?? state.time);
+        const forgedSprite = unitSpriteForge?.draw(ctx, unit, { primary: color, secondary, tertiary: playerAccentColor(unit.faction), body: playerBodyColor(unit.faction) }, currentSnapshot()?.t ?? state.time);
         if (!forgedSprite && unit.role === "builder") {
           ctx.lineWidth = 2;
           ctx.beginPath();
@@ -15394,7 +15531,7 @@ import {
         if (state.camera.zoom < 0.15) return;
         if (state.replay) return;
         const cellWidth = projectileAtlasReady ? projectileAtlas.naturalWidth / PROJECTILE_ATLAS_COLUMNS : 0;
-        const cellHeight = projectileAtlasReady ? projectileAtlas.naturalHeight / 24 : 0;
+        const cellHeight = projectileAtlasReady ? projectileAtlas.naturalHeight / PROJECTILE_ATLAS_ROW_COUNT : 0;
         for (const projectile of state.projectiles) {
           if (!objectVisibleToFog(projectile)) continue;
           if (!pointVisible(projectile, 48) && !pointVisible({ x: projectile.previousX ?? projectile.x, y: projectile.previousY ?? projectile.y }, 48)) continue;
@@ -15411,7 +15548,7 @@ import {
           }
           if (projectileAtlasReady) {
             const frame = Math.floor((projectile.age || 0) * (projectile.visualFrameRate || 18)) % PROJECTILE_ATLAS_COLUMNS;
-            const row = clamp(Math.floor(projectile.visualRow || 0), 0, 23);
+            const row = clamp(Math.floor(projectile.visualRow || 0), 0, PROJECTILE_ATLAS_ROW_COUNT - 1);
             const size = clamp(5 + Math.sqrt(Math.max(1, projectile.damage || 1)) * 0.8, 6, 17) * (projectile.visualScale || 1);
             ctx.save();
             ctx.translate(projectile.x, projectile.y - arcOffset);
@@ -15427,7 +15564,7 @@ import {
           const alpha = clamp(1 - progress, 0, 1);
           if (projectileAtlasReady) {
             const size = (8 + progress * 10) * (impact.visualScale || 1);
-            const row = clamp(Math.floor(impact.visualRow || 0), 0, 23);
+            const row = clamp(Math.floor(impact.visualRow || 0), 0, PROJECTILE_ATLAS_ROW_COUNT - 1);
             ctx.globalAlpha = alpha;
             ctx.drawImage(projectileAtlas, 5 * cellWidth, row * cellHeight, cellWidth, cellHeight, impact.x - size / 2, impact.y - size / 2, size, size);
           } else {
@@ -16991,6 +17128,8 @@ import {
             battleObjective: normalizeBattleObjectiveId(player.battleObjective),
             color: player.color,
             secondaryColor: player.secondaryColor,
+            tertiaryColor: player.tertiaryColor,
+            bodyColor: player.bodyColor,
             pattern: player.pattern,
             base: { x: player.base.x * scaleX, y: player.base.y * scaleY },
             spawnZone: player.spawnZone ? {
@@ -17146,6 +17285,8 @@ import {
         delete player.dynamicAIBehavior;
         player.color = els.playerColor.value;
         player.secondaryColor = els.playerSecondaryColor.value;
+        player.tertiaryColor = els.playerTertiaryColor.value;
+        player.bodyColor = els.playerBodyColor.value;
         player.pattern = els.playerPattern.value;
       }
 
@@ -17160,6 +17301,10 @@ import {
         els.playerColorValue.textContent = defaults.primary.toUpperCase();
         els.playerSecondaryColor.value = defaults.secondary;
         els.playerSecondaryColorValue.textContent = defaults.secondary.toUpperCase();
+        els.playerTertiaryColor.value = defaults.accent || defaults.secondary;
+        els.playerTertiaryColorValue.textContent = els.playerTertiaryColor.value.toUpperCase();
+        els.playerBodyColor.value = defaults.body || defaults.primary;
+        els.playerBodyColorValue.textContent = els.playerBodyColor.value.toUpperCase();
         els.playerPattern.value = defaults.pattern;
       }
 
@@ -17222,6 +17367,12 @@ import {
         els.playerColorValue.textContent = player.color.toUpperCase();
         els.playerSecondaryColor.value = player.secondaryColor;
         els.playerSecondaryColorValue.textContent = player.secondaryColor.toUpperCase();
+        player.tertiaryColor ||= playerAccentColor(player.id);
+        player.bodyColor ||= player.color;
+        els.playerTertiaryColor.value = player.tertiaryColor;
+        els.playerTertiaryColorValue.textContent = player.tertiaryColor.toUpperCase();
+        els.playerBodyColor.value = player.bodyColor;
+        els.playerBodyColorValue.textContent = player.bodyColor.toUpperCase();
         els.playerPattern.value = player.pattern;
         const count = Number(els.playerCountSelect.value);
         for (const button of root.querySelectorAll("[data-player-tab]")) {
@@ -19069,6 +19220,18 @@ import {
         rebuildEconomicNodeSelect();
         loadEconomicNodeForm();
         els.editorTip.textContent = "Economic landmark created · configure it, then click the map to place it.";
+        draw();
+      });
+      els.playerTertiaryColor.addEventListener("input", () => {
+        els.playerTertiaryColorValue.textContent = els.playerTertiaryColor.value.toUpperCase();
+        saveActivePlayerForm();
+        drawSpritePreview();
+        draw();
+      });
+      els.playerBodyColor.addEventListener("input", () => {
+        els.playerBodyColorValue.textContent = els.playerBodyColor.value.toUpperCase();
+        saveActivePlayerForm();
+        drawSpritePreview();
         draw();
       });
       root.querySelector("#awt-duplicate-economic-node").addEventListener("click", () => {

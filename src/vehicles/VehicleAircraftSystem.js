@@ -67,7 +67,7 @@ export function updateVehicleState(state, dt, { moving = false, firing = false, 
   const fuelBurn = moving && performance.operational ? dt * (0.22 + state.currentSpeed * 0.008) : dt * 0.015;
   state.fuel = Math.max(0, state.fuel - fuelBurn);
   if (firing && state.ammunition > 0 && performance.weaponFactor > 0.12) state.ammunition = Math.max(0, state.ammunition - dt * 0.5);
-  const desiredSpeed = moving && performance.operational ? performance.speedFactor : 0;
+  const desiredSpeed = moving && performance.operational ? state.baseSpeed * performance.speedFactor : 0;
   state.currentSpeed += (desiredSpeed - state.currentSpeed) * Math.min(1, dt * (desiredSpeed > state.currentSpeed ? 1.6 : 2.4));
   state.state = !performance.operational ? "destroyed" : performance.immobilized ? "immobilized" : state.fuel <= 0 ? "out-of-fuel" : moving ? "moving" : firing ? "firing" : "idle";
   return { ...performance, state: state.state, fuelRatio: state.fuel / Math.max(1, state.maxFuel), ammoRatio: state.ammunition / Math.max(1, state.maxAmmunition) };
@@ -81,6 +81,30 @@ export function boardTransport(vehicleState, passenger) {
   return true;
 }
 
+export function reserveTransportForSquad(vehicleState, squadId, memberIds = [], now = 0) {
+  if (!vehicleState || vehicleState.state === "destroyed" || vehicleState.phase === "crashed" || vehicleState.passengerCapacity <= 0 || !squadId) return false;
+  if (vehicleState.transportReservation?.squadId && vehicleState.transportReservation.squadId !== squadId) return false;
+  vehicleState.transportReservation = {
+    squadId,
+    memberIds: [...new Set(memberIds)].slice(0, vehicleState.passengerCapacity),
+    createdAt: vehicleState.transportReservation?.createdAt ?? now,
+    expiresAt: now + 18
+  };
+  return true;
+}
+
+export function transportReadyToDeploy(vehicleState, now = 0, { minimumLoadRatio = 0.6, maximumWait = 8 } = {}) {
+  const reservation = vehicleState?.transportReservation;
+  if (!reservation) return vehicleState?.passengerIds?.length > 0;
+  const desired = Math.max(1, Math.min(vehicleState.passengerCapacity, reservation.memberIds.length));
+  const loaded = vehicleState.passengerIds.length;
+  return loaded >= desired || loaded / desired >= minimumLoadRatio || (loaded > 0 && now - reservation.createdAt >= maximumWait);
+}
+
+export function clearTransportReservation(vehicleState) {
+  if (vehicleState) vehicleState.transportReservation = null;
+}
+
 export function disembarkTransport(vehicleState, passengers, position = { x: 0, y: 0 }) {
   const ids = new Set(vehicleState.passengerIds);
   const deployed = passengers.filter(passenger => ids.has(passenger.id));
@@ -90,6 +114,7 @@ export function disembarkTransport(vehicleState, passengers, position = { x: 0, 
     passenger.y = position.y + Math.sin(index * 2.4) * (12 + index * 2);
   });
   vehicleState.passengerIds = [];
+  vehicleState.transportReservation = null;
   return deployed;
 }
 

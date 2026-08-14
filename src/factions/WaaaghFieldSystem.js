@@ -31,6 +31,12 @@ export function isBuiltWaaaghBanner(structure = {}, player = {}) {
     && (structure.type === "waaaghbanner" || /waa+gh.*banner/i.test(structure.displayName || ""));
 }
 
+export function desiredWaaaghBannerCount(fighterCount = 0, { majorAssault = false, recentlyDestroyed = false } = {}) {
+  const fighters = Math.max(0, Number(fighterCount) || 0);
+  const baseline = fighters >= 80 ? 3 : fighters >= 45 ? 2 : fighters >= 20 ? 1 : 0;
+  return Math.min(4, baseline + (majorAssault && fighters >= 35 ? 1 : 0) + (recentlyDestroyed ? 1 : 0));
+}
+
 export function waaaghBannerAnchors(player = {}, units = [], structures = []) {
   return [
     ...units.filter(unit => unit.faction === player.id && isMobileWaaaghBanner(unit)).map(unit => ({ ...unit, source: "mobile", radius: WAAAGH_RULES.mobileRadius })),

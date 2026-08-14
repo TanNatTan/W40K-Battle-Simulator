@@ -1,4 +1,5 @@
 import { orkSpriteForge } from "./ork-sprite-forge.js";
+import { drawMarineInfantry, hasMarineInfantryModel } from "../../src/rendering/MarineInfantryRenderer.js";
 
 const modules = globalThis.AWTModules ||= {};
 
@@ -166,13 +167,15 @@ export const unitSpriteForge = Object.freeze({
       const name = stripSerial(unit.name);
       if (orkSpriteForge.hasUnit(name)) return orkSpriteForge.drawUnit(ctx, unit, time);
       const palette = {
-        primary: colors.primary, secondary: colors.secondary, accent: colors.accent || "#7ee5ff",
+        primary: colors.primary, secondary: colors.secondary, tertiary: colors.tertiary || colors.accent || "#7ee5ff",
+        body: colors.body || colors.primary, accent: colors.tertiary || colors.accent || "#7ee5ff",
         trim: colorMix(colors.primary, "#ffffff", 0.42), dark: colorMix(colors.primary, "#101218", 0.72), metal: "#abb4bc"
       };
       ctx.save();
       if (unit.alive === false || unit.incapacitated) { ctx.rotate(Math.PI / 2); ctx.globalAlpha *= unit.alive === false ? 0.45 : 0.72; }
       let drawn = false;
-      if (marineProfiles[name]) drawn = drawMarine(ctx, marineProfiles[name], palette, unit, time);
+      if (hasMarineInfantryModel(unit)) drawn = drawMarineInfantry(ctx, unit, palette, time);
+      else if (marineProfiles[name]) drawn = drawMarine(ctx, marineProfiles[name], palette, unit, time);
       else if (guardProfiles[name]) drawn = drawGuard(ctx, guardProfiles[name], palette, unit, time);
       else if (/Ork|Boy|Nob|Gretchin|Grot|Mek|Warboss|Runtherd|Kommando|Painboy|Trukk|Battlewagon|Dread|Kan|Wagon|Scrapjet|Squigbuggy|Dakkajet/.test(name)) drawn = drawOrk(ctx, unit, palette, time);
       ctx.restore();

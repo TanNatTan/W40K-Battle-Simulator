@@ -132,6 +132,26 @@ export function formationLocalPosition(formation, index, count, member = {}, gro
   return { x: centered * 12, y: 0 };
 }
 
+export function resolveFormationSlot(desired = {}, { unit = {}, isWalkable = () => true, searchRings = 10, step = 8 } = {}) {
+  if (isWalkable(desired, unit)) return Object.freeze({ position: { x: desired.x, y: desired.y }, available: true, displaced: 0 });
+  for (let ring = 1; ring <= searchRings; ring += 1) {
+    const samples = Math.max(8, ring * 8);
+    for (let index = 0; index < samples; index += 1) {
+      const angle = index / samples * Math.PI * 2;
+      const candidate = { x: desired.x + Math.cos(angle) * ring * step, y: desired.y + Math.sin(angle) * ring * step };
+      if (isWalkable(candidate, unit)) return Object.freeze({ position: candidate, available: true, displaced: ring * step });
+    }
+  }
+  return Object.freeze({ position: { x: unit.x ?? desired.x, y: unit.y ?? desired.y }, available: false, displaced: Infinity });
+}
+
+export function degradedFormationFor(formation, unavailableSlots = 0, totalSlots = 1) {
+  if (Math.max(0, unavailableSlots) / Math.max(1, totalSlots) < 0.3) return formation;
+  if (["line", "wedge", "triangle", "flanking"].includes(formation)) return "staggered";
+  if (["staggered", "circle", "defensive-ring", "escort"].includes(formation)) return "column";
+  return formation;
+}
+
 export function scoreFormationOptions({ members = [], terrain = {}, threat = {}, objective = {}, doctrine = "Balanced", nearbyRoad = false, regrouping = false, protectedAsset = false } = {}) {
   const count = Math.max(1, members.length);
   const rangedRatio = members.filter(member => member.role === "vehicle" || /rifle|bolter|plasma|melta|launcher|mortar|cannon|gun/.test(weaponText(member))).length / count;

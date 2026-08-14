@@ -64,7 +64,7 @@ test("runtime keeps a locked military queue, excludes builders, and uses the rea
   assert.match(source, /const marineSquadClass = player\.faction === "Space Marines"/);
   assert.match(source, /reinforcementWaveSize\(\{/);
   assert.match(source, /selectIncompleteAstartesSquad/);
-  assert.match(source, /const podRoles = \["Intercessor", "Intercessor", "Assault Intercessor", "Hellblaster"\]/);
+  assert.match(source, /\["Dreadnought"\] : \["Intercessor", "Intercessor", "Assault Intercessor", "Hellblaster"\]/);
   assert.match(source, /pod\.deployedUnitCount = deployedUnits\.length/);
   assert.match(source, /unit\.alive && !unit\.incapacitated && unit\.faction === player\.id/);
   assert.doesNotMatch(source, /const unitCap = desiredFieldStrengthFor\(player\);/);

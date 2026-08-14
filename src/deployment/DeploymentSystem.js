@@ -13,6 +13,28 @@ export const FACTION_DEPLOYMENT_DEFAULTS = Object.freeze({
   Tyranids: Object.freeze(["biological-spawning", "underground-emergence", "aircraft-landing"])
 });
 
+export const DROP_POD_PAYLOADS = Object.freeze({
+  INFANTRY_FIRETEAM: Object.freeze({ id: "INFANTRY_FIRETEAM", infantrySlots: 4, dreadnoughtSlots: 0 }),
+  DREADNOUGHT: Object.freeze({ id: "DREADNOUGHT", infantrySlots: 0, dreadnoughtSlots: 1 })
+});
+
+export function dropPodPayloadSlots(payload = DROP_POD_PAYLOADS.INFANTRY_FIRETEAM) {
+  return Object.freeze({ infantry: payload.infantrySlots || 0, dreadnoughts: payload.dreadnoughtSlots || 0 });
+}
+
+export function chooseDropPodPayload({ decisiveAssault = false, enemyCount = 0, fortificationCount = 0, antiAirRisk = 0, dreadnoughtAvailable = false } = {}) {
+  const armorRequired = decisiveAssault || Number(fortificationCount) >= 2 || Number(enemyCount) >= 7;
+  return dreadnoughtAvailable && armorRequired && Number(antiAirRisk) <= 2.5
+    ? DROP_POD_PAYLOADS.DREADNOUGHT : DROP_POD_PAYLOADS.INFANTRY_FIRETEAM;
+}
+
+export function canLoadDropPod(payload = DROP_POD_PAYLOADS.INFANTRY_FIRETEAM, units = []) {
+  const slots = dropPodPayloadSlots(payload);
+  const dreadnoughts = units.filter(unit => /dreadnought/i.test(`${unit.name || ""} ${unit.specialty || ""}`)).length;
+  const infantry = units.filter(unit => unit.role !== "vehicle" && !/dreadnought/i.test(`${unit.name || ""} ${unit.specialty || ""}`)).length;
+  return dreadnoughts <= slots.dreadnoughts && infantry <= slots.infantry && dreadnoughts + infantry > 0;
+}
+
 export function deploymentDefaultsFor({ faction = "", race = "" } = {}) {
   return FACTION_DEPLOYMENT_DEFAULTS[faction] || FACTION_DEPLOYMENT_DEFAULTS[race] || Object.freeze(["ground-deployment"]);
 }

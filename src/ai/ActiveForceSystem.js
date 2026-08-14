@@ -20,7 +20,7 @@ export const PASSIVE_FORCE_ROLES = Object.freeze(new Set([
   "ambush"
 ]));
 
-export function desiredActiveForceRatio(player = {}, behavior = {}) {
+export function desiredActiveForceRatio(player = {}, behavior = {}, { enemyKnown = false } = {}) {
   let ratio = 0.58
     + (behaviorScore(behavior.aggression) - 50) * 0.0035
     + (behaviorScore(behavior.expansion) - 50) * 0.003;
@@ -28,7 +28,8 @@ export function desiredActiveForceRatio(player = {}, behavior = {}) {
   if (/imperial fists|nihilakh|guardian web|tomb watch/.test(subfaction)) ratio -= 0.07;
   if (/speed freeks|white scars|kraken|hydra|world eaters|vior'la/.test(subfaction)) ratio += 0.08;
   if (/raven guard|alpha legion|lictors?|recon swarm/.test(subfaction)) ratio += 0.04;
-  return clamp(ratio, 0.5, 0.82);
+  if (player.faction === "Space Marines" && enemyKnown) ratio = Math.max(0.75, ratio + 0.08);
+  return clamp(ratio, 0.5, player.faction === "Space Marines" && enemyKnown ? 0.9 : 0.82);
 }
 
 function preferredActiveRole(player = {}, behavior = {}) {
@@ -46,11 +47,12 @@ export function enforceActiveForceRatio({
   assignments = new Map(),
   baseThreat = 0,
   preserveBaseDefense = 1,
-  preserveEconomyDefense = 0
+  preserveEconomyDefense = 0,
+  enemyKnown = false
 } = {}) {
   const result = new Map(assignments);
   const ready = squads.filter(squad => (Number(squad.readiness) || 0) >= 0.3);
-  const ratio = desiredActiveForceRatio(player, behavior);
+  const ratio = desiredActiveForceRatio(player, behavior, { enemyKnown });
   const required = Math.min(ready.length, Math.ceil(ready.length * ratio));
   if (Number(baseThreat) >= 0.65 || ready.length < 2) {
     return { assignments: result, ratio, required, active: ready.filter(squad => ACTIVE_FORCE_ROLES.has(result.get(squad.id) || squad.primaryRole)).length, converted: [] };

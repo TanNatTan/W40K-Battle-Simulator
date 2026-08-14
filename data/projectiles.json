@@ -1,0 +1,22 @@
+{
+  "version": 2,
+  "engineClassCount": 15,
+  "behaviorFlags": ["piercing", "explosive", "guided", "incendiary", "corrosive", "chain", "stun", "suppression", "antiArmor", "antiInfantry", "indirect", "persistent", "stealthy", "ricochet", "proximityFuse"],
+  "classes": {
+    "BALLISTIC": { "speed": 245, "flags": { "ricochet": true } },
+    "BOLT": { "speed": 285, "flags": { "explosive": true, "suppression": true, "antiInfantry": true } },
+    "PELLET": { "speed": 220, "flags": { "antiInfantry": true } },
+    "BEAM": { "speed": 1800, "flags": { "piercing": true } },
+    "ENERGY_BOLT": { "speed": 330, "flags": {} },
+    "PLASMA": { "speed": 245, "flags": { "explosive": true, "antiArmor": true } },
+    "MELTA": { "speed": 1800, "flags": { "piercing": true, "antiArmor": true } },
+    "FLAME": { "speed": 150, "flags": { "incendiary": true, "persistent": true, "antiInfantry": true } },
+    "ROCKET": { "speed": 250, "flags": { "explosive": true, "antiArmor": true } },
+    "HOMING_MISSILE": { "speed": 270, "flags": { "guided": true, "explosive": true, "proximityFuse": true } },
+    "GRENADE": { "speed": 150, "flags": { "explosive": true, "indirect": true } },
+    "MORTAR": { "speed": 135, "flags": { "explosive": true, "indirect": true, "suppression": true } },
+    "ARTILLERY": { "speed": 170, "flags": { "explosive": true, "indirect": true, "suppression": true } },
+    "HEAVY_SHELL": { "speed": 390, "flags": { "piercing": true, "antiArmor": true, "ricochet": true } },
+    "BIO_PROJECTILE": { "speed": 190, "flags": { "corrosive": true, "antiInfantry": true } }
+  }
+}

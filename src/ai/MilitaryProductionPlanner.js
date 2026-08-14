@@ -1,5 +1,7 @@
 import { subfactionProductionPlanFor } from "./SubfactionProductionPlans.js";
 import { chapterAllowsUnit, chapterForceStructureProfileFor } from "./space-marines/ChapterForceStructureProfile.js";
+import { spaceMarineCommandRequirements } from "./space-marines/SpaceMarineForceComposition.js";
+import { desiredWaaaghBannerCount } from "../factions/WaaaghFieldSystem.js";
 
 const normalize = value => String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, "-");
 
@@ -131,6 +133,14 @@ export function scoreProductionCandidate(member, { player = {}, plan, demand = {
   const captureSupport = player.faction === "Space Marines" && captureSpecialist && sameCaptureSpecialist < 2
     ? /skull probe/i.test(member.name || "") && sameCaptureSpecialist === 0 ? 800 : 92 - sameCaptureSpecialist * 40 : 0;
   const marineInfantry = summary.marineInfantry;
+  const commandRequirements = player.faction === "Space Marines" ? spaceMarineCommandRequirements(marineInfantry) : {};
+  const commandRequirement = Object.entries(commandRequirements).find(([name]) => normalize(member.name).includes(normalize(name)))?.[1] || 0;
+  const commandPresencePriority = commandRequirement > sameName ? 560 + (commandRequirement - sameName) * 70 : 0;
+  const mobileBannerCandidate = player.race === "Orks" && /waa+gh.*banner|banner.*nob/i.test(member.name || "");
+  const mobileBannerCount = summary.living.filter(unit => /waa+gh.*banner|banner.*nob/i.test(`${unit.name || ""} ${unit.specialty || ""}`)).length;
+  const mobileBannerTarget = player.race === "Orks" ? desiredWaaaghBannerCount(summary.livingCombat, { majorAssault: Boolean(player.forceState?.allIn) }) : 0;
+  const mobileBannerPriority = mobileBannerCandidate && mobileBannerCount < mobileBannerTarget
+    ? 420 + (mobileBannerTarget - mobileBannerCount) * 75 : mobileBannerCandidate && mobileBannerCount >= mobileBannerTarget ? -260 : 0;
   const marineInfantryFloor = Math.min(120, Math.max(20, Math.floor((Number(player.forceState?.reinforcementCapacity) || 36) * 0.6)));
   const lineGrowth = player.faction === "Space Marines" && marineInfantry < marineInfantryFloor
     ? member.role === "trooper" || /scout marine/i.test(member.name || "")
@@ -162,10 +172,10 @@ export function scoreProductionCandidate(member, { player = {}, plan, demand = {
   const mobilizationVehicleBudget = member.role === "vehicle" && summary.livingCombat >= 24 && summary.livingVehicles < 4
     ? 360 + (4 - summary.livingVehicles) * 45 : 0;
   return Object.freeze({ member, tags, producerTypes: producers, facilityAvailable,
-    score: doctrine + battlefield + captureSupport + lineGrowth + marineSpecialist + chapterDoctrine + specialistDoctrine + vehicleBudget + mobilizationVehicleBudget
+    score: doctrine + battlefield + captureSupport + lineGrowth + marineSpecialist + chapterDoctrine + specialistDoctrine + vehicleBudget + mobilizationVehicleBudget + mobileBannerPriority + commandPresencePriority
       - chapterForbidden - cappedCharacter - oversaturation - (facilityAvailable ? 0 : 160),
     doctrine, battlefield, captureSupport, lineGrowth, marineSpecialist, chapterDoctrine, specialistDoctrine, vehicleBudget, mobilizationVehicleBudget,
-    chapterForbidden, cappedCharacter, oversaturation });
+    mobileBannerPriority, commandPresencePriority, chapterForbidden, cappedCharacter, oversaturation });
 }
 
 export function chooseMilitaryProduction({ player = {}, roster = {}, demand = {}, ownUnits = [], availableProducerTypes = [], sequence = 0 } = {}) {
@@ -182,5 +192,7 @@ export function chooseMilitaryProduction({ player = {}, roster = {}, demand = {}
       battlefield: selected.battlefield, captureSupport: selected.captureSupport, lineGrowth: selected.lineGrowth,
       marineSpecialist: selected.marineSpecialist, chapterDoctrine: selected.chapterDoctrine, specialistDoctrine: selected.specialistDoctrine, vehicleBudget: selected.vehicleBudget,
       mobilizationVehicleBudget: selected.mobilizationVehicleBudget,
+      mobileBannerPriority: selected.mobileBannerPriority,
+      commandPresencePriority: selected.commandPresencePriority,
       chapterForbidden: selected.chapterForbidden, cappedCharacter: selected.cappedCharacter, oversaturation: selected.oversaturation }) });
 }
