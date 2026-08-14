@@ -104,3 +104,14 @@ test("Astartes command presence and Ork Waaagh banner demand scale with real for
   assert.equal(desiredWaaaghBannerCount(80), 3);
   assert.equal(desiredWaaaghBannerCount(80, { majorAssault: true }), 4);
 });
+
+test("Ork construction resolves behavior before calculating Waaagh banner demand", () => {
+  const source = readFileSync(new URL("../js/app.js", import.meta.url), "utf8");
+  const chooseBuilding = source.slice(source.indexOf("function chooseBuilding"), source.indexOf("function constructionAllowedAt"));
+  const behaviorDeclaration = chooseBuilding.indexOf("const behavior = aiBehaviorFor(player);");
+  const bannerDemand = chooseBuilding.indexOf("waaaghbanner: player.race === \"Orks\"");
+  assert.ok(behaviorDeclaration >= 0, "construction behavior profile is declared");
+  assert.ok(bannerDemand >= 0, "Waaagh banner demand is calculated");
+  assert.ok(behaviorDeclaration < bannerDemand, "behavior exists before banner demand reads aggression");
+  assert.match(source, /if \(resuming\) \{[\s\S]*?state\.lastFrameFailure = null;[\s\S]*?root\.dataset\.runtimeError = \"\";/);
+});

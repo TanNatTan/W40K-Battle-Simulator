@@ -4470,6 +4470,11 @@ import {
         const constructionBranch = productionDoctrine ? planConstructionRoles(productionDoctrine).map(buildingTypeForOperationalRole).filter(type => buildingCatalog[type]) : [];
         const demand = productionDemandFor(player);
         const strategicDirector = refreshStrategicDirector(player, demand);
+        // Waaagh banner demand is part of the desired-building snapshot below,
+        // so the live behavior profile must exist before that object is built.
+        // Keeping this declaration below `desired` caused Ork construction
+        // ticks to hit the temporal dead zone and safety-pause every retry.
+        const behavior = aiBehaviorFor(player);
         const capacitySnapshot = economyCapacity(faction);
         const activeCapacityRatios = economy.activeResources.map(resource => (economy.inventory[resource] || 0) / Math.max(1, capacitySnapshot[resource] || 1));
         const resourceSurplus = activeCapacityRatios.length ? activeCapacityRatios.reduce((sum, value) => sum + Math.min(1, value), 0) / activeCapacityRatios.length : 0;
@@ -4581,7 +4586,6 @@ import {
           warehouse: (growth.support || 0) * 16,
           signature: ((growth.heavy || 0) + (growth.support || 0)) * 14
         };
-        const behavior = aiBehaviorFor(player);
         const completedRoleSnapshot = new Set(state.structures.filter(item => item.faction === faction && item.progress >= 1 && item.alive !== false)
           .map(item => operationalRoleForBuildingType(item.type)).filter(Boolean));
         const doctrineEligibleTypes = new Set([
@@ -16611,6 +16615,11 @@ import {
         } else {
           els.pause.disabled = false;
           els.pause.innerHTML = `<i data-lucide="${state.paused ? "play" : "pause"}" aria-hidden="true"></i>${state.paused ? "Resume" : "Pause"}`;
+          if (state.paused && state.lastFrameFailure) {
+            els.pause.title = `Simulation paused after a ${state.lastFrameFailure.phase} error. Resume retries the simulation.`;
+          } else {
+            els.pause.removeAttribute("title");
+          }
         }
         if (window.lucide) lucide.createIcons({ attrs: { width: 16, height: 16 } });
       }
@@ -19382,7 +19391,16 @@ import {
           state.replayIndex = Math.max(0, state.snapshots.length - 1);
           els.timeline.value = String(state.replayIndex);
         }
+        const resuming = state.paused;
         state.paused = !state.paused;
+        if (resuming) {
+          // A fault is retained in the incident/history counters, but it must
+          // not leave the runtime marked as broken after a successful retry.
+          state.lastFrameFailure = null;
+          root.dataset.runtimeError = "";
+          state.simulationAccumulator = 0;
+          state.lastSuccessfulSimulationAt = performance.now();
+        }
         state.lastFrame = performance.now();
         updatePauseButton();
       });

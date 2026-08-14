@@ -328,7 +328,8 @@ try {
       paused: root.awtDebugState.paused,
       frames: Number(root.dataset.frameCount || 0),
       failures: Number(root.dataset.frameFailures || 0),
-      failurePhase: root.awtDebugState.lastFrameFailure?.phase || null
+      failurePhase: root.awtDebugState.lastFrameFailure?.phase || null,
+      error: root.dataset.runtimeError || null
     };
   })()`);
   const runningStart = await sampleLifecycle();
@@ -569,7 +570,15 @@ try {
   if (!faultEnd.paused || faultEnd.failures !== faultStart.failures + 1 || faultEnd.failurePhase !== "simulation" || faultEnd.frames <= faultStart.frames) {
     throw new Error(`Frame failure boundary failed: ${JSON.stringify({ faultStart, faultEnd })}`);
   }
-  const lifecycle = { runningStart, runningEnd, pausedStart, pausedEnd, resumedStart, resumedEnd, faultStart, faultEnd };
+  await evaluate("document.querySelector('#awt-pause-button').click()");
+  const retryStart = await sampleLifecycle();
+  await new Promise(resolve => setTimeout(resolve, 700));
+  const retryEnd = await sampleLifecycle();
+  if (retryEnd.paused || retryEnd.time <= retryStart.time || retryEnd.frames <= retryStart.frames
+    || retryEnd.failurePhase || retryEnd.error) {
+    throw new Error(`Resume after a simulation fault failed: ${JSON.stringify({ retryStart, retryEnd })}`);
+  }
+  const lifecycle = { runningStart, runningEnd, pausedStart, pausedEnd, resumedStart, resumedEnd, faultStart, faultEnd, retryStart, retryEnd };
 
   console.log(JSON.stringify({ startup, playerSetup, editor: { ...editor, cameraAfter, terrainVisibilityProbe }, simulation, spawnRelocationProbe, combatBehaviorProbe, builderHealth, repairProbe, carrierHarvestProbe, squadRoleProbe, phase20to23, replayTransport: { replayBefore, replayAfter, liveAfterReplay }, lifecycle }, null, 2));
 } finally {
