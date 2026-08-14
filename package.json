@@ -10,6 +10,10 @@
     "smoke": "node scripts/browser-smoke.mjs",
     "stress:12p": "node scripts/stress-12-player.mjs",
     "stress:12p:full": "node scripts/stress-12-player.mjs --speed=4 --spawn-radius=160 --full-roster",
+    "test:economy:endurance": "node scripts/economy-endurance.mjs",
+    "test:2v2:soak": "node scripts/performance-2v2-soak.mjs",
+    "test:2v2:quick": "node scripts/performance-2v2-soak.mjs --quick",
+    "test:chapter-evolution": "node scripts/chapter-ai-evolution.mjs",
     "test": "node --test"
   }
 }

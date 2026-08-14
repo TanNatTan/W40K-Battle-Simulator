@@ -8,7 +8,7 @@ function profileFor(player, doctrines) {
   return doctrines?.chapters?.[key] || doctrines?.chapters?.ultramarines || {};
 }
 
-export function scoreWeapon({ weapon, chapter = {}, squadRole = "offensive", enemyIntel = {}, economy = {}, duplicateCount = 0 } = {}) {
+export function scoreWeapon({ weapon, chapter = {}, squadRole = "offensive", enemyIntel = {}, economy = {}, duplicateCount = 0, learnedAdjustment = 0 } = {}) {
   const tags = new Set(weapon.tags || []);
   const chapterPreference = Number(chapter.preferences?.[weapon.id]) || 0;
   const rolePreference = Number(weapon.roles?.[squadRole]) || 0;
@@ -16,11 +16,11 @@ export function scoreWeapon({ weapon, chapter = {}, squadRole = "offensive", ene
     + (tags.has("anti-horde") ? clamp01(enemyIntel.horde) : 0)
     + (tags.has("precision") ? clamp01(enemyIntel.commanders) : 0);
   const ammoRatio = clamp01((economy.inventory?.ammunition || 0) / Math.max(1, economy.capacity?.ammunition || 1));
-  return chapterPreference * 1.2 + rolePreference + counter * 1.4 + ammoRatio * 0.65
+  return chapterPreference * 1.2 + rolePreference + counter * 1.4 + ammoRatio * 0.65 + Number(learnedAdjustment || 0)
     - duplicateCount * 0.4 - (Number(weapon.costPressure) || 0) * (1.2 - ammoRatio) * 0.55;
 }
 
-export function selectSpaceMarineWargear({ player, manifest = [], squadRole = "offensive", enemyIntel = {}, economy = {}, doctrines = globalThis.AWTData?.wargearDoctrines } = {}) {
+export function selectSpaceMarineWargear({ player, manifest = [], squadRole = "offensive", enemyIntel = {}, economy = {}, learningMemory = null, doctrines = globalThis.AWTData?.wargearDoctrines } = {}) {
   if (player?.faction !== "Space Marines" || !manifest.length) return manifest.map(member => ({ ...member }));
   const weapons = Object.values(doctrines?.weapons || {});
   if (!weapons.length) return manifest.map(member => ({ ...member, weaponId: "bolter", weapon: "Boltgun" }));
@@ -38,8 +38,10 @@ export function selectSpaceMarineWargear({ player, manifest = [], squadRole = "o
       const candidates = weapons.filter(weapon => weapon.category !== "standard"
         && (weapon.category !== "heavy" || heavies < heavyLimit)
         && (weapon.category !== "heavy" || (selectedCounts[weapon.id] || 0) < LOADOUT_RULES.duplicateHeavyMaximum));
-      selected = candidates.sort((a, b) => scoreWeapon({ weapon: b, chapter, squadRole, enemyIntel, economy, duplicateCount: selectedCounts[b.id] || 0 })
-        - scoreWeapon({ weapon: a, chapter, squadRole, enemyIntel, economy, duplicateCount: selectedCounts[a.id] || 0 }) || a.id.localeCompare(b.id))[0] || standard;
+      selected = candidates.sort((a, b) => scoreWeapon({ weapon: b, chapter, squadRole, enemyIntel, economy, duplicateCount: selectedCounts[b.id] || 0,
+        learnedAdjustment: learningMemory?.learnedAdjustment?.("specialist-effectiveness", b.id, 0.22) || 0 })
+        - scoreWeapon({ weapon: a, chapter, squadRole, enemyIntel, economy, duplicateCount: selectedCounts[a.id] || 0,
+          learnedAdjustment: learningMemory?.learnedAdjustment?.("specialist-effectiveness", a.id, 0.22) || 0 }) || a.id.localeCompare(b.id))[0] || standard;
       if (selected.category !== "standard") specialists += 1;
       if (selected.category === "heavy") heavies += 1;
     }

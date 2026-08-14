@@ -430,8 +430,12 @@
           </dl>
           <p>Paint conditions; autonomous armies decide how to cross them.</p>
         </aside>
-        <div class="awt-minimap-shell" aria-label="Battlefield minimap">
-          <div class="awt-minimap-head"><span>WORLD NAV</span><span id="awt-minimap-coordinates">0000, 0000</span></div>
+        <div class="awt-minimap-shell" id="awt-minimap-shell" aria-label="Battlefield minimap">
+          <div class="awt-minimap-head">
+            <span id="awt-fps-reading">FPS -- · AVG --ms · 1% --</span>
+            <button type="button" id="awt-minimap-toggle" aria-expanded="true" aria-controls="awt-minimap" title="Show or hide minimap (M)">HIDE MAP</button>
+            <span id="awt-minimap-coordinates">0000, 0000</span>
+          </div>
           <canvas id="awt-minimap" width="280" height="176" tabindex="0" role="img" aria-label="Interactive minimap. Click or drag to move the camera, use the wheel to zoom, or double click to fit the world."></canvas>
           <div class="awt-minimap-foot"><span id="awt-minimap-hint">CLICK / DRAG TO REPOSITION</span><span>SCROLL TO ZOOM</span></div>
         </div>
@@ -721,6 +725,20 @@
             <li>Utility scores appear when the AI evaluates the battlefield.</li>
           </ul>
           <div class="awt-unit-action text-small" id="awt-ai-explanation">Alternative decisions will appear here.</div>
+        </div>
+
+        <div class="awt-section" id="awt-ai-growth-panel" aria-label="Space Marine chapter AI growth test">
+          <div class="awt-section-head">
+            <span>Chapter AI Growth Test</span>
+            <span class="text-small" id="awt-growth-status">READY</span>
+          </div>
+          <div class="awt-unit-action text-small" id="awt-growth-iteration">Ultramarines · Iteration 0 · IRL 00:00</div>
+          <div class="awt-unit-action text-small" id="awt-growth-streak">Stable pass streak 0 / 3</div>
+          <div class="awt-squad-role-card text-small" id="awt-growth-metrics">Doctrine fidelity -- · Objective adherence --</div>
+          <div class="awt-unit-action text-small" id="awt-growth-force">Living infantry -- · Full squads -- · Vehicles -- · Specialists --</div>
+          <div class="awt-unit-action text-small" id="awt-growth-memory">Faction experiences -- · Enemy experiences --</div>
+          <div class="awt-unit-action text-small" id="awt-growth-learning">No completed battle observations yet.</div>
+          <div class="awt-unit-action text-small" id="awt-growth-restart">Next restart: test not active</div>
         </div>
 
         <div class="awt-section">

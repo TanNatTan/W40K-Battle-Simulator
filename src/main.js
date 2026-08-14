@@ -74,6 +74,8 @@ import { SPACE_MARINE_CHAPTER_DOCTRINES, isSpaceMarinePlayer, spaceMarineChapter
 import { SPACE_MARINE_POSTURES, assessSpaceMarineBattlefield, evaluateSpaceMarineAI } from "./ai/space-marines/SpaceMarineAISystem.js";
 import { SPACE_MARINE_CONSTRUCTION_PRIORITIES, scoreSpaceMarineConstructionCandidate, selectSpaceMarineConstructionIntent, spaceMarineConstructionPriority } from "./ai/space-marines/SpaceMarineConstructionDirector.js";
 import { evaluateSpaceMarineTerritoryDevelopment } from "./ai/space-marines/SpaceMarineTerritoryDoctrine.js";
+import { CHAPTER_FORCE_STRUCTURE_PROFILES, assignChapterSquad, chapterAllowsUnit, chapterCoreCapacity, chapterForceStructureProfileFor, createChapterForceRegistry, runChapterCapacityTest, validateChapterCapability } from "./ai/space-marines/ChapterForceStructureProfile.js";
+import { CHAPTER_EVOLUTION_SEQUENCE, CHAPTER_EVOLUTION_THRESHOLDS, DOCTRINE_DIFFERENCE_MINIMUM, DOCTRINE_VECTOR_KEYS, beginChapterEvolutionTest, chapterDecisionPriorities, chapterEvolutionPanelSnapshot, createChapterEvolutionTest, doctrineBehaviorVector, doctrineDifferenceScore, evaluateChapterEvolutionRun, recordChapterEvolutionRun, runAllChapterCapacityTests } from "./ai/space-marines/ChapterEvolutionTestSystem.js";
 import { COMBAT_RESPONSES, chooseImmediateThreat, chooseSquadTarget, combatContactPhase, combatContactPoint, evaluateCombatResponse, refreshSquadCombatContact } from "./ai/CombatResponseSystem.js";
 import { BREAK_POLICIES, BREAK_POLICY_IDS, breakPolicyFor, breakPolicyIdFor, commissarInterventionFor, createPsychologyState, guardBreakStateFor, isCommissar, updateFactionPressure, withdrawalDecisionFor } from "./ai/FactionBreakPolicy.js";
 
@@ -366,6 +368,27 @@ globalThis.AWTSystems = Object.freeze({
   selectSpaceMarineConstructionIntent,
   spaceMarineConstructionPriority,
   evaluateSpaceMarineTerritoryDevelopment,
+  CHAPTER_FORCE_STRUCTURE_PROFILES,
+  assignChapterSquad,
+  chapterAllowsUnit,
+  chapterCoreCapacity,
+  chapterForceStructureProfileFor,
+  createChapterForceRegistry,
+  runChapterCapacityTest,
+  validateChapterCapability,
+  CHAPTER_EVOLUTION_SEQUENCE,
+  CHAPTER_EVOLUTION_THRESHOLDS,
+  DOCTRINE_DIFFERENCE_MINIMUM,
+  DOCTRINE_VECTOR_KEYS,
+  beginChapterEvolutionTest,
+  chapterDecisionPriorities,
+  chapterEvolutionPanelSnapshot,
+  createChapterEvolutionTest,
+  doctrineBehaviorVector,
+  doctrineDifferenceScore,
+  evaluateChapterEvolutionRun,
+  recordChapterEvolutionRun,
+  runAllChapterCapacityTests,
   COMBAT_RESPONSES,
   chooseImmediateThreat,
   chooseSquadTarget,

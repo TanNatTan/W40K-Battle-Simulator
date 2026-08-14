@@ -7,7 +7,9 @@ export const TERRITORY_CELL_SIZE = Math.round(96 * Math.sqrt(TERRITORY_AREA_SCAL
 export const STRATEGIC_TERRITORY_TARGET_AREA = 26000 * TERRITORY_AREA_SCALE;
 export const STRATEGIC_TERRITORY_MIN_CELLS = 24;
 export const STRATEGIC_TERRITORY_MAX_CELLS = 60;
-export const FOG_CELL_SIZE = TILE_SIZE;
+// Fog is intentionally finer than terrain tiles. Terrain-sized or chunk-sized
+// masks exposed combat vision as large square cut-outs.
+export const FOG_CELL_SIZE = TILE_SIZE / 2;
 export const UNIT_DEATH_ANIMATION_SECONDS = 1.35;
 export const UNIT_CORPSE_LIFETIME_SECONDS = 8;
 export const STRUCTURE_DEATH_ANIMATION_SECONDS = 1.9;

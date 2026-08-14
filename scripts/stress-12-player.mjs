@@ -12,7 +12,9 @@ const argumentValue = name => process.argv.find(argument => argument.startsWith(
 const durationMs = Math.max(10_000, (Number(argumentValue("duration")) || 0) * 1000 || Number(process.env.AWT_STRESS_DURATION_MS) || 30_000);
 const simulationSpeed = Math.max(1, Math.min(8, Number(argumentValue("speed") || process.env.AWT_STRESS_SPEED) || 8));
 const spawnRadius = Math.max(24, Number(argumentValue("spawn-radius") || process.env.AWT_STRESS_SPAWN_RADIUS) || 84);
-const playerCount = Math.max(2, Math.min(12, Number(argumentValue("players")) || 12));
+const twoVsTwo = process.argv.includes("--two-v-two");
+const playerCount = twoVsTwo ? 4 : Math.max(2, Math.min(12, Number(argumentValue("players")) || 12));
+const expectedTeamCount = twoVsTwo ? 2 : Math.min(4, playerCount);
 const performancePreset = ["auto", "skirmish", "battle", "major", "total"].includes(argumentValue("performance"))
   ? argumentValue("performance")
   : "total";
@@ -26,6 +28,7 @@ const territoryDevelopmentCaptures = Math.max(0, Math.floor(Number(argumentValue
 const profiling = process.argv.includes("--profile") || process.env.AWT_STRESS_PROFILE === "1";
 const duelAuditEnabled = process.argv.includes("--duel-audit");
 const spaceMarineGrowthAuditEnabled = process.argv.includes("--space-marine-growth");
+const spaceMarineGrowthChapter = argumentValue("chapter") || "Ultramarines";
 const browserPath = [
   "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
   "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
@@ -180,7 +183,7 @@ try {
     document.querySelector('[data-player-tab="0"]').click();
     setGrowthSelect('#awt-player-race', 'Imperium');
     setGrowthSelect('#awt-player-faction', 'Space Marines');
-    setGrowthSelect('#awt-player-subfaction', 'Ultramarines');
+    setGrowthSelect('#awt-player-subfaction', ${JSON.stringify(spaceMarineGrowthChapter)});
     setGrowthSelect('#awt-player-team', '1');
     setGrowthSelect('#awt-player-battle-objective', 'annihilation');
     document.querySelector('[data-player-tab="1"]').click();
@@ -191,7 +194,7 @@ try {
     setGrowthSelect('#awt-player-battle-objective', 'annihilation');
     ` : ""}
     ${allSpaceMarines ? `
-    const chapters = ['Ultramarines', 'Blood Angels', 'Emerald Suns', 'Salamanders', 'White Scars', 'Imperial Fists'];
+    const chapters = ['Ultramarines', 'Blood Angels', 'Imperial Fists', 'Salamanders', 'Emerald Suns', 'White Scars', 'Raven Guard', 'Iron Hands', 'Space Wolves', 'Black Templars'];
     const setSelect = (selector, value) => {
       const select = document.querySelector(selector);
       select.value = value;
@@ -207,11 +210,16 @@ try {
     }
     ` : ""}
     document.querySelector('#awt-shape-map').click();
+    ${twoVsTwo ? `
+    for (let index = 0; index < root.awtDebugState.players.length; index += 1) {
+      root.awtDebugState.players[index].team = index < 2 ? '1' : '2';
+    }
+    ` : ""}
     for (const player of root.awtDebugState.players) {
       player.battleObjective = 'annihilation';
       player.battleObjectivePlan = null;
       player.battleObjectiveState = null;
-      if (${spaceMarineGrowthAuditEnabled}) player.spawnZone.size = ${spawnRadius};
+      player.spawnZone.size = ${spawnRadius};
     }
     if (${spaceMarineGrowthAuditEnabled}) {
       const marine = root.awtDebugState.players.find(player => player.faction === 'Space Marines');
@@ -278,7 +286,7 @@ try {
     };
   })()`, 10_000);
   if (setup.value.width !== 1920 || setup.value.height !== 1080 || setup.value.players !== playerCount
-    || setup.value.teams !== Math.min(4, playerCount) || setup.value.builders < playerCount * 2 || setup.value.mode !== "sim"
+    || setup.value.teams !== expectedTeamCount || setup.value.builders < playerCount * 2 || setup.value.mode !== "sim"
     || setup.value.preset !== performancePreset || setup.value.viewport.width !== 1920 || setup.value.viewport.height !== 1080
     || setup.value.spawnRadii.some(radius => radius !== spawnRadius)
     || (fullRoster && setup.value.fixture.players.some(player => player.missingUnits.length || player.missingBuildings.length
@@ -481,6 +489,12 @@ try {
           };
         }),
         frameMonitor: { ...globalThis.awtStressMetrics },
+        frameReadings: {
+          fps: state.frameMetrics?.fps || 0,
+          averageMs: state.frameMetrics?.averageMs || 0,
+          worstMs: state.frameMetrics?.worstMs || 0,
+          onePercentLowFps: state.frameMetrics?.lowOnePercentFps || 0
+        },
         simulationFrame: { ...(state.lastSimulationFrame || {}) },
         construction: {
           newStructures: newStructures.length,

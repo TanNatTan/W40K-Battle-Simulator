@@ -34,7 +34,12 @@
       "blood_angels": { "loreStatus": "specific", "aggression": 0.86, "defense": 0.45, "expansion": 0.52, "lootSalvage": 0.12, "objectiveFocus": 0.76, "preservation": 0.55, "techPreservation": 0.70, "mobility": 0.88, "tick": "elite_reactive" },
       "salamanders": { "loreStatus": "specific", "aggression": 0.61, "defense": 0.83, "expansion": 0.45, "lootSalvage": 0.15, "objectiveFocus": 0.90, "preservation": 0.91, "techPreservation": 0.91, "mobility": 0.52, "tick": "fortress_methodical" },
       "emerald_suns": { "loreStatus": "specific", "aggression": 0.54, "defense": 0.79, "expansion": 0.51, "lootSalvage": 0.14, "objectiveFocus": 0.93, "preservation": 0.94, "techPreservation": 0.88, "mobility": 0.76, "tick": "elite_reactive" },
-      "white_scars": { "loreStatus": "specific", "aggression": 0.78, "defense": 0.40, "expansion": 0.80, "lootSalvage": 0.20, "objectiveFocus": 0.82, "preservation": 0.72, "techPreservation": 0.74, "mobility": 0.98, "tick": "elite_reactive" }
+      "white_scars": { "loreStatus": "specific", "aggression": 0.78, "defense": 0.40, "expansion": 0.80, "lootSalvage": 0.20, "objectiveFocus": 0.82, "preservation": 0.72, "techPreservation": 0.74, "mobility": 0.98, "tick": "elite_reactive" },
+      "imperial_fists": { "loreStatus": "specific", "aggression": 0.62, "defense": 0.94, "expansion": 0.50, "lootSalvage": 0.10, "objectiveFocus": 0.95, "preservation": 0.84, "techPreservation": 0.90, "mobility": 0.42, "tick": "fortress_methodical" },
+      "raven_guard": { "loreStatus": "specific", "aggression": 0.68, "defense": 0.55, "expansion": 0.68, "lootSalvage": 0.18, "objectiveFocus": 0.96, "preservation": 0.85, "techPreservation": 0.76, "mobility": 0.92, "tick": "elite_reactive" },
+      "iron_hands": { "loreStatus": "specific", "aggression": 0.70, "defense": 0.84, "expansion": 0.46, "lootSalvage": 0.26, "objectiveFocus": 0.94, "preservation": 0.86, "techPreservation": 0.99, "mobility": 0.54, "tick": "machine_precision" },
+      "space_wolves": { "loreStatus": "specific", "aggression": 0.89, "defense": 0.56, "expansion": 0.64, "lootSalvage": 0.20, "objectiveFocus": 0.88, "preservation": 0.66, "techPreservation": 0.67, "mobility": 0.79, "tick": "elite_reactive" },
+      "black_templars": { "loreStatus": "specific", "aggression": 0.94, "defense": 0.60, "expansion": 0.69, "lootSalvage": 0.11, "objectiveFocus": 0.91, "preservation": 0.54, "techPreservation": 0.62, "mobility": 0.72, "tick": "elite_reactive" }
     },
     "imperial_guard": {
       "krieg": { "loreStatus": "specific", "aggression": 0.75, "defense": 0.88, "expansion": 0.57, "lootSalvage": 0.10, "objectiveFocus": 0.94, "preservation": 0.22, "techPreservation": 0.55, "mobility": 0.38, "tick": "human_combined" },

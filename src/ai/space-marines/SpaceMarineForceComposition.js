@@ -158,5 +158,8 @@ export function synchronizeAstartesSquad(squad, units = []) {
   squad.attachedCharacterIds = [...new Set((squad.attachedCharacterIds || []).filter(id => units.some(unit => unit.id === id && unit.alive !== false && unit.attachedSquadId === squad.id)))];
   squad.cohesionMode ||= "DISTRIBUTED";
   squad.formationActive ??= false;
+  if (squad.chapterOrganization) for (const unit of units) {
+    if (unit.alive !== false && (unit.squadId === squad.id || unit.attachedSquadId === squad.id)) unit.chapterOrganization = { ...squad.chapterOrganization };
+  }
   return squad;
 }

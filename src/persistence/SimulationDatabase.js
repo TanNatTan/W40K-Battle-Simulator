@@ -1,6 +1,6 @@
 export const SIMULATION_DATABASE_NAME = "w40k-battle-simulator";
-export const SIMULATION_DATABASE_VERSION = 1;
-export const SIMULATION_DATABASE_STORES = Object.freeze(["battleSnapshots", "factionAnalytics", "maps", "replays", "settings"]);
+export const SIMULATION_DATABASE_VERSION = 2;
+export const SIMULATION_DATABASE_STORES = Object.freeze(["battleSnapshots", "factionAnalytics", "factionMemory", "maps", "replays", "settings"]);
 
 export function createSimulationDatabase(indexedDb = globalThis.indexedDB) {
   let openPromise = null;
@@ -35,9 +35,48 @@ export function createSimulationDatabase(indexedDb = globalThis.indexedDB) {
       transaction.onabort = () => resolve(false);
     });
   };
-  return Object.freeze({ open, put,
+  const get = async (store, id) => {
+    if (!SIMULATION_DATABASE_STORES.includes(store) || !id) return null;
+    const database = await open();
+    if (!database) return null;
+    return new Promise(resolve => {
+      const transaction = database.transaction(store, "readonly");
+      const request = transaction.objectStore(store).get(id);
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => resolve(null);
+    });
+  };
+  const getAll = async store => {
+    if (!SIMULATION_DATABASE_STORES.includes(store)) return [];
+    const database = await open();
+    if (!database) return [];
+    return new Promise(resolve => {
+      const transaction = database.transaction(store, "readonly");
+      const request = transaction.objectStore(store).getAll();
+      request.onsuccess = () => resolve(request.result || []);
+      request.onerror = () => resolve([]);
+    });
+  };
+  const remove = async (store, id) => {
+    if (!SIMULATION_DATABASE_STORES.includes(store)) return false;
+    const database = await open();
+    if (!database) return false;
+    return new Promise(resolve => {
+      const transaction = database.transaction(store, "readwrite");
+      const objectStore = transaction.objectStore(store);
+      id ? objectStore.delete(id) : objectStore.clear();
+      transaction.oncomplete = () => resolve(true);
+      transaction.onerror = () => resolve(false);
+      transaction.onabort = () => resolve(false);
+    });
+  };
+  return Object.freeze({ open, put, get, getAll, remove,
     saveBattleSnapshot: snapshot => put("battleSnapshots", snapshot),
-    saveFactionAnalytics: analytics => put("factionAnalytics", analytics)
+    saveFactionAnalytics: analytics => put("factionAnalytics", analytics),
+    saveFactionMemory: memory => put("factionMemory", memory),
+    loadFactionMemory: id => get("factionMemory", id),
+    loadAllFactionMemories: () => getAll("factionMemory"),
+    clearFactionMemory: id => remove("factionMemory", id)
   });
 }
 

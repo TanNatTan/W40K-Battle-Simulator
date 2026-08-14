@@ -77,7 +77,7 @@ test("the shared workflow prioritizes current needs and analytics has durable In
     construction: { diversityNeed: 1 } });
   assert.equal(workflow.current.id, "produce-vehicles");
   assert.ok(workflow.queue.some(item => item.id === "build-unique-facility"));
-  assert.deepEqual(SIMULATION_DATABASE_STORES, ["battleSnapshots", "factionAnalytics", "maps", "replays", "settings"]);
+  assert.deepEqual(SIMULATION_DATABASE_STORES, ["battleSnapshots", "factionAnalytics", "factionMemory", "maps", "replays", "settings"]);
   const analytics = factionAnalyticsRecord({ battleId: "battle", at: 12, player: { ...marine, decisionWorkflow: workflow },
     units: [{ faction: "a", role: "vehicle", alive: true }, { faction: "a", role: "builder", alive: true }],
     structures: [{ faction: "a", alive: true }], territoryCells: 4, casualties: 2 });

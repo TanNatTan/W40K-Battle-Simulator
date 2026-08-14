@@ -158,6 +158,29 @@
       color: #d68a3c;
     }
 
+    #autonomous-war-theater #awt-minimap-toggle {
+      border: 0;
+      padding: 1px 4px;
+      color: #dce7ed;
+      background: transparent;
+      font: inherit;
+      letter-spacing: inherit;
+      cursor: pointer;
+      pointer-events: auto;
+    }
+
+    #autonomous-war-theater #awt-minimap-toggle:hover,
+    #autonomous-war-theater #awt-minimap-toggle:focus-visible {
+      color: #d68a3c;
+      outline: 1px solid rgba(214, 138, 60, 0.65);
+    }
+
+    #autonomous-war-theater .awt-minimap-shell.is-collapsed #awt-minimap,
+    #autonomous-war-theater .awt-minimap-shell.is-collapsed .awt-minimap-foot,
+    #autonomous-war-theater .awt-minimap-shell.is-collapsed #awt-minimap-coordinates {
+      display: none;
+    }
+
     #autonomous-war-theater .awt-minimap-foot {
       font-size: 8px;
       letter-spacing: 0.04em;

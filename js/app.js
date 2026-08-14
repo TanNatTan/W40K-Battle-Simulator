@@ -80,7 +80,7 @@ import {
   relationshipPriority,
   serializeRelationshipMemory
 } from "../src/relationships/RelationshipSystem.js";
-import { createFactionLearningMemory } from "../src/learning/LearningSystem.js";
+import { createFactionLearningMemory, factionMatchupMemoryKey } from "../src/learning/LearningSystem.js";
 import { assessFactionCapability, battleObjectiveVictoryReady, chooseEndgameDirective } from "../src/victory/VictorySystem.js";
 import { buildAIInspector } from "../src/replay/ReplayAnalysisSystem.js";
 import { WorkBudget, scalePresetFor, shouldUpdateEntity } from "../src/performance/ScaleSystem.js";
@@ -106,6 +106,7 @@ import { updateProductionBuilding } from "../src/economy/ProductionSystem.js";
 import { createStartingHeadquarters, randomPointInsideSpawnZone } from "../src/economy/BattleBootstrapSystem.js";
 import { selectConstructionProject } from "../src/economy/ConstructionPlanningSystem.js";
 import { blocksServiceCorridor, buildingClearanceFor, placementRectsOverlap } from "../src/construction/BaseLayoutSystem.js";
+import { chooseFortification } from "../src/construction/DefensiveFortificationSystem.js";
 import { chooseBuilderAssignment } from "../src/construction/BuilderAssignmentSystem.js";
 import {
   builderProducerFor,
@@ -162,8 +163,22 @@ import {
   isSpaceMarineCharacter,
   reinforcementWaveSize,
   selectIncompleteAstartesSquad,
+  spaceMarineProfileFor,
   synchronizeAstartesSquad
 } from "../src/ai/space-marines/SpaceMarineForceComposition.js";
+import {
+  assignChapterSquad,
+  chapterForceStructureProfileFor,
+  createChapterForceRegistry,
+  runChapterCapacityTest,
+  validateChapterCapability
+} from "../src/ai/space-marines/ChapterForceStructureProfile.js";
+import {
+  beginChapterEvolutionTest,
+  chapterEvolutionPanelSnapshot,
+  createChapterEvolutionTest,
+  recordChapterEvolutionRun
+} from "../src/ai/space-marines/ChapterEvolutionTestSystem.js";
 import { updateSpaceMarineCharacterAttachments } from "../src/ai/space-marines/SpaceMarineCommanderAttachmentSystem.js";
 import {
   constructionRefund,
@@ -211,6 +226,11 @@ import {
 import { StrategicCellIndex } from "../src/performance/StrategicCellIndex.js";
 import { evaluateProximityAwareness, proximityCombatModifiers } from "../src/ai/ProximityAwareness.js";
 import { mergeSquadContactBoard, refreshContactMemory } from "../src/ai/PerceptionMemorySystem.js";
+import { opticalDetection, opticalProfileFor } from "../src/intelligence/DirectionalVisionSystem.js";
+import { auspexContact, auspexProfileFor, canActiveScan, markActiveScan } from "../src/intelligence/AuspexSystem.js";
+import { FactionIntelSystem } from "../src/intelligence/FactionIntelSystem.js";
+import { TacticalVoxNetwork, VOX_SCOPES } from "../src/intelligence/TacticalVoxNetwork.js";
+import { probableSniperOrigin, revealFromWeaponFire, stealthStateFor } from "../src/intelligence/StealthSystem.js";
 import {
   combatContactPoint,
   evaluateCombatResponse,
@@ -405,6 +425,9 @@ import {
         zoomValue: root.querySelector("#awt-zoom-value"),
         cameraStatus: root.querySelector("#awt-camera-status"),
         minimap: root.querySelector("#awt-minimap"),
+        minimapShell: root.querySelector("#awt-minimap-shell"),
+        minimapToggle: root.querySelector("#awt-minimap-toggle"),
+        fpsReading: root.querySelector("#awt-fps-reading"),
         minimapCoordinates: root.querySelector("#awt-minimap-coordinates"),
         minimapHint: root.querySelector("#awt-minimap-hint"),
         fieldMode: root.querySelector("#awt-field-mode"),
@@ -442,6 +465,15 @@ import {
         aiDoctrine: root.querySelector("#awt-ai-doctrine"),
         aiUtilities: root.querySelector("#awt-ai-utilities"),
         aiExplanation: root.querySelector("#awt-ai-explanation"),
+        growthPanel: root.querySelector("#awt-ai-growth-panel"),
+        growthStatus: root.querySelector("#awt-growth-status"),
+        growthIteration: root.querySelector("#awt-growth-iteration"),
+        growthStreak: root.querySelector("#awt-growth-streak"),
+        growthMetrics: root.querySelector("#awt-growth-metrics"),
+        growthForce: root.querySelector("#awt-growth-force"),
+        growthMemory: root.querySelector("#awt-growth-memory"),
+        growthLearning: root.querySelector("#awt-growth-learning"),
+        growthRestart: root.querySelector("#awt-growth-restart"),
         eventList: root.querySelector("#awt-event-list"),
         eventCount: root.querySelector("#awt-event-count"),
         timeline: root.querySelector("#awt-timeline"),
@@ -1238,6 +1270,8 @@ import {
         minimapMarkerDirty: true,
         minimapMarkerUpdatedAt: 0,
         minimapMarkerCount: 0,
+        minimapVisible: true,
+        frameMetrics: { samples: [], elapsed: 0, fps: 0, averageMs: 0, worstMs: 0, lowOnePercentFps: 0 },
         visibleChunkCount: 0,
         renderedObjectCount: 0,
         players: setupPlayers.slice(0, 2).map((player, index) => ({ ...player, base: deploymentPosition(index, 2) })),
@@ -1352,6 +1386,12 @@ import {
         factionGameplay: {},
         factionAIProfiles: {},
         factionLearning: {},
+        factionIntel: new FactionIntelSystem(),
+        tacticalVox: null,
+        chapterForceRegistries: {},
+        chapterEvolutionTest: createChapterEvolutionTest(),
+        chapterEvolutionMetrics: null,
+        chapterCapacityResults: {},
         battleHistory: [],
         strategicOutcomes: {},
         victoryEvaluationAccumulator: 0,
@@ -1375,6 +1415,7 @@ import {
         doctrineCadenceCursor: 0,
         doctrineReady: { strategy: new Set(), commander: new Set(), squad: new Set() },
         economyPlayerCursor: 0,
+        economyPhaseByPlayer: {},
         spatialGrid: new Map(),
         entityIndex: { units: new Map(), structures: new Map(), squads: new Map() },
         spatialMembership: new WeakMap(),
@@ -1418,6 +1459,18 @@ import {
       };
       state.economyZoneManager = new globalThis.AWTSystems.EconomyZoneManager();
       state.routeHistory = new globalThis.AWTSystems.RouteHistory();
+      globalThis.awtChapterEvolution = Object.freeze({
+        start: options => {
+          if (options) state.chapterEvolutionTest = createChapterEvolutionTest(options);
+          beginChapterEvolutionTest(state.chapterEvolutionTest);
+          restartChapterEvolutionBattle();
+          return chapterEvolutionPanelSnapshot(state.chapterEvolutionTest);
+        },
+        record: metrics => recordChapterEvolutionRun(state.chapterEvolutionTest, metrics),
+        snapshot: () => chapterEvolutionPanelSnapshot(state.chapterEvolutionTest),
+        reset: options => (state.chapterEvolutionTest = createChapterEvolutionTest(options))
+      });
+      if (new URLSearchParams(location.search).has("chapter-growth")) beginChapterEvolutionTest(state.chapterEvolutionTest);
       const navigationPlanner = new NavigationPlanner({ cellSize: 32, maxVisited: 5200, maxCacheEntries: 256 });
       const navigationWorkBudget = new WorkBudget(state.performancePreset.pathBudget);
       const awarenessWorkBudget = new WorkBudget(64);
@@ -1765,6 +1818,7 @@ import {
           return { units: state.units.length, buildings: state.structures.length };
         }
       };
+      state.tacticalVox = new TacticalVoxNetwork({ intelSystem: state.factionIntel });
 
       const worldWidth = () => state.world.width;
       const worldHeight = () => state.world.height;
@@ -2369,6 +2423,7 @@ import {
         operationalDepth: Object.fromEntries(state.players.map(player => [player.id, economyFor(player.id).operationalDepth || null])),
         strategicOutcomes: structuredClone(state.strategicOutcomes)
       });
+      root.awtGetFactionIntel = factionId => state.factionIntel.getFactionIntel(factionId, state.time);
 
       function playerFor(faction) {
         return state.players.find(player => player.id === faction) || setupPlayers.find(player => player.id === faction) || setupPlayers[0];
@@ -3373,6 +3428,9 @@ import {
           strength: rand(0.48, 0.58),
           suppressionResistance: rand(0.46, 0.56),
           camouflage: rand(0.45, 0.55),
+          facing: rand(-Math.PI, Math.PI),
+          auspexReadyAt: 0,
+          revealedUntil: 0,
           engineering: role === "builder" || role === "engineer" ? rand(0.72, 0.84) : rand(0.43, 0.53),
           medical: role === "medic" ? rand(0.72, 0.84) : rand(0.42, 0.52),
           driving: rand(0.45, 0.58),
@@ -3596,6 +3654,18 @@ import {
           createdAt: state.time,
           ...options
         });
+        const player = playerFor(faction);
+        if (player?.faction === "Space Marines") {
+          const registry = state.chapterForceRegistries[faction] ||= createChapterForceRegistry(player, {
+            performanceLimit: player.forceCapOverride || Infinity,
+            resourceLimit: Infinity
+          });
+          const assignment = assignChapterSquad(registry, squad, { size: options.nominalSize || 10 });
+          if (assignment) {
+            squad.chapterOrganization = assignment;
+            squad.companyRole = assignment.companyRole;
+          }
+        }
         state.squads.push(squad);
         return squad;
       }
@@ -3898,6 +3968,7 @@ import {
         state.nextTrain = {};
         state.nextBuilderTrain = {};
         state.nextSupportTrain = {};
+        state.economyPhaseByPlayer = {};
         state.nextSquadId = 1;
         state.armyPlans = {};
         state.entityIndex.units.clear();
@@ -3907,6 +3978,10 @@ import {
         state.factionGameplay = {};
         state.factionAIProfiles = {};
         state.factionLearning = {};
+        state.factionIntel.clear();
+        state.tacticalVox.clear();
+        state.chapterForceRegistries = {};
+        state.chapterEvolutionTest ||= createChapterEvolutionTest();
         const storedBattleHistory = storageAdapter.load("battle-history");
         state.battleHistory = Array.isArray(storedBattleHistory) ? storedBattleHistory : [];
         state.strategicOutcomes = {};
@@ -3923,16 +3998,32 @@ import {
         state.exploredFogCells = {};
         state.visibleFogCells = {};
         state.teamFogVisibility = new Map();
+        state.frameMetrics = { samples: [], elapsed: 0, fps: 0, averageMs: 0, worstMs: 0, lowOnePercentFps: 0 };
         state.explorationAccumulator = 0;
         const exploredByTeam = new Map();
         for (const player of state.players) {
           const factionAIProfile = resolveFactionAIProfile(player);
           state.factionAIProfiles[player.id] = factionAIProfile;
           state.factionGameplay[player.id] = createFactionGameplayState(factionAIProfile.branch);
-          state.factionLearning[player.id] = createFactionLearningMemory(
-            factionAIProfile,
-            storageAdapter.load(`ai-memory:${factionAIProfile.id}`)
-          );
+          ensureFactionLearningMemory(player, factionAIProfile);
+          if (player.faction === "Space Marines") {
+            const registry = createChapterForceRegistry(player, {
+              performanceLimit: player.forceCapOverride || Infinity,
+              resourceLimit: Infinity
+            });
+            state.chapterForceRegistries[player.id] = registry;
+            player.chapterForceRegistry = registry;
+            if (player.subfaction === "Space Wolves") {
+              const rosterNames = Object.values(factionProfile(player).roster || {}).flat();
+              for (const requestedName of ["Blood Claw", "Grey Hunter", "Long Fang", "Wolf Guard", "Wolf Priest", "Rune Priest", "Iron Priest", "Wolf Lord"]) {
+                const capability = validateChapterCapability(player.subfaction, requestedName, rosterNames);
+                if (!capability.exact) {
+                  registry.missingCapabilities.push(capability);
+                  console.warn("MISSING_CHAPTER_CAPABILITY", player.subfaction, requestedName, `using ${capability.resolvedName}`);
+                }
+              }
+            }
+          }
           player.factionAIProfileId = factionAIProfile.id;
           player.factionAIChoice = "establish";
           player.battleObjective = normalizeBattleObjectiveId(player.battleObjective);
@@ -4165,12 +4256,11 @@ import {
 
       function productionDemandFor(player, force = false) {
         const cached = player.productionDemandCache;
-        if (!force && cached && state.time - cached.at < 2
-          && cached.unitCount === state.units.length && cached.structureCount === state.structures.length) return cached.demand;
+        const cacheSeconds = state.performancePreset?.id === "total" ? 5 : 2;
+        if (!force && cached && state.time - cached.at < cacheSeconds) return cached.demand;
         const economy = economyFor(player.id);
         const ownUnits = state.units.filter(unit => unit.alive && !unit.incapacitated && unit.faction === player.id);
-        const enemyUnits = state.units.filter(unit => unit.alive && !unit.incapacitated
-          && !areAllies(unit.faction, player.id) && objectVisibleToFog(unit, player.id));
+        const enemyUnits = observedEnemiesFor(player);
         const structures = state.structures.filter(structure => structure.faction === player.id && structure.alive !== false);
         const demand = analyzeProductionDemand({
           player,
@@ -4238,6 +4328,21 @@ import {
         if (!complete("outpost")) return excludedTypes.has("outpost") ? null : "outpost";
         const matureMarineTerritory = player.faction === "Space Marines"
           && ((primaryTerritoryFor(faction)?.claimedCells?.size || 0) >= 5 || (player.territoryCaptureCount || 0) >= 5);
+        const fortificationPlan = chooseFortification({
+          threat: player.factionAIContext?.enemyPressure || 0,
+          chokePointValue: player.factionAIContext?.chokePointValue || 0.45,
+          highGroundValue: player.factionAIContext?.highGroundValue || 0.35,
+          intelNeed: 1 - (player.factionAIContext?.intelligenceConfidence || 0.2),
+          objectiveValue: battleObjectivePlanFor(player).signals?.defense || 0.5,
+          forwardTerritory: matureMarineTerritory,
+          supplyConnection: true,
+          subfaction: player.subfaction
+        });
+        const plannedFortification = fortificationPlan.type.buildingType;
+        if (matureMarineTerritory && !committed(plannedFortification) && !excludedTypes.has(plannedFortification)) {
+          player.lastFortificationDecision = fortificationPlan;
+          return plannedFortification;
+        }
         if (matureMarineTerritory && !committed("bunker") && !excludedTypes.has("bunker")) return "bunker";
         if (matureMarineTerritory && !committed("turret") && !excludedTypes.has("turret")) return "turret";
         const productionDoctrine = subfactionProductionPlanFor(player);
@@ -5600,6 +5705,7 @@ import {
         }
         const enemy = enemyPlayerFor(unit.faction);
         if (!enemy) return worldCenter();
+        const hostileAnchor = knownHostileAnchor(unit.faction, enemy.id) || strategicProbePoint(unit.faction);
         const behavior = aiBehaviorFor(player);
         const signals = battleObjectivePlanFor(player).signals;
         const phase = clamp(state.time / 120, 0, 1);
@@ -5607,12 +5713,12 @@ import {
         progress = clamp(progress, 0.16, 0.94);
         const spread = ((unit.index % 5) - 2) * 18;
         const direct = {
-          x: start.x + (enemy.base.x - start.x) * progress + spread,
-          y: start.y + (enemy.base.y - start.y) * progress - spread
+          x: start.x + (hostileAnchor.x - start.x) * progress + spread,
+          y: start.y + (hostileAnchor.y - start.y) * progress - spread
         };
         if (behavior.aggression >= 72 && behavior.caution <= 55) return direct;
-        const dx = enemy.base.x - start.x;
-        const dy = enemy.base.y - start.y;
+        const dx = hostileAnchor.x - start.x;
+        const dy = hostileAnchor.y - start.y;
         const length = Math.hypot(dx, dy) || 1;
         const perpendicular = { x: -dy / length, y: dx / length };
         const candidates = [-72, -36, 0, 36, 72].map(offset => ({
@@ -5901,12 +6007,13 @@ import {
         let segment = squad?.routeSegmentId ? segments.find(item => item.id === squad.routeSegmentId) : null;
         if (!segment) {
           const enemy = squad ? enemyPlayerFor(squad.faction) : null;
+          const hostileAnchor = squad && enemy ? knownHostileAnchor(squad.faction, enemy.id) : null;
           const worldDiagonal = Math.hypot(worldWidth(), worldHeight()) || 1;
           const score = item => {
             const midpoint = { x: (item.start.x + item.end.x) / 2, y: (item.start.y + item.end.y) / 2 };
             const flags = item.operationalFlags || [];
             const traffic = (item.traffic || 0) / Math.max(1, item.capacity || 1);
-            const hostileFacing = enemy ? 1 - clamp(distance(midpoint, enemy.base) / worldDiagonal, 0, 1) : 0;
+            const hostileFacing = hostileAnchor ? 1 - clamp(distance(midpoint, hostileAnchor) / worldDiagonal, 0, 1) : 0;
             const choke = (item.bridge ? 0.55 : 0) + clamp(1 - (item.width || 8) / 16, 0, 1) * 0.45;
             const contested = item.control === "Contested" ? 1 : item.control === "Enemy controlled" ? 0.82 : 0;
             const hazard = flags.some(flag => ["collapsed", "blocked", "cratered"].includes(flag)) || item.status === "Blocked" ? 1
@@ -6169,8 +6276,19 @@ import {
       function updateSquadAI(players = state.players) {
         const allowedFactions = new Set(players.map(player => player.id));
         const membersBySquad = livingSquadMemberMap();
+        let scheduledSquadIds = null;
+        if (state.performancePreset.id === "total" && players.length === 1) {
+          const player = players[0];
+          const eligible = state.squads.filter(squad => squad.faction === player.id && membersBySquad.has(squad.id));
+          if (eligible.length > 10) {
+            const cursor = player.squadAICursor || 0;
+            scheduledSquadIds = new Set(Array.from({ length: 10 }, (_, offset) => eligible[(cursor + offset) % eligible.length].id));
+            player.squadAICursor = (cursor + 10) % eligible.length;
+          }
+        }
         for (const squad of state.squads) {
           if (!allowedFactions.has(squad.faction)) continue;
+          if (scheduledSquadIds && !scheduledSquadIds.has(squad.id)) continue;
           ensureSquadRuntime(squad);
           const roster = [...(membersBySquad.get(squad.id) || [])];
           const fieldRoster = roster.filter(member => !member.reinforcementRendezvous);
@@ -6221,9 +6339,17 @@ import {
           };
           const routeState = assignedRoad ? updateRouteOrderState(squad, members, leader, assignedRoad, center) : null;
           const regrouping = squad.orderType === "Regroup" && squad.orderCommitUntil > state.time;
+          if (squad.voxResponse && squad.voxResponse.expiresAt <= state.time) {
+            if (squad.orderType === "Reinforce Contact") squad.orderType = squad.voxResponse.previousOrderType || "Reserve";
+            squad.voxResponse = null;
+          }
           if (regrouping) {
             squad.regroupPoint ||= chooseSquadRegroupPoint(squad, members);
             squad.objective = { ...squad.regroupPoint };
+          }
+          else if (squad.voxResponse?.expiresAt > state.time) {
+            squad.orderType = "Reinforce Contact";
+            squad.objective = { ...squad.voxResponse.position, voxReportId: squad.voxResponse.reportId };
           }
           else if (protectedAsset) squad.objective = { x: protectedAsset.x, y: protectedAsset.y, assetId: protectedAsset.id };
           else if (assignedRoad) {
@@ -6248,9 +6374,10 @@ import {
           else if (enemy) {
             const start = baseFor(squad.faction);
             const aggression = aiBehaviorFor(squad.faction).aggression / 100;
+            const hostileAnchor = knownHostileAnchor(squad.faction, enemy.id) || strategicProbePoint(squad.faction);
             squad.objective = {
-              x: start.x + (enemy.base.x - start.x) * clamp(aggression + state.time / 900, 0.35, 0.88),
-              y: start.y + (enemy.base.y - start.y) * clamp(aggression + state.time / 900, 0.35, 0.88)
+              x: start.x + (hostileAnchor.x - start.x) * clamp(aggression + state.time / 900, 0.35, 0.88),
+              y: start.y + (hostileAnchor.y - start.y) * clamp(aggression + state.time / 900, 0.35, 0.88)
             };
           }
           let target = regrouping ? null : squadAssetById(squad.targetId);
@@ -7026,15 +7153,122 @@ import {
         return structure && structure.alive !== false ? structure : null;
       }
 
-      function canDetectTarget(unit, target) {
-        if (!unit || !target) return false;
+      function isSpaceMarineUnit(unit) {
+        return playerFor(unit?.faction)?.faction === "Space Marines";
+      }
+
+      function knownHostileAnchor(factionId, hostileFaction = null) {
+        const intel = state.factionIntel.getFactionIntel(factionId, state.time);
+        const headquarters = intel.structures.find(contact => contact.isHeadquarters
+          && (!hostileFaction || contact.faction === hostileFaction) && contact.confidence >= 0.12);
+        const fallback = intel.structures.find(contact => (!hostileFaction || contact.faction === hostileFaction) && contact.confidence >= 0.18)
+          || intel.contacts.find(contact => (!hostileFaction || contact.faction === hostileFaction) && contact.confidence >= 0.32);
+        const contact = headquarters || fallback;
+        return contact ? { ...contact.position, intelContactId: contact.id, confidence: contact.confidence } : null;
+      }
+
+      function strategicProbePoint(factionId) {
+        const player = playerFor(factionId);
+        const frontier = state.strategicTerritory?.cells
+          ?.filter(cell => cell.owner !== factionId && !areAllies(cell.owner, factionId))
+          .sort((a, b) => {
+            const aValue = (a.resourceAccess || 0) * 90 + (a.objective ? 70 : 0) - distance(player.base, a.centroid) * 0.025;
+            const bValue = (b.resourceAccess || 0) * 90 + (b.objective ? 70 : 0) - distance(player.base, b.centroid) * 0.025;
+            return bValue - aValue;
+          })?.[0]?.centroid;
+        if (frontier) return { ...frontier, searchPattern: true };
+        const angle = ((player.index || 0) * 2.399963229728653 + state.time / 180) % (Math.PI * 2);
+        return {
+          x: clamp(worldWidth() / 2 + Math.cos(angle) * worldWidth() * 0.24, 40, worldWidth() - 40),
+          y: clamp(worldHeight() / 2 + Math.sin(angle) * worldHeight() * 0.24, 40, worldHeight() - 40),
+          searchPattern: true
+        };
+      }
+
+      function sensorResultFor(unit, target) {
+        if (!unit || !target) return { detected: false, optical: null, auspex: null };
         const terrain = terrainAt(unit);
+        const targetTerrain = terrainAt(target);
         const sun = sunState();
         const visibilityMultiplier = globalDayNightVisibility({ period: sun.period, weather: state.dayNight.weather, nightVision: nightVisionFactor(unit.faction), affectsDetection: state.dayNight.enabled && state.lighting.affectsDetection });
-        const sensor = unit.range * (state.visibility / 100) * terrain.detection * visibilityMultiplier * (unit.role === "scout" ? 1.35 : 1);
-        if (buildingCatalog[target.type]) return distance(unit, target) < sensor * (target.type === "outpost" || target.type === "generator" ? 1.35 : 1.08);
+        const baseSensor = Math.max(unit.role === "scout" ? 145 : 104, unit.range || 0)
+          * (state.visibility / 100) * terrain.detection * (unit.role === "scout" ? 1.22 : 1);
+        const cover = Math.max(targetTerrain.cover || 0, environmentalCoverAt(target));
+        const stealth = stealthStateFor(target, {
+          now: state.time,
+          cover,
+          smoke: targetTerrain.type === "heavyfog" || targetTerrain.type === "ashstorm" ? 0.7 : 0,
+          moving: /moving|advancing|retreat|pursu|closing/i.test(target.status || ""),
+          firing: target.revealedUntil > state.time
+        });
         const occlusion = visionOcclusionBetween(unit, target);
-        return distance(unit, target) < sensor * terrainAt(target).detection * clamp(0.45 + occlusion * 0.55, 0.45, 1);
+        const structureMultiplier = buildingCatalog[target.type] ? (target.type === "outpost" || target.type === "generator" ? 1.35 : 1.08) : 1;
+        const optical = opticalDetection(unit, target, {
+          player: playerFor(unit.faction),
+          range: baseSensor * structureMultiplier * targetTerrain.detection,
+          lowLight: 1 - visibilityMultiplier,
+          obscuration: 1 - clamp(0.45 + occlusion * 0.55, 0.45, 1),
+          occlusion,
+          elevationDelta: (targetTerrain.elevation || 0) - (terrain.elevation || 0),
+          visualSignature: buildingCatalog[target.type] ? 1.35 : stealth.signatures.visual
+        });
+        const auspex = isSpaceMarineUnit(unit) ? profiler.profile("intelligence.auspex", () => auspexContact(unit, target, {
+          now: state.time,
+          active: (unit.auspexActiveUntil || 0) > state.time,
+          cover,
+          smoke: targetTerrain.type === "heavyfog" || targetTerrain.type === "ashstorm" ? 0.7 : 0,
+          firing: target.revealedUntil > state.time,
+          materialTransmission: occlusion,
+          interference: targetTerrain.type === "ashstorm" ? 0.48 : targetTerrain.type === "heavyfog" ? 0.12 : 0
+        })) : null;
+        return { detected: optical.detected || Boolean(auspex?.detected), optical, auspex };
+      }
+
+      function canDetectTarget(unit, target) {
+        return sensorResultFor(unit, target).detected;
+      }
+
+      function assignVoxResponders(voxReport, target = null) {
+        if (!voxReport) return [];
+        const responders = state.tacticalVox.selectSupportResponders(voxReport, state.squads, {
+          maxResponders: voxReport.urgency >= 0.82 ? 2 : 1,
+          centerFor: squad => squadCenterFor(squadMembers(squad.id), baseFor(squad.faction)),
+          readinessFor: squad => squadMembers(squad.id).reduce((sum, member) => sum + member.hp / Math.max(1, member.maxHp), 0) / Math.max(1, squadMembers(squad.id).length),
+          objectiveImportanceFor: squad => ["Defend Base", "Capture"].includes(squad.orderType) ? 0.8 : squad.orderType === "Reserve" ? 0.12 : 0.4
+        });
+        for (const squad of responders) {
+          squad.voxResponse = { reportId: voxReport.id, position: { ...voxReport.position }, expiresAt: state.time + 18, previousOrderType: squad.orderType };
+          if (target) squad.combatContact = refreshSquadCombatContact(squad.combatContact, target, state.time, { confidence: voxReport.confidence, reason: "Astartes battle-net contact" });
+        }
+        return responders;
+      }
+
+      function publishFactionContact(observer, target, sensor = sensorResultFor(observer, target)) {
+        if (!sensor.detected || !observer?.faction || !target?.id) return null;
+        const confidence = Math.max(sensor.optical?.confidence || 0, sensor.auspex?.confidence || 0);
+        const report = {
+          source: sensor.optical?.detected ? "optical" : sensor.auspex?.sensor || "sensor",
+          confidence,
+          uncertaintyRadius: sensor.optical?.detected ? 0 : sensor.auspex?.uncertaintyRadius || 0
+        };
+        const snapshot = buildingCatalog[target.type]
+          ? state.factionIntel.observeStructure(observer.faction, target, state.time, report)
+          : state.factionIntel.observeUnit(observer.faction, target, state.time, report);
+        if (!snapshot) return null;
+        const voxReport = profiler.profile("intelligence.vox", () => state.tacticalVox.distributeContact(observer.faction, {
+          squadId: observer.squadId,
+          sourceId: observer.id,
+          sourceRole: observer.role,
+          position: snapshot.position,
+          contactId: snapshot.id,
+          hostileFaction: snapshot.faction,
+          classification: snapshot.classification,
+          isHeadquarters: snapshot.isHeadquarters,
+          confidence: snapshot.confidence,
+          urgency: snapshot.classification === "armor" || snapshot.isHeadquarters ? 0.88 : 0.58
+        }, state.time));
+        assignVoxResponders(voxReport, target);
+        return snapshot;
       }
 
       function hasFreshWorkerSense(unit) {
@@ -7075,9 +7309,11 @@ import {
         for (const other of nearby.units) {
           if (!other.alive || areAllies(other.faction, unit.faction)) continue;
           const d = distance(unit, other);
-          const detectionRadius = sensor * terrainAt(other).detection * clamp(0.45 + visionOcclusionBetween(unit, other) * 0.55, 0.45, 1);
+          const sensorResult = sensorResultFor(unit, other);
+          const detectionRadius = Math.max(sensorResult.optical?.effectiveRange || 0, sensorResult.auspex?.detected ? sensorResult.auspex.distance + sensorResult.auspex.uncertaintyRadius : 0, sensor * 0.5);
           other.lightState = sun.period;
-          if (d >= detectionRadius) continue;
+          if (!sensorResult.detected) continue;
+          publishFactionContact(unit, other, sensorResult);
           const weakness = (1 - other.hp / Math.max(1, other.maxHp)) * 24;
           const commanderPriority = unit.role === "commander" ? 18 : 0;
           const vengeance = vengeanceDrive(unit, other) * 32 + clamp(-relationshipScore(unit, other) * 0.12, 0, 10);
@@ -7116,8 +7352,10 @@ import {
           if (structure.alive === false || structure.progress < 0.45 || areAllies(structure.faction, unit.faction)) continue;
           ensureStructureRuntime(structure);
           const d = distance(unit, structure);
-          const detectionRadius = sensor * (structure.type === "outpost" || structure.type === "generator" ? 1.35 : 1.08);
-          if (d >= detectionRadius) continue;
+          const sensorResult = sensorResultFor(unit, structure);
+          const detectionRadius = Math.max(sensorResult.optical?.effectiveRange || 0, sensorResult.auspex?.detected ? sensorResult.auspex.distance + sensorResult.auspex.uncertaintyRadius : 0, sensor * 0.5);
+          if (!sensorResult.detected) continue;
+          publishFactionContact(unit, structure, sensorResult);
           const strategic = structure.type === "outpost" ? 105 : ["generator", "barracks", "workshop", "dropbay"].includes(structure.type) ? 82 : 58;
           const weakness = (1 - structure.hp / Math.max(1, structure.maxHp)) * 20;
           const focusCount = focusCounts.get(structure.id) || 0;
@@ -7215,6 +7453,17 @@ import {
           return false;
         }
         const weapon = shot.profile;
+        revealFromWeaponFire(unit, state.time, /eliminator|sniper/i.test(`${unit.name || ""} ${unit.role || ""}`) ? 5.5 : 3.5);
+        if (/eliminator|sniper/i.test(`${unit.name || ""} ${unit.role || ""}`)) {
+          const marker = probableSniperOrigin(unit, state.time);
+          for (const hostile of state.players.filter(player => !areAllies(player.id, unit.faction))) {
+            const listener = strategicCellIndex.unitsNear(unit, Math.max(220, unit.range * 1.45))
+              .some(observer => observer.alive && observer.faction === hostile.id);
+            if (!listener) continue;
+            state.factionIntel.rememberSniperOrigin(hostile.id, marker.position, state.time, marker);
+            state.tacticalVox.publish({ factionId: hostile.id, type: "SNIPER_DETECTED", scope: VOX_SCOPES.ASTARTES_BATTLE_NET, position: marker.position, hostileFaction: unit.faction, confidence: marker.confidence, urgency: 0.82 }, state.time);
+          }
+        }
 
         const intendedHit = battleRandom() < chance;
         const dx = target.x - unit.x;
@@ -7384,6 +7633,27 @@ import {
         if (carrier) carrier.carryingPatientId = null;
         unit.carriedById = null;
         state.casualties[unit.faction] = (state.casualties[unit.faction] || 0) + 1;
+        state.tacticalVox.publish({
+          factionId: unit.faction,
+          squadId: unit.squadId,
+          sourceId: unit.id,
+          sourceRole: unit.role,
+          type: "BROTHER_KILLED",
+          scope: isSpaceMarineUnit(unit) ? VOX_SCOPES.ASTARTES_BATTLE_NET : VOX_SCOPES.SQUAD_COMMAND_VOX,
+          position: { x: unit.x, y: unit.y },
+          hostileFaction: killer?.faction || null,
+          urgency: 0.84
+        }, state.time);
+        if (isSpaceMarineUnit(unit)) state.tacticalVox.publish({
+          factionId: unit.faction,
+          squadId: unit.squadId,
+          sourceId: unit.id,
+          sourceRole: "apothecary-alert",
+          type: "GENE_SEED_EXPOSED",
+          scope: VOX_SCOPES.ASTARTES_BATTLE_NET,
+          position: { x: unit.x, y: unit.y },
+          urgency: 0.72
+        }, state.time);
         if (killer?.alive && !areAllies(killer.faction, unit.faction)) {
           killer.kills = (killer.kills || 0) + 1;
           killer.memories ||= [];
@@ -7487,6 +7757,13 @@ import {
               : null;
             shooter.kills += 1;
             shooter.memories.push(`Defeated ${unitLabel(target)} with a ${zone} hit.`);
+            if (playerFor(shooter.faction)?.faction === "Space Marines" && shooter.weaponId) {
+              state.factionLearning[shooter.faction]?.observe("specialist-effectiveness", {
+                specialist: shooter.weaponId,
+                targetType: target.role || "unit",
+                success: true
+              }, { visible: true, observedAt: state.time });
+            }
             shooter.combatCommitment = null;
             shooter.targetId = null;
             adjustRelationship(target, shooter, relationshipEvents.enemyKill ?? -16, "was killed by this enemy", { event: "enemyKill" });
@@ -7616,6 +7893,17 @@ import {
         syncLegacyResources(structure.faction);
         rebuildRoadNetwork();
         if (attacker) attacker.kills += 1;
+        state.tacticalVox.publish({
+          factionId: structure.faction,
+          sourceId: structure.id,
+          sourceRole: "structure-monitor",
+          type: structure.type === "outpost" ? "BASE_ATTACKED" : "BUILDING_DESTROYED",
+          scope: VOX_SCOPES.ASTARTES_BATTLE_NET,
+          position: { x: structure.x, y: structure.y },
+          hostileFaction: attacker?.faction || null,
+          urgency: structure.type === "outpost" ? 1 : 0.84,
+          requestedResponders: structure.type === "outpost" ? 2 : 1
+        }, state.time);
         incident(`${unitLabel(structure)} destroyed · ${Math.round(lost)} stock lost, ${Math.round(salvaged)} salvaged.`, attacker?.id || structure.id, "critical");
       }
 
@@ -8186,24 +8474,59 @@ import {
         }
       }
 
-      function observedEnemiesFor(player) {
-        const observers = state.units.filter(unit => unit.alive && !unit.incapacitated && unit.faction === player.id);
-        if (!observers.length) return [];
-        const observed = new Map();
-        for (const observer of observers) {
-          const broadphaseRadius = Math.max(80, observer.range * (state.visibility / 100) * 2.2);
-          for (const enemy of nearbyCombatObjects(observer, broadphaseRadius).units) {
-            if (observed.has(enemy.id) || !enemy.alive || enemy.incapacitated || areAllies(enemy.faction, player.id)) continue;
-            if (canDetectTarget(observer, enemy)) observed.set(enemy.id, enemy);
+      function primaryLearningOpponentFor(player) {
+        return state.players.filter(candidate => candidate.id !== player.id && !areAllies(candidate.id, player.id))
+          .sort((left, right) => distance(player.base, left.base) - distance(player.base, right.base))[0] || null;
+      }
+
+      function learningScenarioIdFor(player) {
+        return `${state.scenario}:${worldWidth()}x${worldHeight()}:${normalizeBattleObjectiveId(player.battleObjective)}`;
+      }
+
+      function ensureFactionLearningMemory(player, profile = state.factionAIProfiles[player.id] || resolveFactionAIProfile(player)) {
+        const opponent = primaryLearningOpponentFor(player);
+        const matchupKey = factionMatchupMemoryKey({
+          race: player.race,
+          subfaction: player.subfaction,
+          opponentRace: opponent?.race || "none",
+          opponentSubfaction: opponent?.subfaction || "none",
+          scenarioId: learningScenarioIdFor(player)
+        });
+        const current = state.factionLearning[player.id];
+        if (current?.matchupKey === matchupKey) return current;
+        const context = {
+          matchupKey,
+          race: player.race,
+          subfaction: player.subfaction,
+          opponentRace: opponent?.race || "none",
+          opponentSubfaction: opponent?.subfaction || "none",
+          scenarioId: learningScenarioIdFor(player)
+        };
+        const memory = createFactionLearningMemory(profile, storageAdapter.load(`ai-memory:${matchupKey}`), context);
+        state.factionLearning[player.id] = memory;
+        void simulationDatabase.loadFactionMemory(matchupKey).then(record => {
+          if (!record?.memory || state.factionLearning[player.id]?.matchupKey !== matchupKey) return;
+          if ((record.memory.observations?.length || 0) > (state.factionLearning[player.id].observations?.length || 0)) {
+            state.factionLearning[player.id] = createFactionLearningMemory(profile, record.memory, context);
           }
-        }
-        return [...observed.values()];
+        });
+        return memory;
+      }
+
+      function observedEnemiesFor(player) {
+        // Perception jobs publish contacts to the faction intelligence board.
+        // Strategic AI consumes that shared board instead of making every unit
+        // repeat a sensor sweep here (an O(observers x contacts) late-game stall).
+        return state.factionIntel.getFactionIntel(player.id, state.time).contacts
+          .filter(contact => contact.confidence >= 0.08)
+          .map(contact => unitById(contact.id))
+          .filter(enemy => enemy?.alive && !enemy.incapacitated && !areAllies(enemy.faction, player.id));
       }
 
       function updateSharedFactionBranch(player) {
         const profile = state.factionAIProfiles[player.id] ||= resolveFactionAIProfile(player);
         const plan = player.battleObjectivePlan ||= resolveBattleObjectivePlan(player, profile);
-        const memory = state.factionLearning[player.id] ||= createFactionLearningMemory(profile);
+        const memory = ensureFactionLearningMemory(player, profile);
         const ownUnits = state.units.filter(unit => unit.alive && !unit.incapacitated && unit.faction === player.id);
         const observedEnemies = observedEnemiesFor(player);
         const observedEnemyPlayers = [...new Set(observedEnemies.map(enemy => enemy.faction))].map(playerFor).filter(Boolean);
@@ -8238,7 +8561,10 @@ import {
           return sum + Math.min(ammoCondition, fuelCondition);
         }, 0) / observedEnemies.length < 0.2;
         const duration = plan.durationSeconds || plan.holdSeconds || 600;
-        const visibleEnemyStructures = state.structures.filter(structure => structure.alive !== false && !areAllies(structure.faction, player.id) && objectVisibleToFog(structure, player.id));
+        const visibleEnemyStructures = state.factionIntel.getFactionIntel(player.id, state.time).structures
+          .filter(contact => contact.confidence >= 0.1)
+          .map(contact => structureById(contact.id))
+          .filter(structure => structure && structure.alive !== false && !areAllies(structure.faction, player.id));
         let isolatedObservedEnemies = 0;
         for (const enemy of observedEnemies) {
           const supportingEnemies = strategicCellIndex.unitsNear(enemy, 130)
@@ -8333,9 +8659,19 @@ import {
           && state.time - (structure.destroyedAt || -Infinity) <= 30
           && (productionDefinitionForStructure(player, structure)?.criticality || 0) >= 0.75);
         const defenders = ownUnits.filter(unit => distance(unit, player.base) < 260 && !unit.retreating);
-        const guardedProducers = producerClusters.filter(cluster => state.squads.some(squad => squad.faction === player.id
-          && ["economy-defense", "base-defense"].includes(squad.primaryRole)
-          && distance(squadCenterFor(squadMembers(squad.id), player.base), cluster) <= cluster.radius + 70));
+        const guardAggregates = new Map();
+        const guardSquadIds = new Set(state.squads.filter(squad => squad.faction === player.id
+          && ["economy-defense", "base-defense"].includes(squad.primaryRole)).map(squad => squad.id));
+        for (const unit of ownUnits) {
+          if (!guardSquadIds.has(unit.squadId)) continue;
+          const aggregate = guardAggregates.get(unit.squadId) || { x: 0, y: 0, count: 0 };
+          aggregate.x += unit.x;
+          aggregate.y += unit.y;
+          aggregate.count += 1;
+          guardAggregates.set(unit.squadId, aggregate);
+        }
+        const guardCenters = [...guardAggregates.values()].map(item => ({ x: item.x / item.count, y: item.y / item.count }));
+        const guardedProducers = producerClusters.filter(cluster => guardCenters.some(center => distance(center, cluster) <= cluster.radius + 70));
         const economySecurity = assessEconomySecurity({
           connectedProducers: producerClusters.filter(cluster => state.supplyNetwork.connectionFor(cluster.structureId).connected).length,
           criticalProducers: producerClusters.length,
@@ -8400,7 +8736,7 @@ import {
         player.factionAIScores = decision.scores;
         player.battleObjectiveMethod = plan.method;
         player.battleObjectiveLeash = player.operationalPlan.objectiveLeash;
-        const workflowDemand = productionDemandFor(player, true);
+        const workflowDemand = productionDemandFor(player);
         const workflowCapacity = economyCapacity(player.id);
         const workflowResourceHealth = economy.activeResources.length ? economy.activeResources.reduce((sum, resource) =>
           sum + clamp((economy.inventory[resource] || 0) / Math.max(1, workflowCapacity[resource] || 1), 0, 1), 0) / economy.activeResources.length : 0.5;
@@ -8443,7 +8779,26 @@ import {
           for (const player of state.players) {
             const profile = state.factionAIProfiles[player.id];
             const memory = state.factionLearning[player.id];
-            if (profile && memory) storageAdapter.save(`ai-memory:${profile.id}`, memory.toJSON());
+            if (profile && memory) {
+              if (reason !== "interval" && player.lastCompletedMemoryBattleSeed !== state.battleSeed) {
+                const outcome = state.strategicOutcomes[player.id];
+                memory.completeBattle({
+                  result: outcome?.defeated ? "defeat" : outcome?.status?.toLowerCase().includes("victory") ? "victory" : "complete",
+                  objective: normalizeBattleObjectiveId(player.battleObjective),
+                  success: !outcome?.defeated
+                }, state.time);
+                player.lastCompletedMemoryBattleSeed = state.battleSeed;
+              }
+              const serialized = memory.toJSON();
+              storageAdapter.save(`ai-memory:${memory.matchupKey}`, serialized);
+              void simulationDatabase.saveFactionMemory({
+                id: memory.matchupKey,
+                playerId: player.id,
+                profileId: profile.id,
+                updatedAt: Date.now(),
+                memory: serialized
+              });
+            }
           }
           // Relationship history is the largest persistence payload in a mature
           // battle. Save it at decisive events; rebuilding it every two minutes
@@ -8736,6 +9091,10 @@ import {
         const denseBattle = ["major", "total"].includes(state.performancePreset.id);
         const senseInterval = perceptionIntervalFor(unit, (unit.alertLevel || 0) > 0.35);
         unit.alertSenseCooldown = senseInterval + (unit.index % 7) * (denseBattle ? 0.023 : 0.011);
+        if (isSpaceMarineUnit(unit) && ["scout", "commander"].includes(unit.role) && canActiveScan(unit, state.time)) {
+          markActiveScan(unit, state.time);
+          unit.auspexActiveUntil = state.time + 0.65;
+        }
         const supportRole = ["builder", "supply"].includes(unit.role);
         const awarenessRadius = clamp(Math.max(supportRole ? 170 : 120, (unit.range || 0) * 1.35), 110, 230);
         const workerSense = hasFreshWorkerSense(unit);
@@ -8749,6 +9108,21 @@ import {
           .sort((a, b) => a.distance - b.distance)
           .slice(0, state.performancePreset.id === "total" ? 6 : state.performancePreset.id === "major" ? 8 : 16);
         const hostiles = hostileCandidates.filter(candidate => canDetectTarget(unit, candidate.unit));
+        for (const candidate of hostiles) publishFactionContact(unit, candidate.unit);
+        if (hostiles.length && distance(unit, baseFor(unit.faction)) <= Math.max(150, spawnZoneFor(playerFor(unit.faction)).size * 1.4)) {
+          assignVoxResponders(state.tacticalVox.publish({
+            factionId: unit.faction,
+            squadId: unit.squadId,
+            sourceId: unit.id,
+            sourceRole: unit.role,
+            type: "BASE_ATTACKED",
+            scope: VOX_SCOPES.ASTARTES_BATTLE_NET,
+            position: { ...baseFor(unit.faction) },
+            hostileFaction: hostiles[0].unit.faction,
+            urgency: 0.94,
+            requestedResponders: 2
+          }, state.time), hostiles[0].unit);
+        }
         const allies = nearby.filter(other => other.alive && !other.incapacitated && distance(unit, other) <= awarenessRadius && areAllies(other.faction, unit.faction) && other.id !== unit.id);
         unit.perceptionMemory ||= { contacts: {}, updatedAt: state.time };
         refreshContactMemory(unit.perceptionMemory, hostiles, state.time, {
@@ -8774,6 +9148,39 @@ import {
         const breakPolicy = breakPolicyFor(player);
         const awareness = evaluateProximityAwareness(unit, hostiles, allies, senseDt, awarenessRadius, { usesFear: breakPolicy.usesFear });
         Object.assign(unit, awareness);
+        if (hostiles.length && unit.role === "scout") {
+          const threat = hostiles[0].unit;
+          const base = baseFor(unit.faction);
+          const approachVector = { x: Number(threat.vx) || 0, y: Number(threat.vy) || 0 };
+          const towardBase = approachVector.x * (base.x - threat.x) + approachVector.y * (base.y - threat.y) > 0;
+          if (towardBase || distance(threat, base) < 420) assignVoxResponders(state.tacticalVox.publish({
+            factionId: unit.faction,
+            squadId: unit.squadId,
+            sourceId: unit.id,
+            sourceRole: unit.role,
+            type: "ENEMY_ASSAULT_APPROACH",
+            scope: VOX_SCOPES.ASTARTES_BATTLE_NET,
+            position: { x: threat.x, y: threat.y },
+            contactId: threat.id,
+            hostileFaction: threat.faction,
+            urgency: 0.86,
+            requestedResponders: 2
+          }, state.time), threat);
+        }
+        if (hostiles.length && awareness.localHostilePower > awareness.localFriendlyPower * 1.35 && unit.squadId) {
+          assignVoxResponders(state.tacticalVox.publish({
+            factionId: unit.faction,
+            squadId: unit.squadId,
+            sourceId: unit.id,
+            sourceRole: unit.role,
+            type: "SQUAD_HELP_REQUEST",
+            scope: VOX_SCOPES.ASTARTES_BATTLE_NET,
+            position: { x: unit.x, y: unit.y },
+            hostileFaction: hostiles[0].unit.faction,
+            urgency: 0.9,
+            requestedResponders: 2
+          }, state.time), hostiles[0].unit);
+        }
         const livingSquadMembers = squad ? squadMembers(squad.id) : [];
         const pressure = updateFactionPressure(unit, player, {
           hostilePower: awareness.localHostilePower,
@@ -9073,7 +9480,7 @@ import {
           }
         }
 
-        profiler.profile(`simulation.awareness.${unit.role || "unknown"}`, () => updateProximityAwareness(unit, dt));
+        profiler.profile("ai.perception", () => profiler.profile(`simulation.awareness.${unit.role || "unknown"}`, () => updateProximityAwareness(unit, dt)));
         if (unit.retreating && unit.role === "builder") {
           updateBuilder(unit, dt);
           return;
@@ -10002,7 +10409,7 @@ import {
 
       function forceCommitmentContext(player) {
         const allies = state.units.filter(unit => unit.alive && !unit.incapacitated && unit.faction === player.id);
-        const enemies = state.units.filter(unit => unit.alive && !unit.incapacitated && !areAllies(unit.faction, player.id));
+        const enemies = observedEnemiesFor(player);
         const casualties = state.casualties[player.id] || 0;
         const headquartersThreat = clamp(enemies.filter(unit => distance(unit, player.base) < 320).length / Math.max(1, allies.length * 0.5), 0, 1);
         const criticalContest = Boolean(state.strategicTerritory?.cells.some(cell => cell.objective && cell.siege?.attackerId && cell.owner === player.id));
@@ -10369,7 +10776,7 @@ import {
           sequence: player.productionSequence || 0
         };
         if (player.faction === "Space Marines") {
-          const enemyUnits = state.units.filter(unit => unit.alive && !areAllies(unit.faction, player.id));
+          const enemyUnits = observedEnemiesFor(player);
           const armored = enemyUnits.filter(unit => unit.role === "vehicle" || (unit.armorProtection || 0) >= 14).length;
           const economy = economyFor(player.id);
           manifest = selectSpaceMarineWargear({
@@ -10377,7 +10784,8 @@ import {
             manifest,
             squadRole: player.squadRoleComposition?.siege > 0 ? "siege" : "offensive",
             enemyIntel: { armor: armored / Math.max(1, enemyUnits.length), horde: clamp(enemyUnits.length / Math.max(10, state.units.length * 0.35), 0, 1), commanders: enemyUnits.some(unit => unit.role === "commander") ? 0.7 : 0.1 },
-            economy: { inventory: economy.inventory, capacity: economyCapacity(player.id) }
+            economy: { inventory: economy.inventory, capacity: economyCapacity(player.id) },
+            learningMemory: state.factionLearning[player.id]
           });
         }
         return manifest.length <= availableSlots ? manifest : [];
@@ -10432,6 +10840,7 @@ import {
             templateId: player.faction === "Space Marines" ? `astartes-${manifest[0].astartesSquadClass || "line"}` : `group-${player.race.toLowerCase()}`,
             nominalSize: player.faction === "Space Marines" ? manifest[0].nominalSize || 10 : units.length,
             astartesSquadClass: player.faction === "Space Marines" ? manifest[0].astartesSquadClass || "line" : null,
+            chapterRoleHint: player.faction === "Space Marines" ? spaceMarineProfileFor(manifest[0].name).astartesClass : null,
             cohesionMode: player.faction === "Space Marines" ? "DISTRIBUTED" : undefined,
             formationActive: player.faction === "Space Marines" ? false : undefined,
             formation: player.race === "Orks" ? "circle" : player.race === "Tyranids" ? "wedge" : "line",
@@ -10462,23 +10871,26 @@ import {
       function refreshEconomyRequests(player) {
         const economy = economyFor(player.id);
         const capacity = economyCapacity(player.id);
+        const ownStructures = state.structures.filter(item => item.faction === player.id && item.alive !== false);
+        const ownUnits = state.units.filter(unit => unit.alive && !unit.incapacitated && unit.faction === player.id);
+        const structureTypes = new Set(ownStructures.map(item => item.type));
         economy.shortages = economy.activeResources.filter(key => (economy.inventory[key] || 0) < (capacity[key] || 1) * 0.16);
         for (const request of economy.queue.filter(item => item.type === "emergency" && !["Delivered", "Denied", "Complete"].includes(item.status))) {
           if (!economy.shortages.includes(request.resource)) request.status = "Complete";
         }
         if (economy.shortages.includes("ammunition")) addEconomyRequest(player.id, "emergency-ammo", "emergency", "Emergency ammunition convoy", 100, { resource: "ammunition" });
         if (economy.shortages.includes("fuel")) addEconomyRequest(player.id, "emergency-fuel", "emergency", "Refuel tanks and transports", 94, { resource: "fuel" });
-        const damagedHq = state.structures.find(item => item.faction === player.id && item.type === "outpost" && item.alive !== false && item.condition < 0.65);
+        const damagedHq = ownStructures.find(item => item.type === "outpost" && item.condition < 0.65);
         if (damagedHq) addEconomyRequest(player.id, "repair-hq", "repair", "Repair headquarters", 100, { targetId: damagedHq.id });
-        const hasType = type => state.structures.some(item => item.faction === player.id && item.type === type && item.alive !== false);
+        const hasType = type => structureTypes.has(type);
         if (!hasType("warehouse")) addEconomyRequest(player.id, "build-warehouse", "build", "Build warehouse", 78, { buildType: "warehouse" });
         if (!hasType("barracks")) addEconomyRequest(player.id, "build-barracks", "build", "Build barracks", 74, { buildType: "barracks" });
         if (economy.shortages.includes("food") && !hasType("farm")) addEconomyRequest(player.id, "build-farm", "build", "Build supply farm", 86, { buildType: "farm" });
         if (economy.shortages.includes("materials") && !hasType("mine")) addEconomyRequest(player.id, "build-mine", "build", "Build material mine", 88, { buildType: "mine" });
-        const living = state.units.filter(unit => unit.alive && unit.faction === player.id && !["builder", "supply"].includes(unit.role)).length;
+        const living = ownUnits.filter(unit => !["builder", "supply"].includes(unit.role)).length;
         const unitCap = unitCapFor(player);
         const productionCapacity = combatProductionCapacity(unitCap, living);
-        const livingBuilders = state.units.filter(unit => unit.alive && !unit.incapacitated && unit.faction === player.id && unit.role === "builder").length;
+        const livingBuilders = ownUnits.filter(unit => unit.role === "builder").length;
         const desiredBuilders = player.builderWorkforce?.desired || desiredBuilderCount(player, state.structures, player.builderTarget);
         const builderPriority = builderProductionPriority(livingBuilders, desiredBuilders);
         if (builderPriority > 0) {
@@ -10511,7 +10923,13 @@ import {
           for (const request of economy.queue.filter(item => item.type === "train" && !item.targetSquadId
             && !["Delivered", "Denied", "Complete"].includes(item.status))) request.status = "Complete";
         }
-        if (player.race === "Imperium" && player.faction === "Space Marines" && living < Math.max(4, unitCap - 1) && shouldUseDropPod(player)) addEconomyRequest(player.id, "drop-pod", "dropPod", "Orbital drop-pod reinforcement", 88);
+        const activeDropPodRequest = economy.queue.some(item => item.key === "drop-pod"
+          && !["Delivered", "Denied", "Complete"].includes(item.status));
+        const operationalDropBay = ownStructures.some(item => item.type === "dropbay" && item.progress >= 1 && item.condition >= 0.35);
+        if (player.race === "Imperium" && player.faction === "Space Marines" && operationalDropBay && !activeDropPodRequest
+          && living < Math.max(4, unitCap - 1) && shouldUseDropPod(player)) {
+          addEconomyRequest(player.id, "drop-pod", "dropPod", "Orbital drop-pod reinforcement", 88);
+        }
         economy.emergency = economy.shortages.length
           ? `${economyResourceLabels[economy.shortages[0]]} below 16% · conserve fire and protect routes`
           : "Supply stable · reserves maintained";
@@ -10528,12 +10946,17 @@ import {
         const allies = localActors.units.filter(unit => unit.alive && areAllies(unit.faction, player.id) && distance(point, unit) < 105);
         const closeAllies = allies.filter(unit => distance(point, unit) < 28);
         if (closeAllies.length > 2) return null;
-        const enemies = localActors.units.filter(unit => unit.alive && !areAllies(unit.faction, player.id) && distance(point, unit) < 170);
+        const factionIntel = state.factionIntel.getFactionIntel(player.id, state.time);
+        const knownContactIds = new Set([...factionIntel.contacts, ...factionIntel.structures].map(contact => contact.id));
+        const enemies = localActors.units.filter(unit => unit.alive && !areAllies(unit.faction, player.id)
+          && distance(point, unit) < 170 && knownContactIds.has(unit.id));
         const immediate = enemies.filter(unit => distance(point, unit) < 48);
-        const antiAir = localActors.structures.filter(structure => structure.alive !== false && !areAllies(structure.faction, player.id) && ["turret", "observationtower"].includes(structure.type)).length
+        const antiAir = localActors.structures.filter(structure => structure.alive !== false && !areAllies(structure.faction, player.id)
+          && knownContactIds.has(structure.id) && ["turret", "observationtower"].includes(structure.type)).length
           + enemies.filter(unit => unit.role === "vehicle" && distance(point, unit) < 150).length * 0.7;
         const road = nearestRoadSegment(point, 80);
-        const hostileStructure = state.structures.find(structure => structure.alive !== false && !areAllies(structure.faction, player.id) && distance(point, structure) < 130);
+        const hostileStructure = localActors.structures.find(structure => structure.alive !== false && !areAllies(structure.faction, player.id)
+          && distance(point, structure) < 130 && knownContactIds.has(structure.id));
         const threatenedAlly = allies.filter(unit => unit.hp < unit.maxHp * 0.7 || unit.protectionRequested).length;
         const objective = hostileStructure ? 34 : road ? 22 + (road.road?.supplyImportance || 0) * 18 : 0;
         const reinforcementImpact = Math.min(38, enemies.length * 7 + threatenedAlly * 12);
@@ -10549,19 +10972,23 @@ import {
 
       function bestDropPodLandingZone(player) {
         const cached = player.dropPodLandingCache;
-        if (cached && state.time - cached.at < 4 && cached.unitCount === state.units.length && cached.structureCount === state.structures.length) return cached.landing;
+        // Landing analysis samples dozens of spatial neighborhoods. Keep the
+        // decision stable long enough to be tactically meaningful instead of
+        // invalidating it whenever any faction creates or loses one entity.
+        if (cached && state.time - cached.at < 10) return cached.landing;
         const candidates = [];
+        const candidateLimit = state.performancePreset.id === "total" ? 12 : state.performancePreset.id === "major" ? 48 : 120;
         const addAround = (center, count = 8, radius = 72) => {
-          if (!center) return;
+          if (!center || candidates.length >= candidateLimit) return;
           candidates.push({ x: center.x, y: center.y });
-          for (let index = 0; index < count; index += 1) {
+          for (let index = 0; index < count && candidates.length < candidateLimit; index += 1) {
             const angle = index * Math.PI * 2 / count + player.index * 0.37;
             candidates.push({ x: clamp(center.x + Math.cos(angle) * radius, 30, worldWidth() - 30), y: clamp(center.y + Math.sin(angle) * radius, 30, worldHeight() - 30) });
           }
         };
         addAround(player.base, 6, 70);
         for (const ally of state.units.filter(unit => unit.alive && areAllies(unit.faction, player.id) && (unit.hp < unit.maxHp * 0.72 || unit.role === "commander")).slice(0, 6)) addAround(ally, 6, 64);
-        for (const structure of state.structures.filter(structure => structure.alive !== false && !areAllies(structure.faction, player.id)).slice(0, 8)) addAround(structure, 8, 95);
+        for (const contact of state.factionIntel.getFactionIntel(player.id, state.time).structures.filter(contact => contact.confidence >= 0.2).slice(0, 8)) addAround(contact.position, 8, 95);
         for (const road of state.roads.slice(0, 8)) addAround(roadMidpoint(road), 6, 78);
         for (const territory of state.territories.filter(item => item.cellBacked)) {
           for (const key of [...(territory.frontierCells || [])].slice(0, 4)) addAround(territoryCellCenter(key), 4, 52);
@@ -10573,7 +11000,7 @@ import {
           if (seen.has(key)) continue;
           seen.add(key);
           boundedCandidates.push(point);
-          if (boundedCandidates.length >= (state.performancePreset.id === "total" ? 48 : state.performancePreset.id === "major" ? 96 : 180)) break;
+          if (boundedCandidates.length >= candidateLimit) break;
         }
         const evaluated = boundedCandidates.map(point => dropPodLandingScore(player, point)).filter(Boolean).sort((a, b) => b.score - a.score);
         const landing = evaluated[0] || dropPodLandingScore(player, player.base) || { point: { ...player.base }, score: 0, ownership: player.id };
@@ -10715,7 +11142,8 @@ import {
               ? `Approved · ${producer.displayName || factionBuildingLabel(player.id, producer.type)} preparing builder`
               : "Delayed · builder resources unavailable";
           } else if (request.type === "train") {
-            const manifest = isImperialGuard(player) ? [] : lockProductionManifest(request, productionManifestFor(player, Infinity));
+            const manifest = isImperialGuard(player) ? [] : lockProductionManifest(request,
+              request.productionManifest?.length ? [] : productionManifestFor(player, Infinity));
             const producerTypes = isImperialGuard(player) ? ["barracks"] : request.producerTypes?.length
               ? request.producerTypes : manifest[0]?.producerTypes || ["barracks"];
             const producer = selectMilitaryProducer({ structures: state.structures, faction: player.id, producerTypes, now: state.time });
@@ -11154,23 +11582,38 @@ import {
       }
 
       function economyTick(players = state.players) {
-        refreshSupplyNetwork();
+        const phasedEconomy = state.performancePreset?.id === "total"
+          && state.units.length + state.structures.length >= 280;
+        if (!phasedEconomy || players.some(player => (state.economyPhaseByPlayer[player.id] || 0) === 0)) {
+          profiler.profile("economy.supplyNetwork", refreshSupplyNetwork);
+        }
         for (const player of players) {
-          updatePlayerForceCommitment(player);
+          const phase = phasedEconomy ? state.economyPhaseByPlayer[player.id] || 0 : -1;
           const unitCap = unitCapFor(player);
           const economy = economyFor(player.id);
-          profiler.profile("economy.constructionQueue", () => planFactionConstruction(player));
-          profiler.profile("economy.builderWorkforce", () => refreshBuilderWorkforce(player));
-          profiler.profile("economy.requests", () => refreshEconomyRequests(player));
-          profiler.profile("economy.processRequests", () => processEconomyRequests(player));
-          profiler.profile("economy.resourceZones", () => updateAuthoredResourceZones(player));
-          profiler.profile("economy.builderProduction", () => updateBuilderProduction(player));
-          profiler.profile("economy.supportProduction", () => updateHeadquartersSupportProduction(player));
-          profiler.profile("economy.structureLogistics", () => {
-            for (const structure of state.structures.filter(item => item.faction === player.id)) dispatchStructureLogistics(player, structure);
-          });
-          profiler.profile("economy.consumption", () => updateUnitConsumption(player));
-          profiler.profile("economy.tradeConvoys", () => dispatchTradeConvoys(player));
+          if (!phasedEconomy || phase === 0) {
+            updatePlayerForceCommitment(player);
+            profiler.profile("economy.constructionQueue", () => planFactionConstruction(player));
+            profiler.profile("economy.builderWorkforce", () => refreshBuilderWorkforce(player));
+            profiler.profile("economy.requests", () => refreshEconomyRequests(player));
+          }
+          if (!phasedEconomy || phase === 1) {
+            profiler.profile("economy.processRequests", () => processEconomyRequests(player));
+            profiler.profile("economy.resourceZones", () => updateAuthoredResourceZones(player));
+            profiler.profile("economy.builderProduction", () => updateBuilderProduction(player));
+            profiler.profile("economy.supportProduction", () => updateHeadquartersSupportProduction(player));
+          }
+          if (!phasedEconomy || phase === 2) {
+            profiler.profile("economy.structureLogistics", () => {
+              for (const structure of state.structures.filter(item => item.faction === player.id)) dispatchStructureLogistics(player, structure);
+            });
+            profiler.profile("economy.consumption", () => updateUnitConsumption(player));
+            profiler.profile("economy.tradeConvoys", () => dispatchTradeConvoys(player));
+          }
+          if (phasedEconomy && phase !== 3) {
+            state.economyPhaseByPlayer[player.id] = phase + 1;
+            continue;
+          }
           const living = state.units.filter(unit => unit.alive && !unit.incapacitated && unit.faction === player.id
             && !["builder", "supply"].includes(unit.role)).length;
           let trainingRequest = economy.queue.find(item => item.key === "train-line" && !["Delivered", "Denied", "Complete"].includes(item.status));
@@ -11208,7 +11651,8 @@ import {
             }
           }
           const groupManifest = guardPlayer || !trainingRequest ? []
-            : lockProductionManifest(trainingRequest, productionManifestFor(player, unitCap - living));
+            : lockProductionManifest(trainingRequest,
+              trainingRequest.productionManifest?.length ? [] : productionManifestFor(player, unitCap - living));
           if (!guardTraining) guardBatchSize = guardPlayer ? 0 : groupManifest.length;
           const producerTypes = guardPlayer ? ["barracks"] : groupManifest[0]?.producerTypes || ["barracks"];
           const producer = selectMilitaryProducer({ structures: state.structures, faction: player.id, producerTypes, now: state.time });
@@ -11252,6 +11696,7 @@ import {
           if (isImperialGuard(player)) manageGuardSquads(player);
           else autoFormSquads(player.id);
           syncLegacyResources(player.id);
+          if (phasedEconomy) state.economyPhaseByPlayer[player.id] = 0;
         }
       }
 
@@ -11508,6 +11953,12 @@ import {
             synchronizeAstartesSquad(squad, state.units);
             pod.deployedUnitIds = deployedUnits.map(unit => unit.id);
             pod.deployedUnitCount = deployedUnits.length;
+            state.factionLearning[pod.faction]?.observe("drop-pod-result", {
+              zone: pod.targetCellKey || "battlefield",
+              targetType: pod.targetType || "objective",
+              success: deployedUnits.length === 4 && Number(pod.landingScore) >= Number(pod.minimumLandingScore),
+              magnitude: clamp((Number(pod.landingScore) || 0) / Math.max(1, Number(pod.minimumLandingScore) || 1), 0.25, 2)
+            }, { visible: true, observedAt: state.time });
             const request = economyFor(pod.faction).queue.find(item => item.id === pod.requestId);
             if (request) request.status = "Delivered";
             incident(`${playerFor(pod.faction).faction} drop pod impacted; four Marines deployed.`, null, "info");
@@ -11641,11 +12092,28 @@ import {
         const player = playerFor(faction);
         player.capturedTerritoryCellKeys ||= new Set();
         player.capturedTerritoryCellKeys.add(key);
+        const capturedPoint = territoryCellCenter(key);
+        const resourceZone = state.resourceZones.find(zone => pointInResourceZone(capturedPoint, zone));
+        const captureUnit = strategicCellIndex.unitsNear(capturedPoint, TERRITORY_CELL_SIZE * 0.75)
+          .find(unit => unit.alive && unit.faction === faction && unit.territoryAgentMission);
+        state.factionLearning[faction]?.observe("territory-result", {
+          cell: key,
+          resource: resourceZone?.resourceType || "none",
+          success: true,
+          magnitude: resourceZone ? 1.5 : 1
+        }, { visible: true, observedAt: state.time });
+        if (captureUnit) state.factionLearning[faction]?.observe("capture-unit-effectiveness", {
+          unitType: captureUnit.specialty || captureUnit.role,
+          success: true,
+          resource: resourceZone?.resourceType || null
+        }, { visible: true, observedAt: state.time });
         const developmentDecision = territoryDevelopmentDecisionFor(player, key);
         const development = recordTerritoryDevelopment(player, key, state.time, developmentDecision);
         incident(development.order
           ? `${player.faction} evaluated captured cell ${key} as ${development.opportunity.category}; ${factionBuildingLabel(player.id, development.order.buildingType)} was requested.`
           : `${player.faction} captured cell ${key} and left it undeveloped: ${development.opportunity.reason}.`, null, "info");
+        state.tacticalVox.publish({ factionId: faction, type: "TERRITORY_CAPTURED", scope: VOX_SCOPES.ASTARTES_BATTLE_NET, position: capturedPoint, urgency: resourceZone ? 0.7 : 0.5 }, state.time);
+        if (previous?.owner) state.tacticalVox.publish({ factionId: previous.owner, type: "TERRITORY_LOST", scope: VOX_SCOPES.ASTARTES_BATTLE_NET, position: capturedPoint, hostileFaction: faction, urgency: 0.82 }, state.time);
         syncTerritoryPoints(target);
         state.minimapMarkerDirty = true;
         return true;
@@ -12367,7 +12835,7 @@ import {
         const ownUnits = state.units.filter(unit => unit.alive && !unit.incapacitated && unit.faction === player.id);
         const objectiveForces = ownUnits.filter(unit => !["builder", "supply"].includes(unit.role)
           && (unit.damage > 0 || unit.role === "vehicle" || unit.role === "commander"));
-        const enemyBases = enemies.map(enemy => enemy.base).filter(Boolean);
+        const enemyBases = enemies.map(enemy => knownHostileAnchor(player.id, enemy.id)).filter(Boolean);
         const breakthroughProgress = objectiveForces.length && enemyBases.length
           ? Math.max(...objectiveForces.map(unit => Math.max(...enemyBases.map(base => {
             const startDistance = distance(player.base, base) || 1;
@@ -12380,7 +12848,9 @@ import {
         const assassination = player.objectiveTargetIds.size > 0
           && [...player.objectiveTargetIds].every(id => !state.units.some(unit => unit.id === id && unit.alive));
 
-        const enemyStrategicStructures = state.structures.filter(structure => enemyIds.has(structure.faction) && ["outpost", "generator", "barracks", "workshop", "warehouse", "refinery", "dropbay"].includes(structure.type));
+        const enemyStrategicStructures = state.structures.filter(structure => enemyIds.has(structure.faction)
+          && objectVisibleToFog(structure, player.id)
+          && ["outpost", "generator", "barracks", "workshop", "warehouse", "refinery", "dropbay"].includes(structure.type));
         player.maxObservedEnemyInfrastructure = Math.max(player.maxObservedEnemyInfrastructure || 0, enemyStrategicStructures.length);
         const infrastructureBaseline = player.maxObservedEnemyInfrastructure || 0;
         const sabotageProgress = infrastructureBaseline
@@ -12548,8 +13018,11 @@ import {
             && ["outpost", "barracks", "workshop", "dropbay"].includes(structure.type) && objectVisibleToFog(structure, player.id));
           const incapacitatedThreats = state.units.filter(unit => unit.alive && unit.incapacitated && unit.faction === targetEnemy.id
             && objectVisibleToFog(unit, player.id));
+          const lastKnownHostileAnchor = knownHostileAnchor(player.id, targetEnemy.id);
           const fogSearchPoints = state.strategicTerritory?.cells.filter(cell => cell.owner !== player.id)
-            .sort((a, b) => distance(a.centroid, targetEnemy.base) - distance(b.centroid, targetEnemy.base))
+            .sort((a, b) => lastKnownHostileAnchor
+              ? distance(a.centroid, lastKnownHostileAnchor) - distance(b.centroid, lastKnownHostileAnchor)
+              : (b.resourceAccess || 0) - (a.resourceAccess || 0))
             .slice(0, 6).map(cell => ({ id: `search-cell-${cell.id}`, ...cell.centroid })) || [];
           player.endgameDirective = chooseEndgameDirective({
             race: state.factionAIProfiles[player.id]?.branch || player.race,
@@ -12570,7 +13043,9 @@ import {
       function doctrineActivityTierFor(player) {
         const context = player?.factionAIContext || {};
         if ((context.enemyPressure || 0) >= 0.65 || player?.operationalPlan?.phase === "emergency") return "critical";
-        if (state.performancePreset.id === "total") return "distant";
+        // Immediate combat and Vox responses bypass strategic cadence. Dense
+        // battle planning can run at the dormant rate without dulling contact.
+        if (state.performancePreset.id === "total") return "dormant";
         if (state.performancePreset.id === "major") return "nearby";
         return "active";
       }
@@ -12646,7 +13121,8 @@ import {
           state.environmentAccumulator = 0;
         }
         if (state.time >= state.nextEconomy && heavySystemAvailable()) {
-          if (state.players.length > 4) {
+          const staggerEconomy = state.players.length > 4 || denseTotalBattle || loadEntityCount >= 280;
+          if (staggerEconomy) {
             const player = state.players[state.economyPlayerCursor % state.players.length];
             profiler.profile("economy.update", () => economyTick([player]));
             state.economyPlayerCursor = (state.economyPlayerCursor + 1) % state.players.length;
@@ -14595,7 +15071,9 @@ import {
           const key = String(team);
           const visible = teamVisibility.get(key);
           if (!visible) return;
-          const radius = Math.max(0, source.r * visibilityScale);
+          const opticalRadius = Math.max(0, source.r * visibilityScale);
+          const auspexRadius = Math.max(0, (source.auspexRadius || 0) * visibilityScale);
+          const radius = Math.max(opticalRadius, auspexRadius);
           const range = gridRangeForBounds({
             left: clamp(source.x - radius, 0, worldWidth()),
             right: clamp(source.x + radius, 0, worldWidth()),
@@ -14610,7 +15088,15 @@ import {
               const nearestY = clamp(source.y, top, top + FOG_CELL_SIZE);
               const dx = source.x - nearestX;
               const dy = source.y - nearestY;
-              if (dx * dx + dy * dy <= radius * radius) visible.cells.addCell(cellX, cellY);
+              const cellDistanceSquared = dx * dx + dy * dy;
+              const centerX = left + FOG_CELL_SIZE / 2;
+              const centerY = top + FOG_CELL_SIZE / 2;
+              const bearing = Math.atan2(centerY - source.y, centerX - source.x);
+              const angle = Math.abs(Math.atan2(Math.sin(bearing - (source.facing || 0)), Math.cos(bearing - (source.facing || 0))));
+              const insideOpticalArc = cellDistanceSquared <= opticalRadius * opticalRadius
+                && angle <= ((source.horizontalDegrees || 360) * Math.PI / 360);
+              const insideAuspex = auspexRadius > 0 && cellDistanceSquared <= auspexRadius * auspexRadius;
+              if (insideOpticalArc || insideAuspex) visible.cells.addCell(cellX, cellY);
             }
           }
         };
@@ -14622,11 +15108,21 @@ import {
         const structures = snapshot?.structures || state.structures;
         for (const unit of units) {
           if (!unit.alive) continue;
-          add(playerFor(unit.faction).team, { x: unit.x, y: unit.y, r: unit.role === "scout" ? 145 : unit.role === "builder" ? 92 : 112 });
+          const player = playerFor(unit.faction);
+          const optical = opticalProfileFor(unit, player);
+          const auspex = isSpaceMarineUnit(unit) ? auspexProfileFor(unit) : null;
+          add(player.team, {
+            x: unit.x,
+            y: unit.y,
+            r: unit.role === "scout" ? 145 : unit.role === "builder" ? 104 : 112,
+            facing: unit.facing || 0,
+            horizontalDegrees: optical.horizontalDegrees,
+            auspexRadius: auspex ? ((unit.auspexActiveUntil || 0) > state.time ? auspex.activeRadius : auspex.passiveRadius) * auspex.radiusMultiplier : 0
+          });
         }
         for (const item of structures) {
           if (item.alive === false || item.progress < 1) continue;
-          add(playerFor(item.faction).team, { x: item.x, y: item.y, r: item.type === "observationtower" ? 170 : 78 });
+          add(playerFor(item.faction).team, { x: item.x, y: item.y, r: item.type === "observationtower" ? 170 : 78, horizontalDegrees: 360 });
         }
       }
 
@@ -14695,7 +15191,16 @@ import {
         }, FOG_CELL_SIZE);
         for (let cellY = range.minY; cellY <= range.maxY; cellY += 1) {
           for (let cellX = range.minX; cellX <= range.maxX; cellX += 1) {
-            if (isFogCellMask(visible) ? visible.hasCell(cellX, cellY) : visible instanceof Set && visible.has(chunkKey(cellX, cellY))) return true;
+            if (isFogCellMask(visible) ? visible.hasCell(cellX, cellY) : visible instanceof Set && visible.has(chunkKey(cellX, cellY))) {
+              if (item.role && Object.hasOwn(item, "alive")) {
+                const sharedContact = state.players.some(player => areAllies(player.id, playerId)
+                  && state.time - (state.factionIntel.ensureFaction(player.id).contacts.get(item.id)?.lastSeenAt ?? -Infinity) <= 3);
+                if (sharedContact) return true;
+                return state.structures.some(structure => structure.alive !== false && structure.progress >= 1
+                  && areAllies(structure.faction, playerId) && structure.type === "observationtower" && distance(structure, item) <= 170);
+              }
+              return true;
+            }
           }
         }
         return false;
@@ -14704,17 +15209,21 @@ import {
       function drawFog() {
         if (state.fogPlayer === "observer") return;
         const playerId = state.fogPlayer;
-        const bounds = cameraBounds(CHUNK_SIZE);
-        const explored = state.explored[playerId] instanceof Set ? state.explored[playerId] : new Set();
-        const visible = state.visibleFogChunks[playerId] instanceof Set ? state.visibleFogChunks[playerId] : new Set();
-        const range = chunkRangeForBounds(bounds);
+        const bounds = cameraBounds(FOG_CELL_SIZE);
+        const explored = state.exploredFogCells[playerId];
+        const visible = state.visibleFogCells[playerId];
+        if (!isFogCellMask(explored) || !isFogCellMask(visible)) return;
+        const range = gridRangeForBounds(bounds, FOG_CELL_SIZE);
+        ctx.fillStyle = colors.background;
         for (let gy = range.minY; gy <= range.maxY; gy += 1) {
           for (let gx = range.minX; gx <= range.maxX; gx += 1) {
-            const key = chunkKey(gx, gy);
-            if (visible.has(key)) continue;
+            if (visible.hasCell(gx, gy)) continue;
+            const visibleNeighbors = Number(visible.hasCell(gx - 1, gy)) + Number(visible.hasCell(gx + 1, gy))
+              + Number(visible.hasCell(gx, gy - 1)) + Number(visible.hasCell(gx, gy + 1));
             ctx.fillStyle = colors.background;
-            ctx.globalAlpha = explored.has(key) ? 0.5 : 0.92;
-            ctx.fillRect(gx * CHUNK_SIZE, gy * CHUNK_SIZE, CHUNK_SIZE + 1, CHUNK_SIZE + 1);
+            const baseAlpha = explored.hasCell(gx, gy) ? 0.5 : 0.92;
+            ctx.globalAlpha = baseAlpha * (visibleNeighbors ? Math.max(0.42, 1 - visibleNeighbors * 0.13) : 1);
+            ctx.fillRect(gx * FOG_CELL_SIZE, gy * FOG_CELL_SIZE, FOG_CELL_SIZE + 0.75, FOG_CELL_SIZE + 0.75);
           }
         }
         ctx.globalAlpha = 1;
@@ -14955,21 +15464,23 @@ import {
         layer.setTransform(1, 0, 0, 1, 0, 0);
         layer.clearRect(0, 0, width, height);
         if (state.fogPlayer !== "observer") {
-          const explored = state.explored[state.fogPlayer] instanceof Set ? state.explored[state.fogPlayer] : new Set();
-          const visible = state.visibleFogChunks[state.fogPlayer] instanceof Set ? state.visibleFogChunks[state.fogPlayer] : new Set();
+          const explored = state.exploredFogCells[state.fogPlayer];
+          const visible = state.visibleFogCells[state.fogPlayer];
           layer.fillStyle = colors.background;
           layer.globalAlpha = 0.78;
           layer.fillRect(0, 0, width, height);
           layer.globalCompositeOperation = "destination-out";
           layer.globalAlpha = 0.56;
-          for (const key of explored) {
-            const [chunkX, chunkY] = key.split(",").map(Number);
-            layer.fillRect(chunkX * CHUNK_SIZE * scaleX, chunkY * CHUNK_SIZE * scaleY, Math.max(1, CHUNK_SIZE * scaleX), Math.max(1, CHUNK_SIZE * scaleY));
+          for (const index of explored?.indices || []) {
+            const cellX = index % explored.columns;
+            const cellY = Math.floor(index / explored.columns);
+            layer.fillRect(cellX * FOG_CELL_SIZE * scaleX, cellY * FOG_CELL_SIZE * scaleY, Math.max(1, FOG_CELL_SIZE * scaleX + 0.5), Math.max(1, FOG_CELL_SIZE * scaleY + 0.5));
           }
           layer.globalAlpha = 1;
-          for (const key of visible) {
-            const [chunkX, chunkY] = key.split(",").map(Number);
-            layer.fillRect(chunkX * CHUNK_SIZE * scaleX, chunkY * CHUNK_SIZE * scaleY, Math.max(1, CHUNK_SIZE * scaleX), Math.max(1, CHUNK_SIZE * scaleY));
+          for (const index of visible?.indices || []) {
+            const cellX = index % visible.columns;
+            const cellY = Math.floor(index / visible.columns);
+            layer.fillRect(cellX * FOG_CELL_SIZE * scaleX, cellY * FOG_CELL_SIZE * scaleY, Math.max(1, FOG_CELL_SIZE * scaleX + 0.5), Math.max(1, FOG_CELL_SIZE * scaleY + 0.5));
           }
           layer.globalCompositeOperation = "source-over";
         }
@@ -15089,6 +15600,7 @@ import {
       }
 
       function drawMinimap() {
+        if (!state.minimapVisible) return;
         const now = performance.now();
         renderMinimapTerrain(now);
         renderMinimapMarkers(now);
@@ -15191,6 +15703,14 @@ import {
         set("visibleFogChunks", state.visibleFogChunks[state.fogPlayer]?.size || 0);
         set("exploredFogCells", state.exploredFogCells[state.fogPlayer]?.size || 0);
         set("visibleFogCells", state.visibleFogCells[state.fogPlayer]?.size || 0);
+        set("fps", state.frameMetrics.fps || 0);
+        set("frameAverageMs", Number(state.frameMetrics.averageMs || 0).toFixed(2));
+        set("frameWorstMs", Number(state.frameMetrics.worstMs || 0).toFixed(2));
+        set("fpsOnePercentLow", Number(state.frameMetrics.lowOnePercentFps || 0).toFixed(1));
+        set("minimapVisible", state.minimapVisible);
+        set("voxReports", state.players.reduce((sum, player) => sum + state.tacticalVox.activeReports(player.id, state.time).length, 0));
+        set("intelContacts", state.players.reduce((sum, player) => sum + state.factionIntel.getFactionIntel(player.id, state.time).contacts.length, 0));
+        set("dualSensors", "directional-optical+auspex");
         set("aiLayers", 4);
         for (const [key, value] of Object.entries(state.aiDiagnostics)) set(key, value);
         set("navigationRevision", state.navigationRevision);
@@ -15301,7 +15821,7 @@ import {
           drawProjectiles();
         });
         drawDayNightTint();
-        drawFog();
+        profiler.profile("render.fog", drawFog);
         drawStrategicObjectives();
         drawEditorCursor();
         profiler.profile("render.minimap", drawMinimap);
@@ -15582,7 +16102,200 @@ import {
         ], "Logistics staff idle");
       }
 
+      function chapterBehaviorEvidence(behavior, context) {
+        const key = String(behavior || "");
+        if (/combined-arms|objective-flexibility/.test(key)) return (context.compositionDiversity + context.vehicleUtilization + context.objectiveProgress) / 3;
+        if (/reserve|regroup|preserve/.test(key)) return clamp(context.reserveRatio * 2.4 + context.supportRatio * 0.7, 0, 1);
+        if (/assault|advance|pressure|counterattack|finish|priority-hunt/.test(key)) return clamp(context.assaultRatio * 2.6 + context.offensiveRatio * 0.45, 0, 1);
+        if (/fortification|siege|hold|fire|attrition-defense/.test(key)) return clamp(context.defenseRatio * 1.8 + context.fireSupportRatio * 1.6, 0, 1);
+        if (/mobile|flank|hit-and-run|encirclement|route-control|interception/.test(key)) return clamp(context.mobileRatio * 2.2 + context.vehicleUtilization * 0.35, 0, 1);
+        if (/recon|infiltration|ambush|decapitation|isolate|avoid-attrition/.test(key)) return clamp(context.reconRatio * 3.2 + context.objectiveProgress * 0.25, 0, 1);
+        if (/machine|armour|repair|calculated-attrition/.test(key)) return clamp(context.vehicleRatio * 2.8 + context.engineerRatio * 2.2, 0, 1);
+        if (/civilian|durable|mutual-support|pack-support/.test(key)) return clamp(context.supportRatio * 2.4 + context.fullSquadRatio * 0.55, 0, 1);
+        return clamp(context.objectiveProgress * 0.7 + context.compositionDiversity * 0.3, 0, 1);
+      }
+
+      function setMinimapVisible(visible) {
+        state.minimapVisible = Boolean(visible);
+        els.minimapShell.classList.toggle("is-collapsed", !state.minimapVisible);
+        els.minimapToggle.setAttribute("aria-expanded", String(state.minimapVisible));
+        els.minimapToggle.textContent = state.minimapVisible ? "HIDE MAP" : "SHOW MAP";
+        root.dataset.minimapVisible = String(state.minimapVisible);
+        if (state.minimapVisible) {
+          state.minimapTerrainDirty = true;
+          state.minimapMarkerDirty = true;
+          drawMinimap();
+        }
+      }
+
+      function updateFrameMetrics(now, rawDt) {
+        const frameMs = Math.max(0.01, rawDt * 1000);
+        const samples = state.frameMetrics.samples;
+        samples.push({ at: now, ms: frameMs });
+        while (samples.length && now - samples[0].at > 1000) samples.shift();
+        if (!samples.length) return;
+        const sorted = samples.map(sample => sample.ms).sort((a, b) => a - b);
+        const sum = sorted.reduce((total, value) => total + value, 0);
+        state.frameMetrics.fps = samples.length;
+        state.frameMetrics.averageMs = sum / sorted.length;
+        state.frameMetrics.worstMs = sorted[sorted.length - 1];
+        const onePercentIndex = Math.min(sorted.length - 1, Math.floor(sorted.length * 0.99));
+        state.frameMetrics.lowOnePercentFps = 1000 / Math.max(0.01, sorted[onePercentIndex]);
+        els.fpsReading.textContent = `FPS ${state.frameMetrics.fps} · AVG ${state.frameMetrics.averageMs.toFixed(1)}ms · 1% ${Math.round(state.frameMetrics.lowOnePercentFps)}`;
+        root.dataset.fps = String(state.frameMetrics.fps);
+        root.dataset.frameAverageMs = state.frameMetrics.averageMs.toFixed(2);
+        root.dataset.frameWorstMs = state.frameMetrics.worstMs.toFixed(2);
+        root.dataset.fpsOnePercentLow = state.frameMetrics.lowOnePercentFps.toFixed(1);
+      }
+
+      function liveChapterEvolutionMetrics() {
+        const test = state.chapterEvolutionTest;
+        const requestedChapter = test?.chapters?.[test.chapterIndex];
+        const player = state.players.find(candidate => candidate.faction === "Space Marines" && candidate.subfaction === requestedChapter)
+          || state.players.find(candidate => candidate.faction === "Space Marines");
+        if (!player) return null;
+        const profile = chapterForceStructureProfileFor(player);
+        const living = state.units.filter(unit => unit.alive && !unit.incapacitated && unit.faction === player.id);
+        const infantry = living.filter(unit => !["builder", "supply", "vehicle"].includes(unit.role) && unit.astartesClass !== "drone");
+        const vehicles = living.filter(unit => unit.role === "vehicle");
+        const squads = state.squads.filter(squad => squad.faction === player.id);
+        const fullSquads = squads.filter(squad => (squad.coreMemberIds?.length || squadMembers(squad.id).filter(isAstartesCoreMember).length) >= (squad.nominalSize || 10));
+        const specialists = infantry.filter(unit => unit.astartesCharacter || ["veteran", "terminator", "fire-support"].includes(unit.astartesClass));
+        const recon = infantry.filter(unit => unit.astartesClass === "recon");
+        const assault = infantry.filter(unit => unit.astartesClass === "assault");
+        const fireSupport = infantry.filter(unit => unit.astartesClass === "fire-support");
+        const mobile = infantry.filter(unit => unit.combatTags?.some(tag => ["mobile", "jump-pack"].includes(tag)));
+        const engineers = infantry.filter(unit => unit.specialtyClass === "techmarine" || unit.combatTags?.includes("technical"));
+        const support = infantry.filter(unit => unit.astartesCharacter || unit.combatTags?.some(tag => ["medical", "support", "technical", "spiritual"].includes(tag)));
+        const classes = new Set(infantry.map(unit => unit.astartesClass).filter(Boolean));
+        const utilizedVehicles = vehicles.filter(unit => unit.kills > 0 || unit.embarkedUnitIds?.length || distance(unit, player.base) > 180 || /combat|support|escort|intercept|flank/i.test(unit.status || ""));
+        const defenses = state.structures.filter(structure => structure.alive !== false && structure.faction === player.id && structure.progress >= 1 && ["bunker", "turret", "observationtower"].includes(structure.type));
+        const objectiveState = player.battleObjectiveState || {};
+        const objectiveProgress = clamp(objectiveState.progress ?? 0, 0, 1);
+        const objectiveCompleted = Boolean(objectiveState.completed || state.strategicOutcomes[player.id]?.status?.toLowerCase().includes("victory"));
+        const territoryCells = primaryTerritoryFor(player.id)?.claimedCells?.size || 0;
+        const economyControl = clamp((state.resourceZones.filter(zone => zone.owner === player.id).length
+          + state.economicNodes.filter(node => node.owner === player.id).length) / 4, 0, 1);
+        const memory = state.factionLearning[player.id];
+        const enemyMemories = state.players.filter(candidate => !areAllies(candidate.id, player.id))
+          .reduce((sum, candidate) => sum + (state.factionLearning[candidate.id]?.observations?.length || 0), 0);
+        const context = {
+          objectiveProgress: objectiveCompleted ? 1 : objectiveProgress,
+          compositionDiversity: clamp(classes.size / 6, 0, 1),
+          vehicleUtilization: vehicles.length ? utilizedVehicles.length / vehicles.length : 0,
+          vehicleRatio: vehicles.length / Math.max(1, infantry.length),
+          reserveRatio: squads.filter(squad => /reserve|reinforce|regroup/i.test(`${squad.primaryRole || ""} ${squad.orderType || ""}`)).length / Math.max(1, squads.length),
+          offensiveRatio: squads.filter(squad => /offensive|siege|attack/i.test(`${squad.primaryRole || ""} ${squad.orderType || ""}`)).length / Math.max(1, squads.length),
+          defenseRatio: clamp((defenses.length + squads.filter(squad => /defen|guard/i.test(`${squad.primaryRole || ""} ${squad.orderType || ""}`)).length) / Math.max(1, squads.length), 0, 1),
+          fullSquadRatio: fullSquads.length / Math.max(1, squads.length),
+          reconRatio: recon.length / Math.max(1, infantry.length),
+          assaultRatio: assault.length / Math.max(1, infantry.length),
+          fireSupportRatio: fireSupport.length / Math.max(1, infantry.length),
+          mobileRatio: mobile.length / Math.max(1, infantry.length),
+          engineerRatio: engineers.length / Math.max(1, infantry.length),
+          supportRatio: support.length / Math.max(1, infantry.length)
+        };
+        const doctrineEvidence = Object.fromEntries(profile.doctrine.behaviors.map(behavior => [behavior, chapterBehaviorEvidence(behavior, context)]));
+        const objectiveOrders = squads.filter(squad => squad.objective || squad.assignedObjective || squad.currentObjective).length;
+        const unrelatedOrders = squads.filter(squad => !squad.objective && !squad.assignedObjective && !/reserve|defen|guard/i.test(`${squad.primaryRole || ""} ${squad.orderType || ""}`)).length;
+        const registry = state.chapterForceRegistries[player.id];
+        const capacity = state.chapterCapacityResults[player.subfaction] ||= runChapterCapacityTest(player.subfaction, {
+          performanceLimit: profile.bounded ? profile.maximumCoreMarines : 2000,
+          resourceLimit: 2000
+        });
+        const strongestMemory = Object.values(memory?.evidence || {}).sort((left, right) => Math.abs(right.weight) * (right.confidence || 0) - Math.abs(left.weight) * (left.confidence || 0))[0];
+        return {
+          ...context,
+          playerId: player.id,
+          livingInfantry: infantry.length,
+          fullSquads: fullSquads.length,
+          vehiclesActive: vehicles.length,
+          specialistsActive: specialists.length,
+          defensiveBuildings: defenses.length,
+          factionExperiences: memory?.observations?.length || 0,
+          enemyExperiences: enemyMemories,
+          objectiveCompleted,
+          objectiveOrders,
+          unrelatedOrders,
+          mapPresence: clamp(territoryCells / 8, 0, 1),
+          economyControl,
+          specialistNeedResponse: clamp(specialists.length / Math.max(2, infantry.length * profile.specialistRatio.target), 0, 1),
+          weaponLoadoutDiversity: clamp(new Set(infantry.map(unit => unit.weaponId || unit.weapon).filter(Boolean)).size / 5, 0, 1),
+          engagementDistance: clamp(infantry.reduce((sum, unit) => sum + (unit.range || 0), 0) / Math.max(1, infantry.length) / 220, 0, 1),
+          formationDiversity: clamp(new Set(squads.map(squad => squad.formation).filter(Boolean)).size / 5, 0, 1),
+          reconUsage: clamp(context.reconRatio * 3, 0, 1),
+          defensiveBehavior: context.defenseRatio,
+          deploymentVariety: clamp(new Set(infantry.map(unit => unit.deployment?.method).filter(Boolean)).size / 4, 0, 1),
+          regroupBehavior: clamp(context.reserveRatio * 1.8 + context.supportRatio * 0.5, 0, 1),
+          packCoordination: player.subfaction === "Space Wolves" ? clamp(squads.filter(squad => squad.chapterOrganization?.squadLabel?.includes("Pack")).length / Math.max(1, squads.length), 0, 1) : 0,
+          crusadePressure: player.subfaction === "Black Templars" ? clamp(context.offensiveRatio + specialists.filter(unit => unit.specialtyClass === "chaplain").length * 0.15, 0, 1) : 0,
+          antiHomogenization: player.battleObjectiveMethod && profile.doctrine.behaviors.length ? 1 : 0,
+          doctrineEvidence,
+          organizationValid: squads.every(squad => Boolean(registry?.assignments?.[squad.id])),
+          capacityUnblocked: capacity.passed,
+          missingCapabilities: registry?.missingCapabilities?.filter(capability => !capability.found).length || 0,
+          learningCheats: false,
+          froze: state.frameFailures > 0 || performance.now() - state.lastSuccessfulSimulationAt > 1500,
+          learningSummary: strongestMemory
+            ? `${strongestMemory.type}: ${strongestMemory.subject} (${Math.round((strongestMemory.confidence || 0) * 100)}% confidence)`
+            : "No established lesson yet."
+        };
+      }
+
+      const chapterEvolutionScenarios = Object.freeze([
+        { preset: "iron", race: "Orks", faction: "Redfang Horde", subfaction: "Ironjaw Mob", objective: "annihilation" },
+        { preset: "verdant", race: "Imperium", faction: "Imperial Guard", subfaction: "Cadian 8th", objective: "stronghold_assault" },
+        { preset: "ash", race: "Tyranids", faction: "Hive Fleet", subfaction: "Kraken", objective: "territorial_domination" },
+        { preset: "iron", race: "Necrons", faction: "Dynastic Host", subfaction: "Sautekh", objective: "resource_supremacy" }
+      ]);
+
+      function restartChapterEvolutionBattle() {
+        const test = state.chapterEvolutionTest;
+        if (test.completed || state.players.length < 2) return;
+        const scenario = chapterEvolutionScenarios[test.iteration % chapterEvolutionScenarios.length];
+        const marine = state.players[0];
+        const opponent = state.players[1];
+        Object.assign(marine, { race: "Imperium", faction: "Space Marines", subfaction: test.chapters[test.chapterIndex], team: "1", battleObjective: scenario.objective });
+        Object.assign(opponent, { race: scenario.race, faction: scenario.faction, subfaction: scenario.subfaction, team: "2", battleObjective: scenario.objective });
+        for (let index = 0; index < state.players.length; index += 1) state.players[index].base = deploymentPosition(index + test.iteration % 2, state.players.length, presets[scenario.preset]?.world || state.world);
+        resetBattle(scenario.preset);
+        startSimulation();
+      }
+
+      function updateChapterEvolutionController() {
+        const test = state.chapterEvolutionTest;
+        if (!test?.active || test.completed || state.mode !== "sim" || Date.now() < test.nextRestartAt) return;
+        const metrics = liveChapterEvolutionMetrics();
+        if (!metrics) return;
+        state.chapterEvolutionMetrics = metrics;
+        recordChapterEvolutionRun(test, metrics);
+        persistBattleMemory("chapter-evolution-run");
+        if (test.completed) {
+          root.dataset.chapterEvolution = "complete";
+          incident("SPACE MARINE CHAPTER AI EVOLUTION TEST — COMPLETE", null, "critical");
+          return;
+        }
+        restartChapterEvolutionBattle();
+      }
+
+      function updateChapterGrowthPanel() {
+        if (!els.growthPanel) return;
+        const snapshot = chapterEvolutionPanelSnapshot(state.chapterEvolutionTest);
+        const live = state.chapterEvolutionTest.active ? liveChapterEvolutionMetrics() : state.chapterEvolutionMetrics;
+        els.growthStatus.textContent = snapshot.completed ? "EVOLVED" : snapshot.active ? "RUNNING" : "READY";
+        els.growthPanel.dataset.status = snapshot.completed ? "complete" : snapshot.active ? "running" : "ready";
+        els.growthIteration.textContent = `${snapshot.chapter} · Iteration ${snapshot.iteration} · IRL ${formatElapsed(snapshot.runElapsedMs / 1000)} / ${formatElapsed(snapshot.runDurationMs / 1000)} · Total ${formatElapsed(snapshot.elapsedMs / 1000)}`;
+        els.growthStreak.textContent = `Stable pass streak ${snapshot.consecutivePasses} / ${snapshot.passesRequired}`;
+        els.growthMetrics.textContent = `Doctrine fidelity ${snapshot.doctrineFidelityScore == null ? "--" : `${snapshot.doctrineFidelityScore}%`} · Objective adherence ${snapshot.objectiveAdherenceScore == null ? "--" : `${snapshot.objectiveAdherenceScore}%`}`;
+        els.growthForce.textContent = live ? `Living infantry ${live.livingInfantry} · Full squads ${live.fullSquads} · Vehicles ${live.vehiclesActive} · Specialists ${live.specialistsActive}` : "Living infantry -- · Full squads -- · Vehicles -- · Specialists --";
+        els.growthMemory.textContent = live ? `Faction experiences ${live.factionExperiences} · Enemy experiences ${live.enemyExperiences} · Defenses ${live.defensiveBuildings}` : "Faction experiences -- · Enemy experiences --";
+        els.growthLearning.textContent = snapshot.learningSummary;
+        els.growthRestart.textContent = snapshot.completed ? "All configured Chapters evolved." : snapshot.active
+          ? `Next restart/check: ${formatElapsed(snapshot.restartMs / 1000)}` : "Next restart: test not active";
+      }
+
       function updateUI(force = false) {
+        updateChapterEvolutionController();
         const snapshot = currentSnapshot();
         const displayTime = snapshot?.t ?? state.time;
         const clockTime = snapshot?.clockElapsed ?? state.clock.elapsedSeconds;
@@ -15634,6 +16347,7 @@ import {
         if (force || state.uiAccumulator >= 0.25) {
           updateSelectedUnit();
           updateLogisticsPanel();
+          updateChapterGrowthPanel();
           state.uiAccumulator = 0;
         }
       }
@@ -17284,6 +17998,13 @@ import {
         if (window.lucide) lucide.createIcons({ attrs: { width: 16, height: 16 } });
         draw();
       });
+      els.minimapToggle.addEventListener("click", () => setMinimapVisible(!state.minimapVisible));
+      document.addEventListener("keydown", event => {
+        if (event.repeat || event.ctrlKey || event.metaKey || event.altKey || event.key.toLowerCase() !== "m") return;
+        if (["INPUT", "SELECT", "TEXTAREA"].includes(event.target?.tagName)) return;
+        event.preventDefault();
+        setMinimapVisible(!state.minimapVisible);
+      });
       els.terrainToggle.addEventListener("click", () => {
         state.showTerrain = !state.showTerrain;
         els.terrainToggle.setAttribute("aria-pressed", String(state.showTerrain));
@@ -18070,6 +18791,7 @@ import {
         try {
           const rawDt = Math.min(0.25, Math.max(0, (now - state.lastFrame) / 1000));
           state.lastFrame = now;
+          updateFrameMetrics(now, rawDt);
           if (state.replay && state.replayPlaying) {
             state.replayAccumulator += rawDt * state.replayRate;
             while (state.replayAccumulator >= 0.35 && state.replayIndex < state.snapshots.length - 1) {

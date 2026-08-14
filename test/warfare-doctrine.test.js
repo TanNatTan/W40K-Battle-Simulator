@@ -15,11 +15,11 @@ const doctrines = JSON.parse(await readFile(new URL("../data/ai/warfare-doctrine
 const factions = JSON.parse(await readFile(new URL("../data/ai/faction-branches.json", import.meta.url), "utf8"));
 const objectives = JSON.parse(await readFile(new URL("../data/ai/battle-objectives.json", import.meta.url), "utf8"));
 
-test("PDF doctrine registry covers eight races, sixteen cadence profiles, and twenty-nine scoped subfactions", () => {
+test("doctrine registry covers eight races, sixteen cadence profiles, and all thirty-four scoped subfactions", () => {
   assert.equal(doctrines.schemaVersion, 1);
   assert.equal(Object.keys(doctrines.objectiveInterpretation).length, 8);
   assert.equal(Object.keys(doctrines.tickProfiles).length, 16);
-  assert.equal(Object.values(doctrines.subfactions).reduce((sum, entries) => sum + Object.keys(entries).length, 0), 29);
+  assert.equal(Object.values(doctrines.subfactions).reduce((sum, entries) => sum + Object.keys(entries).length, 0), 34);
   for (const entries of Object.values(doctrines.subfactions)) {
     for (const profile of Object.values(entries)) {
       assert.ok(["specific", "unspecified"].includes(profile.loreStatus));

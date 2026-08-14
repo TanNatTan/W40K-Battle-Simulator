@@ -1,4 +1,5 @@
 import { subfactionProductionPlanFor } from "./SubfactionProductionPlans.js";
+import { chapterAllowsUnit, chapterForceStructureProfileFor } from "./space-marines/ChapterForceStructureProfile.js";
 
 const normalize = value => String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, "-");
 
@@ -128,8 +129,28 @@ export function scoreProductionCandidate(member, { player = {}, plan, demand = {
     : /captain|chaplain|librarian|judiciar|apothecary|techmarine|ancient|company champion/i.test(member.name || "") ? 2
       : /lieutenant/i.test(member.name || "") ? 3 : Infinity;
   const cappedCharacter = sameName >= characterCap ? 900 : 0;
+  const chapterProfile = player.faction === "Space Marines" ? chapterForceStructureProfileFor(player) : null;
+  const chapterPreferred = chapterProfile?.doctrine?.preferred || [];
+  const chapterDoctrine = chapterPreferred.reduce((score, token, index) => tags.includes(token)
+    ? Math.max(score, 64 - index * 7) : score, 0);
+  const chapterForbidden = chapterProfile && !chapterAllowsUnit(chapterProfile.chapter, member) ? 5000 : 0;
+  const specialistCandidate = tags.some(tag => ["medical", "engineer", "spiritual", "psychic", "judicial", "support", "command", "veteran", "terminator"].includes(tag));
+  const livingSpecialists = ownUnits.filter(unit => unit?.alive !== false
+    && productionTagsFor({ name: unit.specialty || unit.name, role: unit.role }).some(tag => ["medical", "engineer", "spiritual", "psychic", "judicial", "support", "command", "veteran", "terminator"].includes(tag))).length;
+  const specialistRatio = livingSpecialists / Math.max(1, ownUnits.filter(unit => unit?.alive !== false && !["builder", "supply", "vehicle"].includes(unit.role)).length);
+  const specialistBattlefieldNeed = tags.reduce((score, tag) => Math.max(score, Number(demand.tokenScores?.[tag]) || 0), 0);
+  const specialistDoctrine = chapterProfile && specialistCandidate
+    ? Math.max(0, chapterProfile.specialistRatio.target - specialistRatio) * 260 + specialistBattlefieldNeed * 0.6 : 0;
+  const livingVehicles = ownUnits.filter(unit => unit?.alive !== false && unit.role === "vehicle").length;
+  const livingCombat = ownUnits.filter(unit => unit?.alive !== false && !["builder", "supply"].includes(unit.role)).length;
+  const vehicleRatio = livingVehicles / Math.max(1, livingCombat);
+  const vehicleBudget = chapterProfile && member.role === "vehicle"
+    ? vehicleRatio < chapterProfile.vehicleBudgetRatio ? 48 + (chapterProfile.vehicleBudgetRatio - vehicleRatio) * 180 : -35 : 0;
   return Object.freeze({ member, tags, producerTypes: producers, facilityAvailable,
-    score: doctrine + battlefield + captureSupport + lineGrowth + marineSpecialist - cappedCharacter - oversaturation - (facilityAvailable ? 0 : 160), doctrine, battlefield, captureSupport, lineGrowth, marineSpecialist, cappedCharacter, oversaturation });
+    score: doctrine + battlefield + captureSupport + lineGrowth + marineSpecialist + chapterDoctrine + specialistDoctrine + vehicleBudget
+      - chapterForbidden - cappedCharacter - oversaturation - (facilityAvailable ? 0 : 160),
+    doctrine, battlefield, captureSupport, lineGrowth, marineSpecialist, chapterDoctrine, specialistDoctrine, vehicleBudget,
+    chapterForbidden, cappedCharacter, oversaturation });
 }
 
 export function chooseMilitaryProduction({ player = {}, roster = {}, demand = {}, ownUnits = [], availableProducerTypes = [], sequence = 0 } = {}) {
@@ -143,5 +164,6 @@ export function chooseMilitaryProduction({ player = {}, roster = {}, demand = {}
   return Object.freeze({ ...selected.member, producerTypes: selected.producerTypes, productionPlan: plan?.name || player.subfaction || "Default",
     productionStyle: plan?.productionStyle || "adaptive", score: selected.score, scoreBreakdown: Object.freeze({ doctrine: selected.doctrine,
       battlefield: selected.battlefield, captureSupport: selected.captureSupport, lineGrowth: selected.lineGrowth,
-      marineSpecialist: selected.marineSpecialist, cappedCharacter: selected.cappedCharacter, oversaturation: selected.oversaturation }) });
+      marineSpecialist: selected.marineSpecialist, chapterDoctrine: selected.chapterDoctrine, specialistDoctrine: selected.specialistDoctrine, vehicleBudget: selected.vehicleBudget,
+      chapterForbidden: selected.chapterForbidden, cappedCharacter: selected.cappedCharacter, oversaturation: selected.oversaturation }) });
 }

@@ -216,7 +216,7 @@ test("browser runtime wires bootstrap HQs and public objective markers independe
   assert.match(source, /createStartingHeadquarters\(/);
   assert.match(source, /player\.hasEstablishedHeadquarters = true/);
   assert.match(source, /function drawStrategicObjectives\(/);
-  assert.match(source, /drawFog\(\);\s*drawStrategicObjectives\(\);/);
+  assert.match(source, /(?:drawFog\(\)|profiler\.profile\("render\.fog", drawFog\));\s*drawStrategicObjectives\(\);/);
   assert.match(source, /objectivePublicStates\(\)/);
   assert.match(source, /includeIncapacitated: true/);
   assert.match(source, /enemyConditionAssessment/);
