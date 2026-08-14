@@ -48,7 +48,7 @@ export function sustainmentProfileFor(player = {}) {
 
 function buildingImportance(target = {}) {
   if (target.headquarters || target.type === "outpost") return 1;
-  if (["mine", "refinery", "farm", "generator", "warehouse", "fueldepot", "ammodepot"].includes(target.type)) return 0.88;
+  if (["forwardoutpost", "mine", "refinery", "farm", "generator", "warehouse", "fueldepot", "ammodepot"].includes(target.type)) return 0.88;
   if (["barracks", "workshop", "dropbay", "researchcenter", "signature"].includes(target.type)) return 0.82;
   if (["bunker", "turret", "observationtower"].includes(target.type)) return 0.62;
   return 0.5;

@@ -56,10 +56,11 @@ function octile(left, right) {
 }
 
 export class NavigationPlanner {
-  constructor({ cellSize = 32, maxVisited = 6000, maxCacheEntries = 192 } = {}) {
+  constructor({ cellSize = 32, maxVisited = 6000, maxCacheEntries = 192, maxWorkMs = Infinity } = {}) {
     this.cellSize = cellSize;
     this.maxVisited = maxVisited;
     this.maxCacheEntries = maxCacheEntries;
+    this.maxWorkMs = Number.isFinite(maxWorkMs) ? Math.max(0.25, maxWorkMs) : Infinity;
     this.cache = new Map();
   }
 
@@ -87,6 +88,7 @@ export class NavigationPlanner {
   }
 
   findPath({ start, goal, profile = "infantry", revision = 0, isPassable, costAt = () => 1, bypassCache = false }) {
+    const workStartedAt = performance.now();
     const startCell = this.worldToCell(start);
     let goalCell = this.worldToCell(goal);
     const cacheKey = `${cellKey(startCell)}|${cellKey(goalCell)}|${profile}|${revision}`;
@@ -110,6 +112,7 @@ export class NavigationPlanner {
     let visited = 0;
     let found = null;
     while (open.size && visited < this.maxVisited) {
+      if (visited > 0 && performance.now() - workStartedAt >= this.maxWorkMs) break;
       const current = open.pop().value;
       const currentKey = cellKey(current);
       if (closed.has(currentKey)) continue;
@@ -159,7 +162,11 @@ export class NavigationPlanner {
 
   #nearestPassable(goal, passable, maximumRadius = 8) {
     if (passable(goal)) return goal;
-    for (let radius = 1; radius <= maximumRadius; radius += 1) {
+    // A bounded Total Battlefield search must also bound blocked-goal probing;
+    // otherwise a nominal 12-node route can still perform hundreds of costly
+    // terrain/structure checks before A* begins.
+    const boundedRadius = Math.min(maximumRadius, Math.max(2, Math.ceil(Math.sqrt(this.maxVisited) / 2)));
+    for (let radius = 1; radius <= boundedRadius; radius += 1) {
       for (let dx = -radius; dx <= radius; dx += 1) {
         for (let dy = -radius; dy <= radius; dy += 1) {
           if (Math.max(Math.abs(dx), Math.abs(dy)) !== radius) continue;

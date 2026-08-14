@@ -1,11 +1,16 @@
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { extname, join, normalize } from "node:path";
+import { dirname, extname, join, normalize, resolve } from "node:path";
 import { once } from "node:events";
 import { createServer as createNetServer } from "node:net";
+import {
+  ALLIANCE_EVOLUTION_PLAYERS,
+  evaluateAllianceEvolutionRun,
+  nextEvolutionSeed
+} from "../src/testing/AllianceEvolutionTestSystem.js";
 
 const projectRoot = process.cwd();
 const argumentValue = name => process.argv.find(argument => argument.startsWith(`--${name}=`))?.split("=").slice(1).join("=");
@@ -13,8 +18,10 @@ const durationMs = Math.max(10_000, (Number(argumentValue("duration")) || 0) * 1
 const simulationSpeed = Math.max(1, Math.min(8, Number(argumentValue("speed") || process.env.AWT_STRESS_SPEED) || 8));
 const spawnRadius = Math.max(24, Number(argumentValue("spawn-radius") || process.env.AWT_STRESS_SPAWN_RADIUS) || 84);
 const twoVsTwo = process.argv.includes("--two-v-two");
-const playerCount = twoVsTwo ? 4 : Math.max(2, Math.min(12, Number(argumentValue("players")) || 12));
-const expectedTeamCount = twoVsTwo ? 2 : Math.min(4, playerCount);
+const allianceEvolution = process.argv.includes("--alliance-evolution");
+const allianceEvolutionSmoke = process.argv.includes("--alliance-evolution-smoke");
+const playerCount = twoVsTwo || allianceEvolution ? 4 : Math.max(2, Math.min(12, Number(argumentValue("players")) || 12));
+const expectedTeamCount = twoVsTwo || allianceEvolution ? 2 : Math.min(4, playerCount);
 const performancePreset = ["auto", "skirmish", "battle", "major", "total"].includes(argumentValue("performance"))
   ? argumentValue("performance")
   : "total";
@@ -26,15 +33,24 @@ const exactLoadUnits = Math.max(0, Math.floor(Number(argumentValue("load-units")
 const exactLoadBuildings = Math.max(0, Math.floor(Number(argumentValue("load-buildings")) || 0));
 const territoryDevelopmentCaptures = Math.max(0, Math.floor(Number(argumentValue("territory-development-captures")) || 0));
 const profiling = process.argv.includes("--profile") || process.env.AWT_STRESS_PROFILE === "1";
+const diagnosticSnapshots = process.argv.includes("--diagnostic-snapshots");
 const duelAuditEnabled = process.argv.includes("--duel-audit");
 const spaceMarineGrowthAuditEnabled = process.argv.includes("--space-marine-growth");
 const spaceMarineGrowthChapter = argumentValue("chapter") || "Ultramarines";
-const browserPath = [
+const evolutionIteration = Math.max(1, Math.floor(Number(argumentValue("iteration")) || 1));
+const reportFile = argumentValue("report") ? resolve(argumentValue("report")) : null;
+const suppliedProfile = argumentValue("profile-dir") ? resolve(argumentValue("profile-dir")) : null;
+const suppliedServerPort = Math.max(0, Math.floor(Number(argumentValue("server-port")) || 0));
+const browserPreference = String(argumentValue("browser") || "chrome").toLowerCase();
+const chromiumCandidates = [
   "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
   "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
   "/usr/bin/google-chrome",
   "/usr/bin/chromium"
-].find(existsSync);
+];
+const browserPath = chromiumCandidates
+  .sort((left, right) => Number(!left.toLowerCase().includes(browserPreference)) - Number(!right.toLowerCase().includes(browserPreference)))
+  .find(existsSync);
 if (!browserPath) throw new Error("Chrome or Edge is required for the 12-player stress test.");
 
 const mime = {
@@ -68,17 +84,23 @@ async function freePort() {
 }
 
 const delay = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
-const profile = mkdtempSync(join(tmpdir(), "awt-12-player-stress-"));
+const profile = suppliedProfile || mkdtempSync(join(tmpdir(), "awt-12-player-stress-"));
+if (suppliedProfile) mkdirSync(profile, { recursive: true });
 let browser;
 let socket;
 
 try {
-  server.listen(0, "127.0.0.1");
+  server.listen(suppliedServerPort, "127.0.0.1");
   await once(server, "listening");
   const serverPort = server.address().port;
   const debugPort = await freePort();
   browser = spawn(browserPath, [
     "--headless=new", "--disable-extensions", "--no-first-run",
+    "--disable-background-timer-throttling", "--disable-renderer-backgrounding",
+    "--disable-backgrounding-occluded-windows",
+    "--disable-features=CalculateNativeWinOcclusion,IntensiveWakeUpThrottling,UseEcoQoSForBackgroundProcess",
+    "--disable-background-networking", "--disable-component-update", "--disable-default-apps",
+    "--disable-sync", "--metrics-recording-only", "--no-default-browser-check",
     `--user-data-dir=${profile}`, `--remote-debugging-port=${debugPort}`,
     "--window-size=1920,1080", "about:blank"
   ], { stdio: "ignore" });
@@ -130,6 +152,9 @@ try {
   await command("Performance.enable");
   await command("Emulation.setDeviceMetricsOverride", { width: 1920, height: 1080, deviceScaleFactor: 1, mobile: false });
   await command("Page.navigate", { url: `http://127.0.0.1:${serverPort}/${profiling ? "?profile" : ""}` });
+  await command("Page.bringToFront");
+  await command("Emulation.setFocusEmulationEnabled", { enabled: true });
+  await command("Emulation.setIdleOverride", { isUserActive: true, isScreenUnlocked: true });
   for (let attempt = 0; attempt < 80; attempt += 1) {
     const ready = await evaluate("document.querySelector('#autonomous-war-theater')?.dataset.foundryReady === 'true'").catch(() => ({ value: false }));
     if (ready.value) break;
@@ -138,14 +163,25 @@ try {
 
   await evaluate(`(() => {
     globalThis.awtStressMetrics = { frames: 0, maxFrameGapMs: 0, gapsOver500Ms: 0, longTasks: 0, maxLongTaskMs: 0, totalLongTaskMs: 0 };
+    globalThis.awtFrameGapRing = { values: new Float32Array(8192), cursor: 0, size: 0 };
+    globalThis.awtFrameGapEvents = [];
     let previous = performance.now();
     const monitor = now => {
       const gap = now - previous;
       previous = now;
       const metrics = globalThis.awtStressMetrics;
+      const ring = globalThis.awtFrameGapRing;
+      ring.values[ring.cursor] = gap;
+      ring.cursor = (ring.cursor + 1) % ring.values.length;
+      ring.size = Math.min(ring.values.length, ring.size + 1);
       metrics.frames += 1;
       metrics.maxFrameGapMs = Math.max(metrics.maxFrameGapMs, gap);
       if (gap >= 500) metrics.gapsOver500Ms += 1;
+      if (gap >= 50 && globalThis.awtFrameGapEvents.length < 64) {
+        const state = document.querySelector('#autonomous-war-theater')?.awtDebugState;
+        globalThis.awtFrameGapEvents.push({ gap, at: now, simulationTime: state?.time || 0,
+          units: state?.units?.length || 0, structures: state?.structures?.length || 0 });
+      }
       requestAnimationFrame(monitor);
     };
     requestAnimationFrame(monitor);
@@ -174,6 +210,23 @@ try {
     scale.value = '${performancePreset}';
     scale.dispatchEvent(new Event('change', { bubbles: true }));
     document.querySelector('#awt-configure-players').click();
+    ${allianceEvolution ? `
+    const alliancePlayers = ${JSON.stringify(ALLIANCE_EVOLUTION_PLAYERS)};
+    const setAllianceSelect = (selector, value) => {
+      const select = document.querySelector(selector);
+      select.value = value;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      if (select.value !== value) throw new Error('Could not configure ' + selector + ' as ' + value);
+    };
+    for (const configured of alliancePlayers) {
+      document.querySelector('[data-player-tab="' + configured.slot + '"]').click();
+      setAllianceSelect('#awt-player-race', configured.race);
+      setAllianceSelect('#awt-player-faction', configured.faction);
+      setAllianceSelect('#awt-player-subfaction', configured.subfaction);
+      setAllianceSelect('#awt-player-team', configured.team);
+      setAllianceSelect('#awt-player-battle-objective', 'annihilation');
+    }
+    ` : ""}
     ${spaceMarineGrowthAuditEnabled ? `
     const setGrowthSelect = (selector, value) => {
       const select = document.querySelector(selector);
@@ -221,6 +274,12 @@ try {
       player.battleObjectiveState = null;
       player.spawnZone.size = ${spawnRadius};
     }
+    if (${allianceEvolution}) {
+      root.awtDebugState.battleSeed = ${JSON.stringify(nextEvolutionSeed("alliance-evolution", evolutionIteration))};
+      for (const player of root.awtDebugState.players) {
+        player.forceCapOverride = player.race === 'Orks' ? 280 : 240;
+      }
+    }
     if (${spaceMarineGrowthAuditEnabled}) {
       const marine = root.awtDebugState.players.find(player => player.faction === 'Space Marines');
       const opponent = root.awtDebugState.players.find(player => player.id !== marine?.id);
@@ -241,8 +300,13 @@ try {
       : "[]"};
     globalThis.awtStressInitialStructureIds = new Set(root.awtDebugState.structures.map(structure => structure.id));
     globalThis.awtStressInitialUnitIds = new Set(root.awtDebugState.units.map(unit => unit.id));
+    globalThis.awtStressInitialFactionUnits = Object.fromEntries(root.awtDebugState.players.map(player => [player.id,
+      root.awtDebugState.units.filter(unit => unit.faction === player.id).length]));
+    globalThis.awtStressInitialFactionBuildings = Object.fromEntries(root.awtDebugState.players.map(player => [player.id,
+      root.awtDebugState.structures.filter(structure => structure.faction === player.id).length]));
     globalThis.awtStressConstructionLifecycle = { firstCompletionAt: null, maxConcurrentProjects: 0 };
     document.querySelector('#awt-deploy-map').click();
+    if (${allianceEvolution}) root.awtDebugState.paused = true;
     if (${spaceMarineGrowthAuditEnabled}) {
       const marine = root.awtDebugState.players.find(player => player.faction === 'Space Marines');
       const opponent = root.awtDebugState.players.find(player => player.id !== marine?.id);
@@ -299,18 +363,39 @@ try {
     || (exactLoadBuildings > 0 && setup.value.exactLoad?.buildings !== exactLoadBuildings)
     || (allSpaceMarines && (setup.value.races.some(race => race !== "Imperium")
       || setup.value.factions.some(faction => faction !== "Space Marines")))
+    || (allianceEvolution && setup.value.subfactions.some((subfaction, index) => subfaction !== ALLIANCE_EVOLUTION_PLAYERS[index].subfaction))
     || (territoryDevelopmentCaptures > 0 && setup.value.territoryDevelopmentProbes.some(probe => !probe
       || probe.captured < territoryDevelopmentCaptures || probe.developmentHistory.length < territoryDevelopmentCaptures))
     || setup.value.error) throw new Error(`Invalid stress setup: ${JSON.stringify(setup.value)}`);
 
-  await delay(1500);
-  await evaluate(`(() => {
+  // Keep image decode out of the measured battle window. The live app begins
+  // the same async decode on its setup screen, so this mirrors normal use.
+  await evaluate("globalThis.awtProjectileAtlasReady || Promise.resolve(false)", 15_000);
+  // Headless Chromium performs first-paint/JIT work in short bursts after
+  // navigation. Warm the renderer while this benchmark battle is paused so
+  // browser startup is not mislabeled as a battle-frame regression.
+  await delay(allianceEvolution ? 5000 : 1500);
+  if (allianceEvolution) {
+    await evaluate(`(() => {
+      const state = document.querySelector('#autonomous-war-theater').awtDebugState;
+      state.paused = false;
+      document.querySelector('[data-speed="${simulationSpeed}"]').click();
+    })()`);
+    // Let the browser hand off from CDP and compile each first-use simulation
+    // path before the full-duration acceptance window begins.
+    await delay(2000);
+  }
+  const measurementStart = await evaluate(`(() => {
     globalThis.awtStressMetrics = { frames: 0, maxFrameGapMs: 0, gapsOver500Ms: 0, longTasks: 0, maxLongTaskMs: 0, totalLongTaskMs: 0 };
+    globalThis.awtFrameGapRing = { values: new Float32Array(8192), cursor: 0, size: 0 };
+    globalThis.awtFrameGapEvents = [];
     const state = document.querySelector('#autonomous-war-theater').awtDebugState;
     globalThis.awtStressStartPositions = Object.fromEntries(state.units
       .filter(unit => unit.alive && !unit.incapacitated && !['builder', 'supply'].includes(unit.role))
       .map(unit => [unit.id, { x: unit.x, y: unit.y }]));
-    document.querySelector('[data-speed="${simulationSpeed}"]').click();
+    state.paused = false;
+    if (state.speed !== ${simulationSpeed}) document.querySelector('[data-speed="${simulationSpeed}"]').click();
+    return { wallTime: performance.now(), simulationTime: state.time, frameCount: state.frameCount };
   })()`);
   const samples = [];
   const startedAt = performance.now();
@@ -318,7 +403,11 @@ try {
   let maximumStagnantSamples = 0;
   let previousTime = -1;
   while (performance.now() - startedAt < durationMs) {
-    await delay(500);
+    // The alliance benchmark records every animation-frame gap in-page. A
+    // single final state read avoids perturbing the renderer with deep CDP
+    // serialization every half-second while retaining a hard timeout if the
+    // page actually becomes unresponsive.
+    await delay(allianceEvolution ? Math.max(1, durationMs - (performance.now() - startedAt)) : 500);
     const sample = await evaluate(`(() => {
       const root = document.querySelector('#autonomous-war-theater');
       const state = root.awtDebugState;
@@ -485,7 +574,38 @@ try {
             builderHardCap: player.builderWorkforce?.hardCap || 0,
             reinforcementCapacity: player.forceState?.reinforcementCapacity || 0,
             commitment: player.forceState?.commitment || 0,
-            workflow: player.decisionWorkflow?.current?.id || null
+            workflow: player.decisionWorkflow?.current?.id || null,
+            constructionStatus: player.constructionQueueStatus || null,
+            ...(${diagnosticSnapshots} ? {
+              structuresState: state.structures.filter(structure => structure.faction === player.id).map(structure => ({
+                id: structure.id,
+                type: structure.type,
+                progress: Number(structure.progress) || 0,
+                priority: Number(structure.priority) || 0,
+                constructionState: structure.construction?.state || null,
+                reason: structure.strategicReason || null,
+                x: Math.round(structure.x),
+                y: Math.round(structure.y)
+              })),
+              productionBuildings: state.structures.filter(structure => structure.faction === player.id
+                && ['barracks', 'workshop', 'dropbay'].includes(structure.type)).map(structure => ({
+                  type: structure.type,
+                  progress: Number(structure.progress) || 0,
+                  assignedBuilders: structure.assignedBuilderIds?.length || 0,
+                  inventory: { ...(structure.inventory || {}) },
+                  nextTrainingAt: Number(structure.nextTrainingAt) || 0
+                })),
+              buildersState: living.filter(unit => unit.role === 'builder').map(unit => ({
+                id: unit.id,
+                status: unit.status,
+                buildProject: unit.buildProject || null,
+                homeStructureId: unit.homeStructureId || null,
+                x: Math.round(unit.x),
+                y: Math.round(unit.y)
+              })),
+              trainRequests: (state.economies[player.id]?.queue || []).filter(request => request.type === 'train')
+                .map(request => ({ status: request.status, label: request.label, manifest: request.productionManifest?.map(member => member.name) || [] }))
+            } : {})
           };
         }),
         frameMonitor: { ...globalThis.awtStressMetrics },
@@ -531,31 +651,174 @@ try {
     if (sample.value.paused || sample.value.failures || sample.value.error) break;
   }
 
-  const first = samples[0];
+  const first = samples.length > 1 ? samples[0] : {
+    ...measurementStart.value,
+    frameMonitor: { frames: 0 },
+    probeLatencyMs: measurementStart.latencyMs
+  };
   const last = samples.at(-1);
   const maximumProbeLatencyMs = Math.max(...samples.map(sample => sample.probeLatencyMs));
+  const frameGaps = allianceEvolution ? await evaluate(`(() => {
+    const ring = globalThis.awtFrameGapRing;
+    if (!ring) return [];
+    if (ring.size < ring.values.length) return Array.from(ring.values.slice(0, ring.size));
+    return [...ring.values.slice(ring.cursor), ...ring.values.slice(0, ring.cursor)];
+  })()`).then(result => result.value) : [];
+  const percentile = (values, value) => {
+    if (!values.length) return Infinity;
+    const sorted = [...values].sort((left, right) => left - right);
+    return sorted[Math.min(sorted.length - 1, Math.max(0, Math.ceil(sorted.length * value) - 1))];
+  };
+  const fiveSecondFps = [];
+  for (let start = 0; start < frameGaps.length; start += 1) {
+    let elapsed = 0;
+    let frames = 0;
+    for (let index = start; index < frameGaps.length && elapsed < 5000; index += 1) {
+      elapsed += frameGaps[index];
+      frames += 1;
+    }
+    if (elapsed >= 5000) fiveSecondFps.push(frames / (elapsed / 1000));
+  }
+  const gapWindowFps = gaps => gaps.length
+    ? gaps.length / (gaps.reduce((sum, gap) => sum + gap, 0) / 1000)
+    : 0;
+  const gapQuarter = Math.max(1, Math.floor(frameGaps.length / 4));
+  const performanceAudit = allianceEvolution ? {
+    averageFps: last.frameMonitor.frames / Math.max(0.001, (last.wallTime - measurementStart.value.wallTime) / 1000),
+    onePercentLowFps: 1000 / Math.max(0.001, percentile(frameGaps, 0.99)),
+    minimumFiveSecondFps: fiveSecondFps.length ? Math.min(...fiveSecondFps) : 0,
+    maximumFrameMs: frameGaps.length ? Math.max(...frameGaps) : Infinity,
+    p95FrameMs: percentile(frameGaps, 0.95),
+    progressiveDecline: frameGaps.length >= 8
+      && gapWindowFps(frameGaps.slice(-gapQuarter)) < gapWindowFps(frameGaps.slice(0, gapQuarter)) * 0.85
+  } : null;
+  const allianceAudit = allianceEvolution ? await evaluate(`(() => {
+    const root = document.querySelector('#autonomous-war-theater');
+    const state = root.awtDebugState;
+    const range = (a, b) => Math.hypot((a.x || 0) - (b.x || 0), (a.y || 0) - (b.y || 0));
+    const living = unit => unit.alive !== false && !unit.incapacitated;
+    const operational = structure => structure.alive !== false && structure.progress >= 1;
+    const text = subject => ((subject.name || '') + ' ' + (subject.specialty || '') + ' ' + (subject.unitType || '')).toLowerCase();
+    return state.players.map(player => {
+      const units = state.units.filter(unit => unit.faction === player.id && living(unit));
+      const infantry = units.filter(unit => !['builder', 'supply', 'vehicle', 'aircraft'].includes(unit.role)
+        && !/skull probe|servo.?skull/.test(text(unit)));
+      const vehicles = units.filter(unit => ['vehicle', 'aircraft'].includes(unit.role));
+      const structures = state.structures.filter(structure => structure.faction === player.id && operational(structure));
+      const squads = state.squads.filter(squad => squad.faction === player.id);
+      const viableSquads = squads.filter(squad => infantry.filter(unit => unit.squadId === squad.id).length >= 5);
+      const primary = state.territories.find(territory => territory.cellBacked && territory.owner === player.id);
+      const claimedCells = primary?.claimedCells?.size || 0;
+      const forwardStructures = structures.filter(structure => range(structure, player.base) >= 220);
+      const defenses = forwardStructures.filter(structure => ['bunker', 'turret', 'observationtower', 'forwardoutpost'].includes(structure.type));
+      const forwardLogistics = forwardStructures.filter(structure => structure.type === 'forwardoutpost');
+      const ally = state.players.find(candidate => candidate.id !== player.id && String(candidate.team) === String(player.team));
+      const allyUnits = ally ? state.units.filter(unit => unit.faction === ally.id && living(unit)) : [];
+      const allySupport = units.filter(unit => allyUnits.some(candidate => range(unit, candidate) <= 105)
+        && units.some(friend => friend.id !== unit.id && range(unit, friend) <= 75)).length;
+      const orders = squads.map(squad => (squad.orderType || '') + ' ' + (squad.routePhase || '')).join('|').toLowerCase();
+      const heavyRanged = infantry.filter(unit => /devastator|hellblaster|eradicat|eliminator|heavy|lascannon|plasma/.test(text(unit))).length;
+      const assaultStrength = infantry.filter(unit => /assault|jump|inceptor|sanguinary|bladeguard|vanguard/.test(text(unit))).length;
+      const meleeStrength = infantry.filter(unit => /slugga|choppa|nob|stormboy|kommando|meganob|warboss/.test(text(unit))
+        || (unit.range || 999) <= 45).length;
+      const rangedStrength = infantry.filter(unit => /shoota|tankbusta|flash git|loota|big mek/.test(text(unit))
+        || (unit.range || 0) >= 80).length;
+      const doctrinePatterns = player.subfaction === 'Ironjaw Mob'
+        ? [/slugga/, /nob/, /tankbusta/]
+        : [/shoota/, /tankbusta/, /nob/, /big mek/];
+      const coreDoctrineUnits = doctrinePatterns.filter(pattern => infantry.some(unit => pattern.test(text(unit)))).length;
+      const bannerUnits = units.filter(unit => unit.role === 'standard' || /waa+gh.*banner|banner.*nob/.test(text(unit)));
+      const bannerStructures = structures.filter(structure => structure.type === 'waaaghbanner' || /waa+gh.*banner/.test((structure.displayName || '').toLowerCase()));
+      const clusters = new Map();
+      for (const unit of infantry) {
+        const key = Math.floor(unit.x / 100) + ',' + Math.floor(unit.y / 100);
+        clusters.set(key, (clusters.get(key) || 0) + 1);
+      }
+      const mobConcentrations = [...clusters.values()].filter(count => count >= 5).length;
+      const vehicleSupport = vehicles.filter(vehicle => infantry.some(unit => range(vehicle, unit) <= 120)).length;
+      const economy = state.economies[player.id] || { inventory: {}, queue: [] };
+      const producedUnits = Math.max(Number(player.productionSequence) || 0,
+        globalThis.awtStressInitialFactionUnits?.[player.id] == null ? 0 : units.length - globalThis.awtStressInitialFactionUnits[player.id]);
+      const newBuildings = Math.max(0, state.structures.filter(structure => structure.faction === player.id).length
+        - (globalThis.awtStressInitialFactionBuildings?.[player.id] || 0));
+      const producerAlive = structures.some(structure => ['outpost', 'barracks', 'workshop', 'airpad'].includes(structure.type));
+      const builders = units.filter(unit => unit.role === 'builder');
+      const frontlineDistant = units.some(unit => range(unit, player.base) >= 360);
+      const importantForwardAreas = Math.min(2, Math.max(0, Math.floor(claimedCells / 5)));
+      const objectivePresence = units.filter(unit => range(unit, player.base) >= 180 || unit.territoryAgentMission).length;
+      const mapPresence = units.length ? units.filter(unit => range(unit, player.base) >= 90).length / units.length : 0;
+      const fastVehicles = vehicles.filter(unit => (unit.speed || unit.vehicleState?.baseSpeed || 0) >= 34).length;
+      return {
+        factionId: player.id,
+        subfaction: player.subfaction,
+        objectiveActive: Boolean(player.battleObjective),
+        economyOperational: producerAlive && Object.values(economy.inventory || {}).some(value => Number(value) > 0),
+        builderReplacement: builders.length >= 1 && producerAlive,
+        infantry: infantry.length,
+        vehicles: vehicles.length,
+        producedUnits,
+        newBuildings,
+        frontlineDistant,
+        forwardLogistics: forwardLogistics.length,
+        mapPresence,
+        viableSquads: viableSquads.length,
+        heavyRanged,
+        defensiveForwardPositions: defenses.length,
+        importantForwardAreas,
+        coveredForwardAreas: Math.min(importantForwardAreas, defenses.length),
+        counterattacks: /counter|reinforce contact|defend/.test(orders) ? 1 : 0,
+        offensiveContribution: units.reduce((sum, unit) => sum + (unit.kills || 0), 0) + Math.max(0, (player.territoryCaptureCount || 0)),
+        allySupport,
+        assaultStrength,
+        jumpMissions: infantry.filter(unit => /assault|jump|inceptor|sanguinary/.test(text(unit)) && (unit.targetId || range(unit, player.base) > 150)).length,
+        regroups: /regroup/.test(orders) || infantry.some(unit => unit.retreating) ? 1 : 0,
+        fastVehicles,
+        repeatedFailedAttacks: Number(player.repeatedFailedAttacks) || 0,
+        objectivePresence,
+        meleeStrength,
+        rangedStrength,
+        coreDoctrineUnits,
+        waaaghBannerAnchors: bannerUnits.length + bannerStructures.length,
+        mobConcentrations,
+        vehicleSupport,
+        scrap: Number(economy.inventory?.scrap) || 0,
+        ammunition: Number(economy.inventory?.ammunition) || 0,
+        mekInfrastructureAlive: structures.some(structure => ['workshop', 'signature'].includes(structure.type)),
+        claimedCells,
+        requisition: Number(economy.inventory?.requisition) || 0,
+        defeat: Boolean(state.strategicOutcomes?.[player.id]?.defeated)
+      };
+    });
+  })()`, 10_000).then(result => result.value) : [];
+  const allianceEvaluation = allianceEvolution ? evaluateAllianceEvolutionRun(allianceAudit, performanceAudit) : null;
   const report = {
     setup: setup.value,
     durationMs: performance.now() - startedAt,
     samples: samples.length,
     simulationSecondsAdvanced: last.simulationTime - first.simulationTime,
     framesAdvanced: last.frameCount - first.frameCount,
-    averageRafFps: last.frameMonitor.frames / Math.max(0.001, (last.wallTime - samples[0].wallTime) / 1000),
+    averageRafFps: last.frameMonitor.frames / Math.max(0.001, (last.wallTime - measurementStart.value.wallTime) / 1000),
     maximumProbeLatencyMs,
     maximumStagnantSamples,
     maxFrameGapMs: last.frameMonitor.maxFrameGapMs,
+    frameGapEvents: allianceEvolution ? await evaluate("globalThis.awtFrameGapEvents || []").then(result => result.value) : [],
     gapsOver500Ms: last.frameMonitor.gapsOver500Ms,
     longTasks: last.frameMonitor.longTasks,
     maxLongTaskMs: last.frameMonitor.maxLongTaskMs,
     totalLongTaskMs: last.frameMonitor.totalLongTaskMs,
     final: last,
-    profiler: profiling ? await evaluate("globalThis.awtProfiler?.report?.() || []").then(result => result.value) : []
+    profiler: profiling ? await evaluate("globalThis.awtProfiler?.report?.() || []").then(result => result.value) : [],
+    alliance: allianceEvolution ? { metrics: allianceAudit, performance: performanceAudit, evaluation: allianceEvaluation } : null
   };
   const frozen = !last || last.paused || last.failures > 0 || last.error
     || report.simulationSecondsAdvanced <= 1 || report.framesAdvanced <= 5
     || maximumStagnantSamples >= 4 || maximumProbeLatencyMs >= 1000 || report.maxFrameGapMs >= 500
     || last.movement.trackedCombatUnits > 0 && last.movement.movedCombatUnits < Math.max(1, Math.floor(last.movement.trackedCombatUnits * 0.05));
   console.log(JSON.stringify(report, null, 2));
+  if (reportFile) {
+    mkdirSync(dirname(reportFile), { recursive: true });
+    writeFileSync(reportFile, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+  }
   if (last.speed !== simulationSpeed) throw new Error(`Expected ${simulationSpeed}x simulation speed, received ${last.speed}x.`);
   if (constructionContinuation && (last.construction.completedNewStructures < 1
     || last.construction.continuedStructures < 1 || last.construction.maxConcurrentProjects < 2)) {
@@ -586,6 +849,9 @@ try {
     if (!growth?.smartDropPods) failures.push('Drop Pod safety or four-unit deployment rule failed');
     if (failures.length) throw new Error(`Space Marine growth audit failed: ${failures.join('; ')}. Snapshot: ${JSON.stringify(growth)}`);
   }
+  if (allianceEvolution && !allianceEvolutionSmoke && !allianceEvaluation.passed) {
+    throw new Error(`Alliance evolution audit failed: ${allianceEvaluation.failed.join("; ")}`);
+  }
   if (frozen) throw new Error(`${playerCount}-player 1920x1080 simulation froze or became unresponsive: ${JSON.stringify(report)}`);
 } finally {
   socket?.close();
@@ -594,7 +860,7 @@ try {
     await Promise.race([once(browser, "exit").catch(() => {}), delay(2000)]);
   }
   server.close();
-  for (let attempt = 0; attempt < 8; attempt += 1) {
+  if (!suppliedProfile) for (let attempt = 0; attempt < 8; attempt += 1) {
     try { rmSync(profile, { recursive: true, force: true, maxRetries: 2, retryDelay: 100 }); break; }
     catch (error) { if (attempt === 7) console.warn(error.message); await delay(200); }
   }

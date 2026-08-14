@@ -3,6 +3,7 @@ const clamp01 = value => Math.max(0, Math.min(1, Number(value) || 0));
 export const IDEAL_BUILDERS = Object.freeze({
   turret: 1,
   observationtower: 1,
+  waaaghbanner: 1,
   warehouse: 1,
   farm: 1,
   generator: 1,

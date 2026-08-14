@@ -94,31 +94,48 @@ function rosterMembers(roster = {}) {
     (roster[role] || []).map(name => Object.freeze({ name, role })));
 }
 
-export function scoreProductionCandidate(member, { player = {}, plan, demand = {}, ownUnits = [], availableProducerTypes = [] } = {}) {
+function summarizeProductionRoster(ownUnits = []) {
+  const living = ownUnits.filter(unit => unit?.alive !== false);
+  const normalizedNames = living.map(unit => normalize(unit.specialty || unit.name));
+  const roleCounts = living.reduce((counts, unit) => {
+    counts[unit.role] = (counts[unit.role] || 0) + 1;
+    return counts;
+  }, {});
+  const marineInfantry = living.filter(unit => unit.role !== "vehicle"
+    && !["builder", "supply"].includes(unit.role) && !/skull probe|servo.?skull/i.test(`${unit.specialty || ""} ${unit.name || ""}`)).length;
+  const combatInfantry = living.filter(unit => !["builder", "supply", "vehicle"].includes(unit.role)).length;
+  const livingSpecialists = living.filter(unit => productionTagsFor({ name: unit.specialty || unit.name, role: unit.role })
+    .some(tag => ["medical", "engineer", "spiritual", "psychic", "judicial", "support", "command", "veteran", "terminator"].includes(tag))).length;
+  const livingVehicles = roleCounts.vehicle || 0;
+  const livingCombat = living.filter(unit => !["builder", "supply"].includes(unit.role)).length;
+  return Object.freeze({ living, normalizedNames, roleCounts, marineInfantry, combatInfantry, livingSpecialists, livingVehicles, livingCombat });
+}
+
+export function scoreProductionCandidate(member, { player = {}, plan, demand = {}, ownUnits = [], availableProducerTypes = [], rosterSummary = null } = {}) {
+  const summary = rosterSummary || summarizeProductionRoster(ownUnits);
   const tags = productionTagsFor(member);
   const priorities = member.role === "vehicle" ? plan?.vehiclePriority || [] : plan?.unitPriority || [];
   let doctrine = 12;
   for (let index = 0; index < priorities.length; index += 1) if (tags.includes(priorities[index])) doctrine = Math.max(doctrine, 92 - index * 11);
   const battlefield = tags.reduce((maximum, tag) => Math.max(maximum, Number(demand.tokenScores?.[tag]) || 0), 0);
-  const sameName = ownUnits.filter(unit => unit?.alive !== false && normalize(unit.specialty || unit.name).includes(normalize(member.name))).length;
-  const sameRole = ownUnits.filter(unit => unit?.alive !== false && unit.role === member.role).length;
-  const oversaturation = sameName * 14 + Math.max(0, sameRole - Math.max(2, ownUnits.length * 0.32)) * 3;
+  const normalizedMemberName = normalize(member.name);
+  const sameName = summary.normalizedNames.filter(name => name.includes(normalizedMemberName)).length;
+  const sameRole = summary.roleCounts[member.role] || 0;
+  const oversaturation = sameName * 14 + Math.max(0, sameRole - Math.max(2, summary.living.length * 0.32)) * 3;
   const producers = producerTypesForProduction(member);
   const facilityAvailable = !availableProducerTypes.length || producers.some(type => availableProducerTypes.includes(type));
   const captureSpecialist = /scout marine|skull probe/i.test(member.name || "");
-  const sameCaptureSpecialist = ownUnits.filter(unit => unit?.alive !== false
-    && normalize(unit.specialty || unit.name).includes(normalize(member.name))).length;
+  const sameCaptureSpecialist = sameName;
   // Scouts and probes are complementary. A Scout Marine batch must not make
   // the planner believe that it has also fulfilled the Skull Probe need.
   const captureSupport = player.faction === "Space Marines" && captureSpecialist && sameCaptureSpecialist < 2
     ? /skull probe/i.test(member.name || "") && sameCaptureSpecialist === 0 ? 800 : 92 - sameCaptureSpecialist * 40 : 0;
-  const marineInfantry = ownUnits.filter(unit => unit?.alive !== false && unit.role !== "vehicle"
-    && !["builder", "supply"].includes(unit.role) && !/skull probe|servo.?skull/i.test(`${unit.specialty || ""} ${unit.name || ""}`)).length;
+  const marineInfantry = summary.marineInfantry;
   const marineInfantryFloor = Math.min(120, Math.max(20, Math.floor((Number(player.forceState?.reinforcementCapacity) || 36) * 0.6)));
   const lineGrowth = player.faction === "Space Marines" && marineInfantry < marineInfantryFloor
     ? member.role === "trooper" || /scout marine/i.test(member.name || "")
       ? 260 + Math.min(220, (marineInfantryFloor - marineInfantry) * 3.5)
-      : member.role === "vehicle" ? -300 : -80
+      : member.role === "vehicle" ? marineInfantry < 30 ? -300 : 0 : -80
     : 0;
   const marineSpecialist = player.faction === "Space Marines" && marineInfantry >= 18 && sameName === 0
     ? /apothecary|techmarine|chaplain|librarian|judiciar|ancient|company champion/i.test(member.name || "") ? 135
@@ -135,27 +152,26 @@ export function scoreProductionCandidate(member, { player = {}, plan, demand = {
     ? Math.max(score, 64 - index * 7) : score, 0);
   const chapterForbidden = chapterProfile && !chapterAllowsUnit(chapterProfile.chapter, member) ? 5000 : 0;
   const specialistCandidate = tags.some(tag => ["medical", "engineer", "spiritual", "psychic", "judicial", "support", "command", "veteran", "terminator"].includes(tag));
-  const livingSpecialists = ownUnits.filter(unit => unit?.alive !== false
-    && productionTagsFor({ name: unit.specialty || unit.name, role: unit.role }).some(tag => ["medical", "engineer", "spiritual", "psychic", "judicial", "support", "command", "veteran", "terminator"].includes(tag))).length;
-  const specialistRatio = livingSpecialists / Math.max(1, ownUnits.filter(unit => unit?.alive !== false && !["builder", "supply", "vehicle"].includes(unit.role)).length);
+  const specialistRatio = summary.livingSpecialists / Math.max(1, summary.combatInfantry);
   const specialistBattlefieldNeed = tags.reduce((score, tag) => Math.max(score, Number(demand.tokenScores?.[tag]) || 0), 0);
   const specialistDoctrine = chapterProfile && specialistCandidate
     ? Math.max(0, chapterProfile.specialistRatio.target - specialistRatio) * 260 + specialistBattlefieldNeed * 0.6 : 0;
-  const livingVehicles = ownUnits.filter(unit => unit?.alive !== false && unit.role === "vehicle").length;
-  const livingCombat = ownUnits.filter(unit => unit?.alive !== false && !["builder", "supply"].includes(unit.role)).length;
-  const vehicleRatio = livingVehicles / Math.max(1, livingCombat);
+  const vehicleRatio = summary.livingVehicles / Math.max(1, summary.livingCombat);
   const vehicleBudget = chapterProfile && member.role === "vehicle"
     ? vehicleRatio < chapterProfile.vehicleBudgetRatio ? 48 + (chapterProfile.vehicleBudgetRatio - vehicleRatio) * 180 : -35 : 0;
+  const mobilizationVehicleBudget = member.role === "vehicle" && summary.livingCombat >= 24 && summary.livingVehicles < 4
+    ? 360 + (4 - summary.livingVehicles) * 45 : 0;
   return Object.freeze({ member, tags, producerTypes: producers, facilityAvailable,
-    score: doctrine + battlefield + captureSupport + lineGrowth + marineSpecialist + chapterDoctrine + specialistDoctrine + vehicleBudget
+    score: doctrine + battlefield + captureSupport + lineGrowth + marineSpecialist + chapterDoctrine + specialistDoctrine + vehicleBudget + mobilizationVehicleBudget
       - chapterForbidden - cappedCharacter - oversaturation - (facilityAvailable ? 0 : 160),
-    doctrine, battlefield, captureSupport, lineGrowth, marineSpecialist, chapterDoctrine, specialistDoctrine, vehicleBudget,
+    doctrine, battlefield, captureSupport, lineGrowth, marineSpecialist, chapterDoctrine, specialistDoctrine, vehicleBudget, mobilizationVehicleBudget,
     chapterForbidden, cappedCharacter, oversaturation });
 }
 
 export function chooseMilitaryProduction({ player = {}, roster = {}, demand = {}, ownUnits = [], availableProducerTypes = [], sequence = 0 } = {}) {
   const plan = subfactionProductionPlanFor(player);
-  const ranked = rosterMembers(roster).map(member => scoreProductionCandidate(member, { player, plan, demand, ownUnits, availableProducerTypes }))
+  const rosterSummary = summarizeProductionRoster(ownUnits);
+  const ranked = rosterMembers(roster).map(member => scoreProductionCandidate(member, { player, plan, demand, ownUnits, availableProducerTypes, rosterSummary }))
     .filter(candidate => candidate.facilityAvailable)
     .sort((a, b) => b.score - a.score || String(a.member.name).localeCompare(String(b.member.name)));
   if (!ranked.length) return null;
@@ -165,5 +181,6 @@ export function chooseMilitaryProduction({ player = {}, roster = {}, demand = {}
     productionStyle: plan?.productionStyle || "adaptive", score: selected.score, scoreBreakdown: Object.freeze({ doctrine: selected.doctrine,
       battlefield: selected.battlefield, captureSupport: selected.captureSupport, lineGrowth: selected.lineGrowth,
       marineSpecialist: selected.marineSpecialist, chapterDoctrine: selected.chapterDoctrine, specialistDoctrine: selected.specialistDoctrine, vehicleBudget: selected.vehicleBudget,
+      mobilizationVehicleBudget: selected.mobilizationVehicleBudget,
       chapterForbidden: selected.chapterForbidden, cappedCharacter: selected.cappedCharacter, oversaturation: selected.oversaturation }) });
 }

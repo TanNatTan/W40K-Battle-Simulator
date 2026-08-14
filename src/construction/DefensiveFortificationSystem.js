@@ -1,7 +1,7 @@
 const clamp01 = value => Math.max(0, Math.min(1, Number(value) || 0));
 
 export const FORTIFICATION_TYPES = Object.freeze({
-  FORWARD_OUTPOST: Object.freeze({ id: "forward-outpost", buildingType: "outpost", roles: ["supply", "observation", "recovery"] }),
+  FORWARD_OUTPOST: Object.freeze({ id: "forward-outpost", buildingType: "forwardoutpost", roles: ["supply", "observation", "recovery", "vox-relay"] }),
   BUNKER: Object.freeze({ id: "bunker", buildingType: "bunker", roles: ["garrison", "choke-defense"] }),
   PILLBOX: Object.freeze({ id: "pillbox", buildingType: "bunker", roles: ["compact-fire-position"] }),
   FORT: Object.freeze({ id: "fort", buildingType: "bunker", roles: ["strongpoint", "territory-anchor"] }),

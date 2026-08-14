@@ -2,7 +2,7 @@ export const SCALE_PRESETS = Object.freeze({
   skirmish: Object.freeze({ label: "Skirmish", targetUnits: 120, nearStride: 1, nearEngagedStride: 1, distantStride: 2, snapshotSeconds: 1.5, pathBudget: 16, pathVisited: 5200, logBatch: 24 }),
   battle: Object.freeze({ label: "Battle", targetUnits: 400, nearStride: 1, nearEngagedStride: 1, distantStride: 3, snapshotSeconds: 3, pathBudget: 12, pathVisited: 4200, logBatch: 40 }),
   major: Object.freeze({ label: "Major Battle", targetUnits: 1000, nearStride: 2, nearEngagedStride: 2, distantStride: 6, snapshotSeconds: 6, pathBudget: 8, pathVisited: 2800, logBatch: 64 }),
-  total: Object.freeze({ label: "Total Battlefield", targetUnits: 4000, nearStride: 6, nearEngagedStride: 6, distantStride: 15, snapshotSeconds: 12, pathBudget: 1, pathVisited: 900, logBatch: 96 })
+  total: Object.freeze({ label: "Total Battlefield", targetUnits: 4000, nearStride: 6, nearEngagedStride: 6, distantStride: 15, snapshotSeconds: 12, pathBudget: 1, pathVisited: 360, logBatch: 96 })
 });
 
 export function scalePresetFor(unitCount = 0, requested = "auto") {

@@ -36,7 +36,7 @@ export class SupplyNetwork {
       x: item.x,
       y: item.y,
       faction: item.faction,
-      hub: ["outpost", "warehouse", "supplydepot"].includes(item.type),
+      hub: ["outpost", "forwardoutpost", "warehouse", "supplydepot"].includes(item.type),
       headquarters: Boolean(item.headquarters || item.productionRole === "headquarters" || item.type === "outpost"),
       kind: "structure",
       type: item.type,

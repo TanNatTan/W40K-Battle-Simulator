@@ -1,6 +1,6 @@
 const LARGE_PRODUCTION_TYPES = new Set(["outpost", "dropbay"]);
 const PRODUCTION_TYPES = new Set(["barracks", "workshop", "researchcenter", "fieldhospital", "generator", "mine", "refinery", "farm", "signature"]);
-const STORAGE_TYPES = new Set(["warehouse", "fueldepot", "ammodepot"]);
+const STORAGE_TYPES = new Set(["warehouse", "fueldepot", "ammodepot", "forwardoutpost"]);
 const DEFENSE_TYPES = new Set(["bunker", "observationtower"]);
 
 export const BUILDING_CLEARANCE = Object.freeze({

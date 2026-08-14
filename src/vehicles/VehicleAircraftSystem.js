@@ -1,14 +1,23 @@
 const clamp01 = value => Math.max(0, Math.min(1, Number(value) || 0));
 
 const VEHICLE_PROFILES = Object.freeze([
-  { test: /rhino|chimera|devilfish|trukk|ghost ark|transport|apc/i, type: "transport", passengerCapacity: 10, fuel: 100, turnRate: 1.3 },
-  { test: /whirlwind|basilisk|artillery|mortar|exocrine|doomsday/i, type: "artillery", passengerCapacity: 0, fuel: 90, turnRate: 0.72 },
-  { test: /hunter|stalker|hydra|skyray|anti.?air/i, type: "anti-air", passengerCapacity: 0, fuel: 90, turnRate: 1.05 },
-  { test: /techmarine|mek|repair vehicle|recovery/i, type: "repair", passengerCapacity: 2, fuel: 75, turnRate: 1.1 },
-  { test: /supply|cargo|ammo|fuel vehicle/i, type: "supply", passengerCapacity: 2, fuel: 110, turnRate: 0.9 },
-  { test: /sentinel|dreadnought|walker|defiler|carnifex|trygon/i, type: "walker", passengerCapacity: 0, fuel: 80, turnRate: 1.5 },
-  { test: /command|monolith|land raider|battlewagon/i, type: "command", passengerCapacity: 8, fuel: 120, turnRate: 0.66 },
-  { test: /.*/, type: "tank", passengerCapacity: 0, fuel: 100, turnRate: 0.82 }
+  { test: /supply|cargo|ammo|fuel vehicle/i, type: "supply", passengerCapacity: 2, fuel: 110, turnRate: 0.9, baseSpeed: 30 },
+  { test: /storm speeder/i, type: "recon", passengerCapacity: 0, fuel: 88, turnRate: 1.55, baseSpeed: 46 },
+  { test: /invader atv/i, type: "recon", passengerCapacity: 0, fuel: 82, turnRate: 1.6, baseSpeed: 44 },
+  { test: /impulsor/i, type: "transport", passengerCapacity: 6, fuel: 100, turnRate: 1.42, baseSpeed: 40 },
+  { test: /trukk/i, type: "transport", passengerCapacity: 12, fuel: 100, turnRate: 1.45, baseSpeed: 38 },
+  { test: /rhino|razorback|loot trukk/i, type: "transport", passengerCapacity: 10, fuel: 100, turnRate: 1.3, baseSpeed: 34 },
+  { test: /repulsor/i, type: "transport", passengerCapacity: 10, fuel: 112, turnRate: 1.08, baseSpeed: 32 },
+  { test: /predator|gladiator/i, type: "tank", passengerCapacity: 0, fuel: 100, turnRate: 1.02, baseSpeed: 32 },
+  { test: /vindicator|whirlwind|basilisk|artillery|mortar|exocrine|doomsday/i, type: "artillery", passengerCapacity: 0, fuel: 90, turnRate: 0.72, baseSpeed: 27 },
+  { test: /land raider|battlewagon|command|monolith/i, type: "command", passengerCapacity: 8, fuel: 120, turnRate: 0.66, baseSpeed: 26 },
+  { test: /ballistus|killa kan/i, type: "walker", passengerCapacity: 0, fuel: 80, turnRate: 1.35, baseSpeed: 22 },
+  { test: /redemptor|deff dread/i, type: "walker", passengerCapacity: 0, fuel: 88, turnRate: 1.32, baseSpeed: 24 },
+  { test: /sentinel|dreadnought|walker|defiler|carnifex|trygon/i, type: "walker", passengerCapacity: 0, fuel: 80, turnRate: 1.5, baseSpeed: 24 },
+  { test: /hunter|stalker|hydra|skyray|anti.?air/i, type: "anti-air", passengerCapacity: 0, fuel: 90, turnRate: 1.05, baseSpeed: 31 },
+  { test: /techmarine|mek|repair vehicle|recovery/i, type: "repair", passengerCapacity: 2, fuel: 75, turnRate: 1.1, baseSpeed: 30 },
+  { test: /chimera|devilfish|ghost ark|transport|apc/i, type: "transport", passengerCapacity: 10, fuel: 100, turnRate: 1.3, baseSpeed: 34 },
+  { test: /.*/, type: "tank", passengerCapacity: 0, fuel: 100, turnRate: 0.82, baseSpeed: 30 }
 ]);
 
 export function vehicleProfileFor(unit) {
@@ -30,6 +39,7 @@ export function createVehicleState(unit = {}) {
     passengerIds: [],
     crew: profile.type === "walker" ? 1 : 3,
     maxCrew: profile.type === "walker" ? 1 : 3,
+    baseSpeed: profile.baseSpeed,
     currentSpeed: 0,
     turnRate: profile.turnRate,
     state: "idle"

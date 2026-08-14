@@ -62,6 +62,7 @@ test("runtime planning precedes workforce response and builders only execute pro
   assert.match(source, /construction\.state = "planned"/);
   assert.match(source, /leadBuilderId: null/);
   assert.doesNotMatch(source, /tryStartBuilderConstruction/);
+  assert.match(source, /bootstrap a combat-capable muster point before economic expansion/);
 });
 
 test("visually complete construction cannot strand a queue slot below one", () => {

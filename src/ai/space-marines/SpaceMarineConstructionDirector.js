@@ -12,6 +12,7 @@ const BASE_PRIORITIES = Object.freeze({
   bunker: 60,
   turret: 60,
   observationtower: 65,
+  forwardoutpost: 84,
   mine: 74,
   refinery: 74,
   farm: 74,
@@ -30,7 +31,7 @@ export function spaceMarineConstructionPriority(candidate = {}, strategy = {}) {
   let priority = BASE_PRIORITIES[type] || 58;
   if (candidate.headquartersReplacement || type === "outpost") priority = 100;
   else if (candidate.criticalResourceFailure && ["generator", "mine", "refinery", "farm", "warehouse"].includes(type)) priority = 95;
-  else if (strategy.posture === "EXPLOIT" && ["barracks", "workshop", "dropbay", "fieldhospital", "warehouse"].includes(type)) priority = Math.max(priority, 90);
+  else if (strategy.posture === "EXPLOIT" && ["barracks", "workshop", "dropbay", "fieldhospital", "warehouse", "forwardoutpost"].includes(type)) priority = Math.max(priority, 90);
   else if (candidate.emergency >= 0.7 && ["bunker", "turret", "observationtower"].includes(type)) priority = Math.max(priority, 88);
   priority += Math.max(0, liveNeed - 50) * 0.16;
   priority += ((strategy.roleWeights?.[role] || 1) - 1) * 24;

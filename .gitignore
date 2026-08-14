@@ -3,4 +3,4 @@
 *.db-wal
 .DS_Store
 Thumbs.db
-
+reports/alliance-evolution/*.json

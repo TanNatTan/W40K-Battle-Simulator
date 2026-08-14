@@ -13,6 +13,8 @@
     "test:economy:endurance": "node scripts/economy-endurance.mjs",
     "test:2v2:soak": "node scripts/performance-2v2-soak.mjs",
     "test:2v2:quick": "node scripts/performance-2v2-soak.mjs --quick",
+    "test:alliance-evolution": "node scripts/alliance-evolution.mjs",
+    "test:alliance-evolution:quick": "node scripts/alliance-evolution.mjs --quick --max-attempts=1",
     "test:chapter-evolution": "node scripts/chapter-ai-evolution.mjs",
     "test": "node --test"
   }

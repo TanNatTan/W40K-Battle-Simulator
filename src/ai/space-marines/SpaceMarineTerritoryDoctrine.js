@@ -23,6 +23,7 @@ function selectDevelopmentBuilding(category, context) {
   if (category === "production") {
     const needs = context.productionNeeds || {};
     const choices = [
+      ["forwardoutpost", context.forwardBaseValue >= 0.58 ? 110 : 0],
       ["barracks", Number(needs.Muster) || 0],
       ["workshop", Number(needs["War Forge"]) || 0],
       ["dropbay", Number(needs.Deployment) || 0],
@@ -66,7 +67,7 @@ export function evaluateSpaceMarineTerritoryDevelopment({ player = {}, context =
     none: overextension * 38 + lowStrategicValue * 28 + poorSupply * 24 + constructionBacklog * 30 + 20
   };
   const [category, score] = bestEntry(scores);
-  const buildingType = selectDevelopmentBuilding(category, context);
+  const buildingType = selectDevelopmentBuilding(category, { ...context, forwardBaseValue });
   return Object.freeze({
     category,
     buildingType,
