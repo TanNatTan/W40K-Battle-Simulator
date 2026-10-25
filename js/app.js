@@ -1656,6 +1656,13 @@ import {
           onSettlementCaptured(node, previous, factionId);
           return node.population;
         },
+        addResourceZone(resourceType, x, y, overrides = {}) {
+          const id = `resource-zone-${state.nextResourceZoneId++}`;
+          const zone = createResourceZone(id, { x, y }, { name: `${resourceType} field ${id}`, resourceType, richness: 2, requiresBuilding: false, ...overrides });
+          state.resourceZones.push(zone);
+          state.economyZoneManager.adopt(state.resourceZones);
+          return zone.id;
+        },
         settlements() {
           return state.economicNodes.filter(isSettlementNode).map(node => ({ id: node.id, name: node.name, owner: node.owner, population: ensureSettlementPopulation(node) }));
         }
@@ -2720,6 +2727,45 @@ import {
         return state.economicNodes
           .filter(node => node.active && node.owner === faction)
           .reduce((best, node) => Math.max(best, Number(node.modifiers?.[key]) || (key.endsWith("Multiplier") ? 1 : 0)), key.endsWith("Multiplier") ? 1 : 0);
+      }
+
+      function ownsResourceSource(factionId, resource) {
+        return state.resourceZones.some(zone => zone.active !== false && zone.resourceType === resource && zone.owner && areAllies(zone.owner, factionId))
+          || state.economicNodes.some(node => node.active !== false && node.owner && areAllies(node.owner, factionId) && (node.exports?.[resource] || 0) > 0);
+      }
+
+      // Resources a faction cannot function without: everyone eats, Orks build
+      // from scrap, Tyranids grow from biomass. A need is discounted once the
+      // faction already holds a source, so expansion keeps moving afterwards.
+      function hardResourceNeeds(player) {
+        const cached = player.hardNeedsCache;
+        if (cached && state.time - cached.at < 3) return cached.needs;
+        const economy = economyFor(player.id);
+        const usable = resource => economy.activeResources.includes(resource) || economy.zoneResources.includes(resource);
+        const needs = {};
+        if (usable("food")) needs.food = 55;
+        if (player.race === "Orks" && usable("scrap")) needs.scrap = 70;
+        if (player.race === "Tyranids" && usable("biomass")) needs.biomass = 70;
+        for (const shortage of economy.shortages || []) if (usable(shortage)) needs[shortage] = Math.max(needs[shortage] || 0, 45);
+        for (const resource of Object.keys(needs)) if (ownsResourceSource(player.id, resource)) needs[resource] *= 0.3;
+        player.hardNeedsCache = { at: state.time, needs };
+        return needs;
+      }
+
+      // Feed per-player resource needs to the strategic cell system so its
+      // siege ranking weighs typed resources, not just generic richness.
+      function syncTerritoryResourceNeeds() {
+        const territory = state.strategicTerritory;
+        if (!territory) return;
+        for (const player of state.players) {
+          const needs = {};
+          for (const resource of new Set([...economyFor(player.id).activeResources, ...economyFor(player.id).zoneResources])) {
+            const score = resourceNeedScore(player, resource);
+            if (Number.isFinite(score)) needs[resource] = clamp(score / 180, 0, 1);
+          }
+          for (const [resource, weight] of Object.entries(hardResourceNeeds(player))) needs[resource] = Math.max(needs[resource] || 0, clamp(weight / 80, 0, 1));
+          territory.setResourceNeeds(player.id, needs);
+        }
       }
 
       function resourceNeedScore(playerOrFaction, resource) {
@@ -4010,7 +4056,8 @@ import {
           x: node.x,
           y: node.y,
           type: objectiveTypeForEconomicNode(node),
-          sourceId: node.id
+          sourceId: node.id,
+          exports: { ...(node.exports || {}) }
         }));
         for (const feature of state.features.filter(item => ["bridge", "pontoonbridge"].includes(item.type))) {
           objectives.push({ x: feature.x, y: feature.y, type: "bridge", sourceId: feature.id || null });
@@ -4020,7 +4067,12 @@ import {
           state.players.map(player => ({ id: player.id, color: player.color, base: { ...player.base } })),
           {
             objectives,
-            resourceZones: [],
+            resourceZones: state.resourceZones.filter(zone => zone.active !== false).map(zone => ({
+              ...resourceZoneCenter(zone),
+              resourceType: zone.resourceType,
+              richness: zone.richness,
+              strategicValue: zone.strategicValue
+            })),
             roads: state.roads,
             unitConfig: {
               unitsPerPlayer: 10,
@@ -7359,7 +7411,7 @@ import {
               ...territoryCellCenter(assignedTerritoryKey),
               owner: assignedTerritoryOwner?.owner || "",
               source: { owner: assignedTerritoryOwner?.owner || "" },
-              reason: "Secure the assigned frontier through physical occupation"
+              reason: squad.assignedCaptureReason || "Secure the assigned frontier through physical occupation"
             } : null);
         let captureHolding = false;
         if (captureTarget?.source?.owner && areAllies(captureTarget.source.owner, player.id)) {
@@ -7410,6 +7462,7 @@ import {
         });
         if (captureTarget) {
           squad.assignedCaptureTargetId = captureTarget.id;
+          squad.assignedCaptureReason = captureTarget.kind === "territory-cell" ? captureTarget.reason : null;
           squad.assignedCaptureTargetKind = captureTarget.kind;
           squad.assignedResourceZoneId = captureTarget.kind === "resource-zone" ? captureTarget.id : null;
           squad.captureMissionComplete = false;
@@ -13432,6 +13485,28 @@ import {
           const landmarkResources = economicNodes.reduce((sum, node) => sum + Object.keys(node.exports || {})
             .filter(resource => usableActiveResources.has(resource))
             .reduce((value, resource) => value + resourceNeedScore(player, resource) * 0.42, 0), 0);
+          // Capturing the source of a resource the faction cannot do without
+          // outranks ordinary frontier value.
+          const hardNeeds = hardResourceNeeds(player);
+          let hardBoost = 0;
+          let hardResource = null;
+          let hardSource = null;
+          for (const node of resourceNodes) {
+            const weight = hardNeeds[node.resourceType];
+            if (weight && (!node.owner || !areAllies(node.owner, player.id))) {
+              hardBoost += weight * (Number(node.richness) || 1);
+              if (!hardResource) { hardResource = node.resourceType; hardSource = node.name; }
+            }
+          }
+          for (const node of economicNodes) {
+            for (const resource of Object.keys(node.exports || {})) {
+              const weight = hardNeeds[resource];
+              if (weight && (!node.owner || !areAllies(node.owner, player.id))) {
+                hardBoost += weight * 0.6;
+                if (!hardResource) { hardResource = resource; hardSource = node.name; }
+              }
+            }
+          }
           const defensibility = terrain.cover * 55 + Math.max(0, terrain.elevation || 0) * 5;
           const connection = neighboringTerritoryCells(key).filter(neighbor => territory.claimedCells.has(neighbor)).length * 18;
           const threat = hostile.reduce((sum, unit) => sum + (unit.role === "vehicle" ? 2.4 : unit.role === "commander" ? 1.7 : 1), 0) * 18;
@@ -13479,8 +13554,9 @@ import {
           if (!reason && behavior.expansion >= 62 && resources + landmarkResources >= 20) reason = "Reach a map-authored economic asset";
           if (!reason && connection >= 36 && territory.disconnectedCells.size) reason = "Reconnect isolated territory";
           if (!reason && forMission) reason = hostile.length ? "Contest a hostile frontier cell" : "Extend controlled territory through physical occupation";
+          if (hardBoost >= 30) reason = `Critical need ${hardResource}: capture ${hardSource}`;
           if (!reason) continue;
-          const value = resources + landmarkResources + objective + routeValue + defensibility + connection + culture
+          const value = hardBoost + resources + landmarkResources + objective + routeValue + defensibility + connection + culture
             + (behavior.expansion - 50) * 0.5 + (behavior.aggression - 50) * (hostile.length ? 0.25 : 0)
             - (behavior.caution - 50) * (hostile.length ? 0.35 : 0) - threat - maintenance;
           options.push({
@@ -13490,8 +13566,8 @@ import {
             value,
             hostilePower: hostile.length,
             friendlyPower: friendly.length,
-            resourceDriven: resources + landmarkResources >= 45,
-            resourceValue: resources + landmarkResources
+            resourceDriven: resources + landmarkResources + hardBoost >= 45,
+            resourceValue: resources + landmarkResources + hardBoost
           });
         }
         const behavior = aiBehaviorFor(player);
@@ -13856,6 +13932,7 @@ import {
             if (!protectedCells.has(cellId)) protectedCells.set(cellId, new Set());
             protectedCells.get(cellId).add(structure.faction);
           }
+          syncTerritoryResourceNeeds();
           const territoryEvents = state.strategicTerritory.advancePhysical(2, physicalForces, { isAllied: areAllies, protectedCells });
           if (territoryEvents.length || state.strategicTerritory.cells.some(cell => cell.siege)) state.minimapMarkerDirty = true;
           state.strategicTerritory.assertNoNewObjects();

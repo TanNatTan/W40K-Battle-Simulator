@@ -237,6 +237,10 @@ export class TerritorySystem {
         objectiveId: null,
         objectiveStrategicValue: 0,
         resources: { resourceAccess: 0, roadControl: 0, supplyConnected: false },
+        // Typed resource value (food, scrap, biomass...) so factions can weigh
+        // cells by what they actually need, not just a generic richness score.
+        resourceTypes: {},
+        typedAccess: 0,
         siege: null,
         lastOwner: null,
         previousOwnerId: null,
@@ -254,6 +258,9 @@ export class TerritorySystem {
       return cell;
     });
     this.byId = new Map(this.cells.map(cell => [cell.id, cell]));
+    // playerId -> { resourceId: need 0..1 }. Set by the host each few seconds.
+    this.resourceNeeds = new Map();
+    this.targetReasons = new Map();
     this._cellReferences = new Map(this.cells.map(cell => [cell.id, cell]));
     this._seedAuthoredLayer(options);
     this._seedBases(players);
@@ -277,11 +284,23 @@ export class TerritorySystem {
         cell.objective = objective.type;
         cell.objectiveId = objective.sourceId || objective.id || `objective:${cell.id}`;
         cell.objectiveStrategicValue = Number(objective.strategicValue) || (OBJECTIVE_EFFECTS[objective.type]?.control || 1) * 20;
+        // Landmarks that export resources make their cell worth capturing for them.
+        for (const [resource, rate] of Object.entries(objective.exports || {})) {
+          const amount = Math.max(0.25, (Number(rate) || 0) * 0.12);
+          cell.resourceTypes[resource] = (cell.resourceTypes[resource] || 0) + amount;
+          cell.typedAccess += amount;
+        }
       }
     }
     for (const zone of options.resourceZones || []) {
       const cell = this.byId.get(this.partition.closestCell(zone).id);
-      if (cell) cell.resourceAccess += Math.max(0.25, Number(zone.strategicValue ?? zone.richness) || 1);
+      if (!cell) continue;
+      const amount = Math.max(0.25, Number(zone.strategicValue ?? zone.richness) || 1);
+      cell.resourceAccess += amount;
+      if (zone.resourceType) {
+        cell.resourceTypes[zone.resourceType] = (cell.resourceTypes[zone.resourceType] || 0) + amount;
+        cell.typedAccess += amount;
+      }
     }
     for (const road of options.roads || []) {
       for (const point of road.points || []) this.byId.get(this.partition.closestCell(point).id).roadControl += 0.5;
@@ -451,6 +470,37 @@ export class TerritorySystem {
     return { isolated, reconnected };
   }
 
+  setResourceNeeds(playerId, needs = {}) {
+    const cleaned = {};
+    for (const [resource, value] of Object.entries(needs)) {
+      const number = Number(value);
+      if (Number.isFinite(number) && number > 0) cleaned[resource] = Math.min(1, number);
+    }
+    this.resourceNeeds.set(playerId, cleaned);
+  }
+
+  // Value of the resources in a cell to one player. Needed resources count up
+  // to ~3.4x; resources the player does not use still count a little.
+  resourceValueFor(cell, playerId) {
+    const needs = this.resourceNeeds.get(playerId);
+    const untyped = Math.max(0, cell.resourceAccess - cell.typedAccess);
+    if (!needs) return cell.resourceAccess;
+    let total = untyped;
+    for (const [resource, amount] of Object.entries(cell.resourceTypes)) total += amount * (0.25 + (needs[resource] || 0) * 3.15);
+    return total;
+  }
+
+  // The needed resource a cell offers most of, for targeting explanations.
+  neededResourceIn(cell, playerId) {
+    const needs = this.resourceNeeds.get(playerId) || {};
+    let best = null;
+    for (const [resource, amount] of Object.entries(cell.resourceTypes)) {
+      const weight = (needs[resource] || 0) * amount;
+      if (weight > 0 && (!best || weight > best.weight)) best = { resource, weight };
+    }
+    return best?.resource || null;
+  }
+
   _score(cell, playerId, aggression = 0) {
     const objective = OBJECTIVE_EFFECTS[cell.objective] || {};
     const player = this.players.get(playerId);
@@ -459,7 +509,7 @@ export class TerritorySystem {
     const supply = cell.neighbors.some(id => this.byId.get(id)?.owner === playerId) ? 1 : 0;
     const depth = cell.neighbors.filter(id => this.byId.get(id)?.owner === playerId).length;
     const baseDefense = baseCell ? 1 - Math.min(1, distance(cell.centroid, baseCell.centroid) / Math.max(this.partition.width, this.partition.height)) : 0;
-    return (cell.resourceAccess + (objective.resource || 0)) * this.weights.resourceAccess
+    return (this.resourceValueFor(cell, playerId) + (objective.resource || 0)) * this.weights.resourceAccess
       + (objective.control || 0) * this.weights.objectives
       + (cell.roadControl + (objective.road || 0)) * this.weights.roadControl
       + supply * this.weights.supplyConnection
@@ -518,6 +568,7 @@ export class TerritorySystem {
         }
       }
       unit.targetCellId = chosen.id;
+      this.targetReasons.set(unit.id, this.neededResourceIn(chosen, playerId));
       unit.moveTimer = 0;
       if (unit.cellId === chosen.id) {
         unit.path.length = 0;
