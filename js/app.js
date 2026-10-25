@@ -52,6 +52,22 @@ import {
   smoothHeading,
   squadPaceFactor
 } from "../src/formations/FormationDoctrine.js";
+import {
+  allocateCaptives,
+  applyCollateral,
+  captivePolicyFor,
+  chooseAllianceTarget,
+  createPopulation,
+  enslavedLaborIncome,
+  isSettlementNode,
+  massacreSpoils,
+  militiaCapFor,
+  populationBranchFor,
+  recordHistory,
+  resolveCapture,
+  stepSettlement,
+  unrestOutputMultiplier
+} from "../src/population/SettlementPopulation.js";
 import { FEATURE_RELIEF, describeSlope, highGroundModifiers, lineOfSightModifiers, slopeMovementFactor } from "../src/terrain/ElevationEffects.js";
 import {
   createNavigationMonitor,
@@ -1358,6 +1374,8 @@ import {
           baseTerrain: "grass"
         },
         heightField: new HeightField({ width: 4096, height: 2304 }),
+        independentPlayers: [],
+        settlementAccumulator: 0,
         terrainChunks: new Map(),
         featureChunks: new Map(),
         shadowFeatureChunks: new Map(),
@@ -1628,6 +1646,20 @@ import {
       }
       root.awtDebugState = state;
       window.awtDebugState = state;
+      // Test/diagnostic hooks. They call the same functions the simulation does.
+      root.awtDebugTools = {
+        captureSettlement(nodeId, factionId) {
+          const node = state.economicNodes.find(item => item.id === nodeId);
+          if (!node) return null;
+          const previous = node.owner;
+          node.owner = factionId;
+          onSettlementCaptured(node, previous, factionId);
+          return node.population;
+        },
+        settlements() {
+          return state.economicNodes.filter(isSettlementNode).map(node => ({ id: node.id, name: node.name, owner: node.owner, population: ensureSettlementPopulation(node) }));
+        }
+      };
       root.awtDebugControls = {
         injectSimulationFault(message = "Injected simulation fault") {
           state.debugSimulationFault = String(message);
@@ -2570,7 +2602,10 @@ import {
       root.awtGetFactionIntel = factionId => state.factionIntel.getFactionIntel(factionId, state.time);
 
       function playerFor(faction) {
-        return state.players.find(player => player.id === faction) || setupPlayers.find(player => player.id === faction) || setupPlayers[0];
+        return state.players.find(player => player.id === faction)
+          || state.independentPlayers?.find(player => player.id === faction)
+          || setupPlayers.find(player => player.id === faction)
+          || setupPlayers[0];
       }
 
       function rebuildEntityIdIndex() {
@@ -4115,6 +4150,8 @@ import {
         state.routeHistory = new globalThis.AWTSystems.RouteHistory();
         state.dropPods = [];
         state.roads = [];
+        state.independentPlayers = [];
+        state.settlementAccumulator = 0;
         state.roadSpatialIndex = new Map();
         state.roadRevision = 0;
         state.nextConvoyId = 1;
@@ -4439,12 +4476,37 @@ import {
           });
           return territory;
         });
+        seedSettlements(random);
         rebuildRoadNetwork();
         rebuildStrategicTerritorySystem();
         els.battleName.textContent = `${seedText} / ${els.randomBiome.selectedOptions[0].text}`;
         els.editorTip.textContent = `${els.randomBiome.selectedOptions[0].text} terrain generated · ${generated.length} objects · authored resources, landmarks, and trade routes preserved`;
         updateUI(true);
         draw();
+      }
+
+      // Scatter neutral civilian settlements between the bases so a generated
+      // world has people worth protecting, taxing, enslaving or massacring.
+      function seedSettlements(random) {
+        if (state.economicNodes.some(isSettlementNode)) return;
+        const wanted = clamp(Math.round(Math.min(worldWidth(), worldHeight()) / 380), 2, 6);
+        const placed = [];
+        for (let attempt = 0; attempt < 80 && placed.length < wanted; attempt += 1) {
+          const point = { x: 220 + random() * (worldWidth() - 440), y: 220 + random() * (worldHeight() - 440) };
+          if (state.players.some(player => distance(player.base, point) < 260) || placed.some(other => distance(other, point) < 300)) continue;
+          if (["deepwater", "water", "lava"].includes(terrainAt(point).type)) continue;
+          placed.push(point);
+        }
+        placed.forEach((point, index) => {
+          const hive = index === 0 && wanted >= 4;
+          const node = createEconomicNode(`economic-node-${state.nextEconomicNodeId++}`, point, {
+            type: hive ? "hive-city" : "civilian-settlement",
+            name: SETTLEMENT_NAMES[Math.floor(random() * SETTLEMENT_NAMES.length)] + (hive ? " Hive" : "")
+          });
+          state.economicNodes.push(node);
+          ensureSettlementPopulation(node);
+        });
+        rebuildEconomicNodeSelect();
       }
 
       function productionDemandFor(player, force = false) {
@@ -6023,6 +6085,13 @@ import {
         if (territoryMission) {
           unit.lightPlan = `Frontier claim · ${territoryMission.reason}`;
           return territoryMission.point;
+        }
+        if (unit.militiaNodeId) {
+          const home = state.economicNodes.find(node => node.id === unit.militiaNodeId);
+          if (home) {
+            unit.lightPlan = "Defending the home settlement";
+            return militiaStationPoint(unit, home);
+          }
         }
         if (unit.armyFormationAnchor && playerFor(unit.faction).armyBattleFormation?.active) {
           unit.lightPlan = `All-army ${playerFor(unit.faction).armyBattleFormation.phase.toLowerCase()} formation`;
@@ -12177,16 +12246,282 @@ import {
         selected.route.nextDispatch = state.time + (convoy ? 46 + player.index * 2 : 8);
       }
 
+
+      // ---- NPC settlements: civilians, captives, levies and uprisings --------
+      const SETTLEMENT_RADIUS = 110;
+      const SETTLEMENT_NAMES = ["Haven's Rest", "Ashfall", "Kestrel Reach", "Saint Orsolo", "Gantry Hollow", "Vigil Rest", "Marrow Fields", "Tallow End", "Ninefold Ford", "Cinder Parish"];
+
+      function ensureSettlementPopulation(node) {
+        if (!node.population) node.population = createPopulation(node, battleRandom);
+        return node.population;
+      }
+
+      function factionLabelFor(id) {
+        const player = playerFor(id);
+        return player?.independent ? player.name : player?.faction || id;
+      }
+
+      // Rebels get a real faction id so the existing combat AI treats them as a
+      // side: hostile to their former rulers, allied with whoever the people trust.
+      function ensureRebelFaction(node, pop) {
+        const existing = pop.independentId ? playerFor(pop.independentId) : null;
+        if (existing?.independent) return existing;
+        const taken = new Set([...state.players.map(player => player.id), ...state.independentPlayers.map(player => player.id)]);
+        const freeId = [...ids].reverse().find(id => !taken.has(id));
+        if (!freeId) return null;
+        const template = setupPlayers.find(player => player.faction === "Imperial Guard") || setupPlayers[5];
+        const ally = chooseAllianceTarget({ loyalty: Object.fromEntries(Object.entries(pop.loyalty).filter(([id]) => id !== node.owner)) });
+        const team = ally ? String(playerFor(ally).team) : `rebels-${node.id}`;
+        const index = 12 + state.independentPlayers.length;
+        const rebel = {
+          ...template,
+          id: freeId,
+          index,
+          name: `${node.name} Free Militia`,
+          team,
+          independent: true,
+          nodeId: node.id,
+          base: { x: node.x, y: node.y },
+          color: "#c9a66b",
+          secondaryColor: "#5b4636",
+          tertiaryColor: "#e8d9b5",
+          bodyColor: "#8a7355",
+          pattern: "border",
+          battleObjective: "stronghold_defense"
+        };
+        rebel.spawnZone = { shape: "circle", size: 70, points: [] };
+        state.independentPlayers.push(rebel);
+        registerIndependentRuntime(rebel);
+        pop.independentId = freeId;
+        recordHistory(pop, state.time, ally ? `Rebels allied with ${factionLabelFor(ally)}.` : "Rebels stand alone.");
+        incident(`${node.name} has risen: ${rebel.name} take up arms${ally ? ` alongside ${factionLabelFor(ally)}` : " against all comers"}.`, node.id, "warning");
+        return rebel;
+      }
+
+      function registerIndependentRuntime(player) {
+        const profile = resolveFactionAIProfile(player);
+        state.factionAIProfiles[player.id] = profile;
+        state.factionGameplay[player.id] = createFactionGameplayState(profile.branch);
+        ensureFactionLearningMemory(player, profile);
+        player.factionAIProfileId = profile.id;
+        player.forceState = createForceState();
+        player.forceCapOverride = null;
+        player.scenarioTags = [];
+        player.constructionCooldowns = {};
+        player.operationalMemory = createOperationalMemory();
+        player.objectiveTargetIds = new Set();
+        player.territoryAgentMissions = [];
+        player.frontierContacts = [];
+        player.productionSequence = 0;
+        player.battleObjective = normalizeBattleObjectiveId(player.battleObjective);
+        player.battleObjectivePlan = resolveBattleObjectivePlan(player, profile);
+        player.dynamicAIBehavior = deriveDynamicAIBehavior(profile, player.battleObjectivePlan);
+        state.economies[player.id] = createEconomy(player);
+        state.casualties[player.id] = 0;
+        state.adapted[player.id] = false;
+        state.nextUnitIndex[player.id] = 0;
+        state.nextTrain[player.id] = Infinity;
+        state.nextBuilderTrain[player.id] = Infinity;
+        state.nextSupportTrain[player.id] = Infinity;
+        state.armyPlans[player.id] = { goal: "Defend the settlement", targetFaction: null, issuedAt: state.time };
+        state.factionEcology[player.id] = {};
+        state.strategicOutcomes[player.id] = { status: "Free militia", defeated: false, surrendered: false };
+        state.explored[player.id] = new Set();
+        state.exploredFogCells[player.id] = createFogCellMask();
+      }
+
+      function spawnSettlementUnit(factionId, node, { label, role = "trooper", militia = false } = {}) {
+        const unit = makeUnit(factionId, role, {
+          method: "ground-deployment",
+          sourceId: node.id,
+          sourceType: "settlement",
+          label
+        });
+        const angle = battleRandom() * Math.PI * 2;
+        const radius = 28 + battleRandom() * 46;
+        unit.x = clamp(node.x + Math.cos(angle) * radius, 24, worldWidth() - 24);
+        unit.y = clamp(node.y + Math.sin(angle) * radius, 24, worldHeight() - 24);
+        // Levies and militia are half-trained: lower accuracy, discipline and health.
+        unit.maxHp = Math.round(unit.maxHp * 0.82);
+        unit.hp = unit.maxHp;
+        unit.accuracy *= 0.86;
+        unit.discipline = clamp(unit.discipline * 0.8, 0.1, 1);
+        unit.name = `${militia ? "Militia" : "Levy"} ${unit.name.split(" ").slice(-1)[0]}`;
+        if (militia) {
+          unit.militiaNodeId = node.id;
+          unit.loyalty = 0.95;
+          unit.courage = clamp(unit.courage + 0.16, 0, 1);
+        }
+        state.units.push(unit);
+        state.unitSelectDirty = true;
+        return unit;
+      }
+
+      function militiaStationPoint(unit, node) {
+        if (!unit.militiaStation) {
+          const angle = ((unit.index || 0) * 2.399963229728653) % (Math.PI * 2);
+          const radius = 36 + ((unit.index || 0) % 5) * 12;
+          unit.militiaStation = { x: clamp(node.x + Math.cos(angle) * radius, 20, worldWidth() - 20), y: clamp(node.y + Math.sin(angle) * radius, 20, worldHeight() - 20) };
+        }
+        return unit.militiaStation;
+      }
+
+      function addSpoils(factionId, spoils) {
+        const economy = economyFor(factionId);
+        const capacity = economyCapacity(factionId);
+        for (const [resource, amount] of Object.entries(spoils)) {
+          if (amount <= 0) continue;
+          economy.inventory[resource] = clamp((economy.inventory[resource] || 0) + amount, 0, capacity[resource] || 999);
+        }
+      }
+
+      // Called when force of arms or territory changes a settlement's owner.
+      function onSettlementCaptured(node, previousOwner, newOwner) {
+        const pop = ensureSettlementPopulation(node);
+        if (!newOwner || previousOwner === newOwner) return;
+        const conqueror = playerFor(newOwner);
+        if (conqueror?.independent) return;
+        const policy = captivePolicyFor(conqueror);
+        const hadMasters = Boolean(previousOwner) && !areAllies(previousOwner, newOwner);
+        const resistance = clamp(pop.militia / Math.max(1, militiaCapFor(pop)), 0, 1);
+        const label = factionLabelFor(newOwner);
+        pop.protectorId = newOwner;
+        if (!hadMasters && policy.brutality < 0.6) {
+          // A peaceful claim: the garrison is welcomed and trust starts positive.
+          pop.loyalty[newOwner] = Math.max(pop.loyalty[newOwner] ?? 0, 24);
+          recordHistory(pop, state.time, `${label} took over without bloodshed.`);
+          return;
+        }
+        const stress = clamp(1 - (economyFor(newOwner).inventory.food || 0) / Math.max(1, economyCapacity(newOwner).food || 1), 0, 1) * 0.6;
+        const result = resolveCapture(pop, policy, { random: battleRandom, stress, resistance });
+        const { fates } = result;
+        const parts = [];
+        if (fates.kill) parts.push(`${fates.kill} killed`);
+        if (fates.enslave) parts.push(`${fates.enslave} enslaved`);
+        if (fates.recruit) parts.push(`${fates.recruit} pressed into service`);
+        if (fates.release) parts.push(`${fates.release} released`);
+        recordHistory(pop, state.time, `${label} captured it: ${parts.join(", ")}.`);
+        incident(`${label} captured ${node.name}: ${parts.join(", ") || "no captives"}.`, node.id, fates.kill > 12 ? "critical" : "warning");
+        if (fates.kill) addSpoils(newOwner, massacreSpoils(fates.kill, populationBranchFor(conqueror)));
+        // Neighbours hear the news; atrocities breed resistance nearby.
+        for (const other of state.economicNodes) {
+          if (other === node || !isSettlementNode(other) || distance(other, node) > 1400) continue;
+          const neighbour = ensureSettlementPopulation(other);
+          neighbour.grievance = clamp(neighbour.grievance + result.killedShare * 30 + result.enslavedShare * 14, 0, 100);
+          neighbour.fear = clamp(neighbour.fear + result.killedShare * 40, 0, 100);
+        }
+        // Prior rebels remain a nuisance to the new owner.
+        pop.holdSeconds = 0;
+      }
+
+      function updateSettlements(dt) {
+        for (const node of state.economicNodes) {
+          if (!isSettlementNode(node)) continue;
+          const pop = ensureSettlementPopulation(node);
+          const ownerId = node.owner || "";
+          const owner = ownerId ? playerFor(ownerId) : null;
+          const nearby = nearbyCombatObjects(node, SETTLEMENT_RADIUS * 1.15).units
+            .filter(unit => unit.alive && !unit.incapacitated && !["builder", "supply"].includes(unit.role));
+          const ownerPresence = ownerId ? nearby.filter(unit => areAllies(unit.faction, ownerId) && !(unit.militiaNodeId && owner && !owner.independent)).length : 0;
+          const hostile = ownerId ? nearby.filter(unit => !areAllies(unit.faction, ownerId)) : [];
+          const teams = new Set(nearby.map(unit => String(playerFor(unit.faction).team)));
+          const combatIntensity = teams.size >= 2 ? clamp(nearby.length / 14, 0.15, 1) : 0;
+          const bySide = new Map();
+          for (const unit of nearby) bySide.set(unit.faction, (bySide.get(unit.faction) || 0) + 1);
+          let protectorId = null;
+          let protectorPresence = 0;
+          for (const [faction, count] of bySide) {
+            if (playerFor(faction).independent) continue;
+            if (count > protectorPresence) { protectorId = faction; protectorPresence = count; }
+          }
+          const fed = ownerId && !owner?.independent
+            ? clamp((economyFor(ownerId).inventory.food || 0) / Math.max(1, economyCapacity(ownerId).food || 1) * 3, 0, 1)
+            : 0.8;
+          const events = stepSettlement(pop, node, {
+            ownerId, ownerPresence, hostilePresence: hostile.length, fed, combatIntensity,
+            protectorId: ownerId ? null : protectorId, protectorPresence
+          }, dt, state.time);
+          const collateral = applyCollateral(pop, combatIntensity, dt, battleRandom);
+          if (collateral > 0 && (state.time - (pop.lastCollateralLog ?? -99)) > 20) {
+            pop.lastCollateralLog = state.time;
+            incident(`Civilians are dying in the crossfire at ${node.name} (${Math.round(pop.count)} remain).`, node.id, "warning");
+          }
+          for (const event of events) handleUnrestEvent(node, pop, event, hostile);
+          // Militia bookkeeping.
+          if (pop.militiaIds.length) {
+            pop.militiaIds = pop.militiaIds.filter(id => unitById(id)?.alive);
+            pop.militia = pop.militiaIds.length;
+          }
+          if (["insurgent", "independent"].includes(pop.unrest) && state.time >= pop.nextMilitiaAt && pop.militia < militiaCapFor(pop)) {
+            const rebel = ensureRebelFaction(node, pop);
+            if (rebel) {
+              const unit = spawnSettlementUnit(rebel.id, node, { label: `${node.name} uprising`, militia: true });
+              pop.militiaIds.push(unit.id);
+              pop.militia = pop.militiaIds.length;
+              pop.nextMilitiaAt = state.time + (pop.unrest === "independent" ? 5 : 3.5);
+            } else pop.nextMilitiaAt = state.time + 15;
+          }
+          // Pressed levies join the conqueror's army a few at a time.
+          if (pop.levy >= 1 && ownerId && !owner?.independent && state.time >= pop.nextLevyAt
+            && pop.unrest !== "independent" && state.units.filter(unit => unit.alive && unit.faction === ownerId).length < 400) {
+            spawnSettlementUnit(ownerId, node, { label: `${node.name} levy`, role: "trooper" });
+            pop.levy -= 1;
+            pop.nextLevyAt = state.time + 2.5;
+          }
+          // Enslaved labour feeds the owner's stockpiles.
+          if (pop.enslaved > 0 && ownerId && !owner?.independent) {
+            const income = enslavedLaborIncome(pop, populationBranchFor(owner));
+            addSpoils(ownerId, Object.fromEntries(Object.entries(income).map(([resource, rate]) => [resource, rate * dt * unrestOutputMultiplier(pop)])));
+          }
+          node.modifiers.productionRateMultiplier = (node.baseProductionRateMultiplier ??= node.modifiers.productionRateMultiplier || 1) * unrestOutputMultiplier(pop);
+        }
+      }
+
+      function handleUnrestEvent(node, pop, event, hostile) {
+        if (event.type !== "unrest") return;
+        const owner = node.owner || "";
+        if (event.to === "restless" && event.from === "calm") {
+          incident(`${node.name} is growing restless under ${owner ? factionLabelFor(owner) : "the occupation"}.`, node.id, "info");
+          recordHistory(pop, state.time, "Unrest is spreading.");
+        } else if (event.to === "insurgent") {
+          incident(`${node.name} has turned to open insurgency.`, node.id, "warning");
+          recordHistory(pop, state.time, "Insurgency began.");
+          ensureRebelFaction(node, pop);
+        } else if (event.to === "independent") {
+          const rebel = ensureRebelFaction(node, pop);
+          if (!rebel) return;
+          pop.formerOwner = owner;
+          node.owner = rebel.id;
+          incident(`${node.name} declared itself independent of ${owner ? factionLabelFor(owner) : "its occupiers"}.`, node.id, "critical");
+          recordHistory(pop, state.time, "Declared independence.");
+        } else if (event.from === "independent" && event.to === "restless") {
+          const sides = new Map();
+          for (const unit of hostile) sides.set(unit.faction, (sides.get(unit.faction) || 0) + 1);
+          const conquerorId = [...sides.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+          if (conquerorId) {
+            const previous = node.owner;
+            node.owner = conquerorId;
+            pop.grievance = Math.max(pop.grievance, 45);
+            onSettlementCaptured(node, previous, conquerorId);
+          }
+        }
+      }
+
       function updateAuthoredResourceZones(player) {
         const economy = economyFor(player.id);
         const capacity = economyCapacity(player.id);
         if (player.index === 0) {
           for (const node of state.economicNodes) {
+            // A settlement that threw off its rulers is not reclaimed by the
+            // territory under it; only force of arms retakes it.
+            if (node.population?.unrest === "independent") continue;
             const territoryCell = territoryAt(node);
             const resolvedOwner = territoryCell ? territoryCell.owner || "" : node.owner || node.startingOwner || "";
             if (resolvedOwner && resolvedOwner !== node.owner) {
+              const previousOwner = node.owner;
               const ownerEconomy = economyFor(resolvedOwner);
               const result = claimEconomicNode(node, resolvedOwner, ownerEconomy.inventory, economyCapacity(resolvedOwner));
+              if (isSettlementNode(node)) onSettlementCaptured(node, previousOwner, resolvedOwner);
               if (Object.keys(result.granted).length) {
                 incident(`${playerFor(resolvedOwner)?.faction || resolvedOwner} captured ${node.name} and secured ${Object.entries(result.granted).map(([resource, amount]) => `${Math.round(amount)} ${resource}`).join(", ")}.`, node.id, "info");
               }
@@ -14094,6 +14429,11 @@ import {
           state.roadAIAccumulator = 0;
           markHeavySystemRun();
         }
+        state.settlementAccumulator += dt;
+        if (state.settlementAccumulator >= 1 && state.economicNodes.length) {
+          profiler.profile("population.settlements", () => updateSettlements(state.settlementAccumulator));
+          state.settlementAccumulator = 0;
+        }
         state.armyAIAccumulator += dt;
         if (state.armyAIAccumulator >= 5 && heavySystemAvailable()) {
           profiler.profile("ai.strategic", updateArmyAI);
@@ -14493,6 +14833,31 @@ import {
         }
       }
 
+      // Population badge: headcount, unrest state and a ring sized to the
+      // settlement's influence. Drawn inside the node's translated context.
+      function drawSettlementPopulation(node) {
+        const pop = node.population;
+        const zoom = state.camera.zoom;
+        const palette = { calm: "#58a96b", restless: "#d9b24a", insurgent: "#e0743c", independent: "#c05ad9" };
+        const color = palette[pop.unrest] || colors.signal;
+        ctx.save();
+        ctx.globalAlpha = 0.5;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.2 / zoom;
+        ctx.setLineDash([4 / zoom, 5 / zoom]);
+        ctx.beginPath();
+        ctx.arc(0, 0, SETTLEMENT_RADIUS, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 0.92;
+        ctx.fillStyle = color;
+        ctx.font = `${8.5 / zoom}px system-ui, sans-serif`;
+        ctx.textAlign = "center";
+        const extras = [pop.enslaved > 0 ? `${Math.round(pop.enslaved)} enslaved` : "", pop.militia > 0 ? `${pop.militia} militia` : ""].filter(Boolean).join(" · ");
+        ctx.fillText(`${Math.round(pop.count)} civilians · ${pop.unrest}${extras ? ` · ${extras}` : ""}`, 0, 20 / zoom);
+        ctx.restore();
+      }
+
       function drawEconomicNodes() {
         for (const node of state.economicNodes) {
           if (!node.active || !pointVisible(node, 80)) continue;
@@ -14518,6 +14883,7 @@ import {
           ctx.font = `${9 / state.camera.zoom}px system-ui, sans-serif`;
           ctx.textAlign = "center";
           ctx.fillText(`${node.name} · ${visibleExports.join("/") || "economic node"}`, 0, -12 / state.camera.zoom);
+          if (node.population) drawSettlementPopulation(node);
           ctx.restore();
         }
       }
