@@ -15,19 +15,19 @@ export const SQUAD_ROLES = Object.freeze([
 ]);
 
 export const SQUAD_ROLE_DEFINITIONS = Object.freeze({
-  "base-defense": Object.freeze({ label: "Base Defense", color: "#3B82F6", secondary: "reinforcement", detachPermission: false, returnAfterMission: true, engagementRadius: 150, formations: ["defensive-ring", "line", "circle"] }),
-  "economy-defense": Object.freeze({ label: "Guard Economy", color: "#0EA5A4", secondary: "base-defense", detachPermission: false, returnAfterMission: true, engagementRadius: 110, formations: ["defensive-ring", "staggered", "line"] }),
-  "territory-defense": Object.freeze({ label: "Territory Defense", color: "#2563EB", secondary: "route-security", detachPermission: true, returnAfterMission: true, engagementRadius: 165, formations: ["line", "staggered", "defensive-ring"] }),
-  reinforcement: Object.freeze({ label: "Reinforcement", color: "#22C55E", secondary: "reserve", detachPermission: true, returnAfterMission: true, engagementRadius: 190, formations: ["column", "wedge", "triangle"] }),
-  offensive: Object.freeze({ label: "Offensive", color: "#EF4444", secondary: "capture", detachPermission: true, returnAfterMission: false, engagementRadius: Infinity, formations: ["wedge", "line", "flanking"] }),
-  capture: Object.freeze({ label: "Capture", color: "#EAB308", secondary: "reconnaissance", detachPermission: true, returnAfterMission: true, engagementRadius: 125, formations: ["column", "wedge", "triangle"] }),
+  "base-defense": Object.freeze({ label: "Base Defense", color: "#3B82F6", secondary: "reinforcement", detachPermission: false, returnAfterMission: true, engagementRadius: 150, formations: ["defensive-ring", "box", "line"] }),
+  "economy-defense": Object.freeze({ label: "Guard Economy", color: "#0EA5A4", secondary: "base-defense", detachPermission: false, returnAfterMission: true, engagementRadius: 110, formations: ["defensive-ring", "box", "staggered"] }),
+  "territory-defense": Object.freeze({ label: "Territory Defense", color: "#2563EB", secondary: "route-security", detachPermission: true, returnAfterMission: true, engagementRadius: 165, formations: ["line", "box", "staggered"] }),
+  reinforcement: Object.freeze({ label: "Reinforcement", color: "#22C55E", secondary: "reserve", detachPermission: true, returnAfterMission: true, engagementRadius: 190, formations: ["column", "mixed", "wedge"] }),
+  offensive: Object.freeze({ label: "Offensive", color: "#EF4444", secondary: "capture", detachPermission: true, returnAfterMission: false, engagementRadius: Infinity, formations: ["wedge", "mixed", "encircle"] }),
+  capture: Object.freeze({ label: "Capture", color: "#EAB308", secondary: "reconnaissance", detachPermission: true, returnAfterMission: true, engagementRadius: 125, formations: ["column", "mixed", "wedge"] }),
   reconnaissance: Object.freeze({ label: "Reconnaissance", color: "#A855F7", secondary: "ambush", detachPermission: true, returnAfterMission: true, engagementRadius: 75, formations: ["staggered", "flanking", "column"] }),
   "route-security": Object.freeze({ label: "Route Security", color: "#F97316", secondary: "territory-defense", detachPermission: true, returnAfterMission: true, engagementRadius: 145, formations: ["column", "line", "staggered"] }),
-  ambush: Object.freeze({ label: "Ambush", color: "#7C3AED", secondary: "reconnaissance", detachPermission: true, returnAfterMission: true, engagementRadius: 105, formations: ["flanking", "staggered", "line"] }),
-  reserve: Object.freeze({ label: "Reserve", color: "#64748B", secondary: "reinforcement", detachPermission: true, returnAfterMission: true, engagementRadius: 80, formations: ["column", "triangle", "defensive-ring"] }),
-  escort: Object.freeze({ label: "Escort", color: "#14B8A6", secondary: "base-defense", detachPermission: false, returnAfterMission: true, engagementRadius: 120, formations: ["escort", "defensive-ring", "circle"] }),
-  "medical-support": Object.freeze({ label: "Medical Support", color: "#10B981", secondary: "escort", detachPermission: false, returnAfterMission: true, engagementRadius: 70, formations: ["defensive-ring", "escort", "column"] }),
-  siege: Object.freeze({ label: "Siege", color: "#DC2626", secondary: "offensive", detachPermission: false, returnAfterMission: false, engagementRadius: 230, formations: ["line", "staggered", "wedge"] })
+  ambush: Object.freeze({ label: "Ambush", color: "#7C3AED", secondary: "reconnaissance", detachPermission: true, returnAfterMission: true, engagementRadius: 105, formations: ["flanking", "encircle", "staggered"] }),
+  reserve: Object.freeze({ label: "Reserve", color: "#64748B", secondary: "reinforcement", detachPermission: true, returnAfterMission: true, engagementRadius: 80, formations: ["column", "mixed", "box"] }),
+  escort: Object.freeze({ label: "Escort", color: "#14B8A6", secondary: "base-defense", detachPermission: false, returnAfterMission: true, engagementRadius: 120, formations: ["escort", "box", "defensive-ring"] }),
+  "medical-support": Object.freeze({ label: "Medical Support", color: "#10B981", secondary: "escort", detachPermission: false, returnAfterMission: true, engagementRadius: 70, formations: ["box", "defensive-ring", "escort"] }),
+  siege: Object.freeze({ label: "Siege", color: "#DC2626", secondary: "offensive", detachPermission: false, returnAfterMission: false, engagementRadius: 230, formations: ["box", "line", "staggered"] })
 });
 
 const clamp01 = value => Math.max(0, Math.min(1, Number(value) || 0));

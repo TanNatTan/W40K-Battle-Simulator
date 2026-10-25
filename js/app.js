@@ -32,6 +32,26 @@ import { seededRandom } from "../src/utilities/random.js";
 import { NavigationPlanner } from "../src/map/NavigationPlanner.js";
 import { ignoresGroundObstacles, shouldSeparateUnits } from "../src/physics/CollisionLayers.js";
 import { HeightField, SAMPLE_SPACING as HEIGHT_SAMPLE_SPACING, CHUNK_SAMPLES as HEIGHT_CHUNK_SAMPLES } from "../src/terrain/HeightField.js";
+import {
+  DOCTRINE_FORMATIONS,
+  attackSector,
+  boxSlot,
+  encircleRadiusFor,
+  encircleSlot,
+  encirclementMoraleDrain,
+  encirclementState,
+  formationAccuracyMultiplier,
+  formationDamageMultiplier,
+  formationMoraleBonus,
+  formationSpeedMultiplier,
+  isProtectedGroup,
+  mixedBandFor,
+  mixedSlot,
+  planBoxPerimeter,
+  scoreDoctrineFormations,
+  smoothHeading,
+  squadPaceFactor
+} from "../src/formations/FormationDoctrine.js";
 import { FEATURE_RELIEF, describeSlope, highGroundModifiers, lineOfSightModifiers, slopeMovementFactor } from "../src/terrain/ElevationEffects.js";
 import {
   createNavigationMonitor,
@@ -991,7 +1011,7 @@ import {
       };
       const trainingRoles = ["commander", "trooper", "trooper", "medic", "engineer", "trooper", "standard", "scout", "trooper", "vehicle"];
       const squadNames = ["Alpha", "Bravo", "Cinder", "Delta", "Echo", "Ferro"];
-      const formationTypes = FORMATION_TYPES;
+      const formationTypes = [...FORMATION_TYPES, ...DOCTRINE_FORMATIONS];
       const routeOrderTypes = aiConfig.routeOrders || ["Hold Route", "Block Route", "Patrol Route", "Observe Route", "Escort Route", "Keep Route Open", "Delay Enemy", "Destroy Route if Overrun", "Ambush Route"];
       const relationshipBands = aiConfig.relationshipBands || [
         { min: 70, label: "Strong bond" }, { min: 30, label: "Friendly" }, { min: 10, label: "Familiar" },
@@ -5866,7 +5886,7 @@ import {
           : 1;
         const fatigueFactor = 1 - unit.fatigue * 0.36;
         const clampedLegCondition = clamp(legCondition, 0.35, 1);
-        const slopeFactor = airborne ? 1 : unitSlopeFactor(unit, dx, dy);
+        const slopeFactor = airborne ? 1 : unitSlopeFactor(unit, dx, dy) * (unit.squadPaceFactor || 1) * formationSpeedFor(unit);
         const effectiveSpeed = unit.speed * terrain.speed * slopeFactor * obstacleMovement * (unit.roadMovementFactor || 1) * fatigueFactor
           * speedFactor * fuelFactor * vehicleFactor * clampedLegCondition * suppressionFactor * (unit.conditionMultiplier || 1)
           * (unit.waaaghMoveMultiplier || 1);
@@ -6293,14 +6313,73 @@ import {
         return { x: centered * 12, y: 0 };
       }
 
-      function scoreSquadFormations({ squad, members, center, enemies, protectedAsset, nearbyRoad, regrouping }) {
+      // Per-squad data the box/mixed/encircle formations need to place slots.
+      function prepareDoctrineFormation(squad, members, target) {
+        const fighters = members.filter(member => !isProtectedGroup(member.formationGroup));
+        const boxPlan = squad.formation === "box" ? planBoxPerimeter(members) : null;
+        const bands = squad.formation === "mixed" ? { front: [], wing: [], core: [], rear: [] } : null;
+        if (bands) for (const member of members) bands[mixedBandFor(member)].push(member.id);
+        const leader = unitById(squad.leaderId);
+        const targetDistance = target && leader ? clamp(distance(leader, target), 50, 240) : 90;
+        return {
+          boxPlan, bands, targetDistance, fighterCount: fighters.length,
+          radius: encircleRadiusFor(squad.cohesion ?? 0.5),
+          boxCounter: 0
+        };
+      }
+
+      function doctrineLocalSlot(doctrine, squad, member, index, count, groupRank) {
+        if (squad.formation === "box") {
+          const protectedMember = isProtectedGroup(member.formationGroup);
+          const perimeterIndex = protectedMember ? null : doctrine.boxCounter++;
+          return boxSlot(index, count, member, groupRank, doctrine.boxPlan.perimeterCount, perimeterIndex);
+        }
+        if (squad.formation === "mixed") {
+          const band = mixedBandFor(member);
+          const ids = doctrine.bands[band];
+          return mixedSlot(member, Math.max(0, ids.indexOf(member.id)), ids.length, band);
+        }
+        return encircleSlot(index, count, { targetDistance: doctrine.targetDistance, radius: doctrine.radius, member });
+      }
+
+      // Damage multiplier granted by the target's squad formation for a hit that
+      // arrived from `source`. Protected members inside the shape get extra cover.
+      function formationProtectionFor(target, source) {
+        if (!target?.squadId || !source) return 1;
+        const squad = squadFor(target.squadId);
+        if (!squad || squad.formationActive === false || !squad.formation) return 1;
+        const bearing = Math.atan2(source.y - target.y, source.x - target.x);
+        return formationDamageMultiplier(squad.formation, {
+          cohesion: squad.cohesion ?? 1,
+          sector: attackSector(squad.heading || 0, bearing),
+          core: isProtectedGroup(target.formationGroup)
+        });
+      }
+
+      function formationAccuracyFor(unit) {
+        if (!unit?.squadId) return 1;
+        const squad = squadFor(unit.squadId);
+        if (!squad || squad.formationActive === false || !squad.formation) return 1;
+        return formationAccuracyMultiplier(squad.formation, squad.cohesion ?? 1);
+      }
+
+      function formationSpeedFor(unit) {
+        if (!unit?.squadId) return 1;
+        const squad = squadFor(unit.squadId);
+        if (!squad || squad.formationActive === false || !squad.formation) return 1;
+        return formationSpeedMultiplier(squad.formation, squad.cohesion ?? 1);
+      }
+
+      function scoreSquadFormations({ squad, members, center, enemies, protectedAsset, nearbyRoad, regrouping, encirclement }) {
         const terrain = terrainAt(center);
         const behavior = aiBehaviorFor(squad.faction);
         const signals = battleObjectivePlanFor(squad.faction).signals;
         const rangedRatio = members.filter(member => member.role === "vehicle" || /rifle|bolter|plasma|melta|launcher|mortar|cannon|gun/i.test(`${member.weapon || ""} ${member.specialty || ""}`)).length / Math.max(1, members.length);
         const woundedRatio = members.filter(member => member.hp / member.maxHp < 0.58).length / Math.max(1, members.length);
         const threatBins = new Set(enemies.map(enemy => Math.floor((((Math.atan2(enemy.y - center.y, enemy.x - center.x) + Math.PI * 2) % (Math.PI * 2)) / (Math.PI / 2)))));
-        const surrounded = threatBins.size >= 3 || enemies.length >= Math.max(3, members.length * 0.7);
+        // True geometric encirclement: enemies close on several sides, not just
+        // "many enemies somewhere nearby".
+        const surrounded = encirclement ? encirclement.surrounded : threatBins.size >= 3 || enemies.length >= Math.max(3, members.length * 0.7);
         const openGround = clamp(1 - terrain.cover, 0, 1);
         const concealed = clamp(terrain.cover + (1 - terrain.detection) * 0.45, 0, 1);
         const narrowTerrain = ["trees", "denseforest", "jungle", "ruins", "trenches", "bridge"].includes(terrain.type) ? 1 : 0;
@@ -6790,13 +6869,42 @@ import {
             }
           } else squad.ambushPhase = null;
           const nearbyRoad = nearestRoadSegment(center, 28)?.road;
-          const formationScores = scoreSquadFormations({ squad, members, center, enemies, protectedAsset, nearbyRoad, regrouping });
+          const encirclement = encirclementState(center, enemies, { radius: 160 });
+          const formationScores = scoreSquadFormations({ squad, members, center, enemies, protectedAsset, nearbyRoad, regrouping, encirclement });
+          const sinceEncircleCheck = Math.max(0, Math.min(2, state.time - (squad.encirclementCheckedAt ?? state.time)));
+          squad.encirclementCheckedAt = state.time;
+          squad.encirclement = encirclement;
+          if (encirclement.surrounded && sinceEncircleCheck > 0) {
+            for (const member of members) {
+              member.morale = clamp(member.morale - encirclementMoraleDrain(encirclement, squad.formation, member.courage) * sinceEncircleCheck, 0, 1);
+            }
+            if (!squad.encircledSince) {
+              squad.encircledSince = state.time;
+              incident(`${squad.name} is being encircled and is forming up to break out.`, leader.id, "warning");
+            }
+          } else if (squad.encircledSince && !encirclement.surrounded) squad.encircledSince = null;
+          if (!regrouping) {
+            const ownStrength = members.reduce((sum, member) => sum + Math.max(0, member.hp), 0);
+            const theirStrength = Math.max(1, enemies.reduce((sum, enemy) => sum + Math.max(0, enemy.hp), 0));
+            const doctrineScores = scoreDoctrineFormations({
+              members, enemies, center, orderType: squad.orderType,
+              aggression: aiBehaviorFor(squad.faction).aggression, caution: aiBehaviorFor(squad.faction).caution,
+              strengthRatio: ownStrength / theirStrength,
+              surrounded: encirclement.surrounded,
+              directions: Math.round(encirclement.coverage * 4),
+              protectedCount: members.filter(member => isProtectedGroup(member.formationGroup)).length,
+              rangedRatio: members.filter(member => member.role === "vehicle" || /rifle|bolter|plasma|melta|launcher|mortar|cannon|gun/i.test(`${member.weapon || ""} ${member.specialty || ""}`)).length / Math.max(1, members.length)
+            });
+            // A target is required to encircle; box and mixed work anywhere.
+            if (!target) doctrineScores.encircle -= 80;
+            Object.assign(formationScores, doctrineScores);
+          }
           for (const formation of Object.keys(formationScores)) formationScores[formation] += roleFormationBonus(squad.primaryRole, formation);
           const learnedFormation = state.factionLearning[squad.faction]?.bestFormation(squad.formation);
           if (learnedFormation && Object.hasOwn(formationScores, learnedFormation)) formationScores[learnedFormation] += 8;
           const [desiredFormation, desiredScore] = Object.entries(formationScores).sort((a, b) => b[1] - a[1] || formationTypes.indexOf(a[0]) - formationTypes.indexOf(b[0]))[0];
           const currentScore = formationScores[squad.formation] ?? -Infinity;
-          const emergencyChange = ["circle", "defensive-ring"].includes(desiredFormation) && enemies.length > 0 || desiredFormation === "escort" && protectedAsset || regrouping && desiredFormation === "column";
+          const emergencyChange = ["circle", "defensive-ring"].includes(desiredFormation) && enemies.length > 0 || desiredFormation === "box" && encirclement.pressure > 0.45 || desiredFormation === "escort" && protectedAsset || regrouping && desiredFormation === "column";
           if (desiredFormation !== squad.formation && (emergencyChange || state.time - squad.formationSince > 4 && desiredScore >= currentScore + 15)) {
             squad.formation = desiredFormation;
             squad.formationSince = state.time;
@@ -6804,19 +6912,30 @@ import {
           squad.formationScores = formationScores;
           squad.formationScore = formationScores[squad.formation] || 0;
           const facing = target || squad.objective;
-          if (facing && distance(center, facing) > 2) squad.heading = Math.atan2(facing.y - center.y, facing.x - center.x);
+          if (facing && distance(center, facing) > 2) {
+            const elapsedHeading = state.time - (squad.headingAt ?? state.time);
+            squad.heading = squad.headingAt == null
+              ? Math.atan2(facing.y - center.y, facing.x - center.x)
+              : smoothHeading(squad.heading, Math.atan2(facing.y - center.y, facing.x - center.x), elapsedHeading, 2.6);
+          }
+          squad.headingAt = state.time;
           const anchor = squad.formation === "escort" && protectedAsset ? protectedAsset : leader;
           const forward = { x: Math.cos(squad.heading), y: Math.sin(squad.heading) };
           const right = { x: -forward.y, y: forward.x };
           let inPosition = 0;
           let unavailableSlots = 0;
           const groupRanks = new Map();
+          const doctrine = DOCTRINE_FORMATIONS.includes(squad.formation)
+            ? prepareDoctrineFormation(squad, members, target)
+            : null;
           if (!marineSquad || squad.formationActive) {
             members.forEach((member, index) => {
               member.formationGroup = formationGroupFor(member, index);
               const groupRank = groupRanks.get(member.formationGroup) || 0;
               groupRanks.set(member.formationGroup, groupRank + 1);
-              const local = formationSlotFor(squad.formation, index, members.length, member, groupRank);
+              const local = doctrine
+                ? doctrineLocalSlot(doctrine, squad, member, index, members.length, groupRank)
+                : formationSlotFor(squad.formation, index, members.length, member, groupRank);
               const slot = safeFormationPosition({
                 x: clamp(anchor.x + right.x * local.x + forward.x * local.y, 20, worldWidth() - 20),
                 y: clamp(anchor.y + right.y * local.x + forward.y * local.y, 20, worldHeight() - 20)
@@ -6841,10 +6960,22 @@ import {
               squad.formationDeformations = (squad.formationDeformations || 0) + 1;
             }
             squad.cohesion = inPosition / members.length;
+            // The leader holds back for stragglers while no enemy is close, and
+            // a tight defensive formation steadies nerves under fire.
+            leader.squadPaceFactor = squadPaceFactor({
+              cohesion: squad.cohesion,
+              inContact: enemies.length > 0 || Boolean(target && distance(center, target) < 140),
+              formation: squad.formation
+            });
+            const steadiness = formationMoraleBonus(squad.formation, squad.cohesion);
+            if (steadiness > 0.04 && enemies.length) {
+              for (const member of members) member.morale = clamp(member.morale + steadiness * 0.04, 0, 1);
+            }
           } else {
             for (const member of members) member.formationSlot = null;
             squad.slotAssignments = {};
             squad.cohesion = 1;
+            leader.squadPaceFactor = 1;
           }
           if (distance(leader, squad.objective || leader) < 30 && squad.orderType !== "Advance" && squad.lastCreditedOrderAt !== squad.orderIssuedAt) {
             for (const member of members.slice(1)) {
@@ -7870,7 +8001,7 @@ import {
         const precisionModifier = clamp(0.72 + unit.precision * 0.32, 0.72, 1.05);
         const alertAim = proximityCombatModifiers(unit).aim * clamp(1 - (unit.aimShake || 0) * 0.22, 0.65, 1);
         const vehicleReliability = unit.role === "vehicle" ? clamp(unit.waaaghVehicleReliability || 1, 0.72, 1.16) : 1;
-        return clamp(unit.accuracy * weapon.accuracy * rangeModifier * aimModifier * visibilityModifier * (1 - cover) * movementModifier * fatigueModifier * precisionModifier * weapon.precision * (unit.conditionMultiplier || 1) * alertAim * vehicleReliability * (elevation ? elevation.high.accuracy * elevation.sight.accuracy : 1), 0.02, 0.98);
+        return clamp(unit.accuracy * weapon.accuracy * rangeModifier * aimModifier * visibilityModifier * (1 - cover) * movementModifier * fatigueModifier * precisionModifier * weapon.precision * (unit.conditionMultiplier || 1) * alertAim * vehicleReliability * formationAccuracyFor(unit) * (elevation ? elevation.high.accuracy * elevation.sight.accuracy : 1), 0.02, 0.98);
       }
 
       function acquireProjectile(data) {
@@ -8201,7 +8332,8 @@ import {
         const armorHit = resolveArmorHit(target, { ...projectile, penetration: impactPenetration }, battleRandom);
         const penetrated = armorHit.result === "penetrated";
         const zoneMultiplier = zone === "head" ? 1.55 : zone === "chest" ? 1.15 : zone.includes("Leg") ? 0.82 : 0.72;
-        const protection = (target.psychicBarrierUntil || 0) > state.time ? 0.75 : target.shieldWallActive ? 0.78 : 1;
+        const protection = ((target.psychicBarrierUntil || 0) > state.time ? 0.75 : target.shieldWallActive ? 0.78 : 1)
+          * formationProtectionFor(target, shooter || projectile);
         const rawDamage = projectile.damage * impactMultiplier * zoneMultiplier * armorHit.multiplier * protection;
         const resolvedDamage = absorbSpaceMarineDamage(target, rawDamage, state.time, { frontal: armorHit.facing === "front" });
         const damage = resolvedDamage.damage;
@@ -9577,7 +9709,8 @@ import {
       function damageMeleeTarget(attacker, target, strike, scale = 1) {
         if (!target || target.alive === false || strike.damage <= 0) return;
         const rawDamage = strike.damage * scale * (attacker.waaaghMeleeMultiplier || 1)
-          * ((target.psychicBarrierUntil || 0) > state.time ? 0.75 : target.shieldWallActive ? 0.78 : 1);
+          * ((target.psychicBarrierUntil || 0) > state.time ? 0.75 : target.shieldWallActive ? 0.78 : 1)
+          * formationProtectionFor(target, attacker);
         const damage = absorbSpaceMarineDamage(target, rawDamage, state.time, { frontal: false }).damage;
         markEnemyContact(attacker, target, state.time);
         if (!buildingCatalog[target.type]) markEnemyContact(target, attacker, state.time);
@@ -15446,7 +15579,7 @@ import {
           ctx.globalAlpha = 0.74;
           ctx.font = "10px system-ui, sans-serif";
           ctx.textAlign = "center";
-          ctx.fillText(`${state.squadRoleOverlay ? `${roleDefinition.label} · ` : ""}${squad.name} · ${members.length} · ${squad.formation || "line"}`, cx, cy - 28);
+          ctx.fillText(`${state.squadRoleOverlay ? `${roleDefinition.label} · ` : ""}${squad.name} · ${members.length} · ${squad.formation || "line"}${squad.encirclement?.surrounded ? " · ENCIRCLED" : ""}`, cx, cy - 28);
           if (state.camera.zoom >= 0.45) {
             ctx.globalAlpha = 0.58;
             ctx.font = "8px system-ui, sans-serif";
@@ -16864,7 +16997,7 @@ import {
         if (squad) {
           const healthy = members.filter(member => member.hp / member.maxHp > 0.7).length;
           const critical = members.filter(member => member.hp / member.maxHp < 0.3).length;
-          els.squadSummary.textContent = `${squad.name} · ${members.length}/${squad.nominalSize || members.length} · ${squad.formation || "line"} · ${squad.orderType || "Advance"}${squad.routePhase ? ` / ${squad.routePhase}` : ""} · cohesion ${Math.round((squad.cohesion || 0) * 100)}% · ${healthy} healthy · ${critical} critical · ${squad.leadershipState || "Assigned leader"} · ${squad.reinforcementState || "No reinforcement request"} · Combined health ${hp}%`;
+          els.squadSummary.textContent = `${squad.name} · ${members.length}/${squad.nominalSize || members.length} · ${squad.formation || "line"}${squad.encirclement?.surrounded ? " (ENCIRCLED)" : ""} · ${squad.orderType || "Advance"}${squad.routePhase ? ` / ${squad.routePhase}` : ""} · cohesion ${Math.round((squad.cohesion || 0) * 100)}% · ${healthy} healthy · ${critical} critical · ${squad.leadershipState || "Assigned leader"} · ${squad.reinforcementState || "No reinforcement request"} · Combined health ${hp}%`;
           const role = SQUAD_ROLE_DEFINITIONS[squad.primaryRole] || SQUAD_ROLE_DEFINITIONS.reserve;
           const secondary = SQUAD_ROLE_DEFINITIONS[squad.secondaryRole] || SQUAD_ROLE_DEFINITIONS[role.secondary];
           const commander = unitById(squad.commanderId);
