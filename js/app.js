@@ -31,6 +31,8 @@ import { formatElapsed, pad2 } from "../src/utilities/format.js";
 import { seededRandom } from "../src/utilities/random.js";
 import { NavigationPlanner } from "../src/map/NavigationPlanner.js";
 import { ignoresGroundObstacles, shouldSeparateUnits } from "../src/physics/CollisionLayers.js";
+import { HeightField, SAMPLE_SPACING as HEIGHT_SAMPLE_SPACING, CHUNK_SAMPLES as HEIGHT_CHUNK_SAMPLES } from "../src/terrain/HeightField.js";
+import { FEATURE_RELIEF, describeSlope, highGroundModifiers, lineOfSightModifiers, slopeMovementFactor } from "../src/terrain/ElevationEffects.js";
 import {
   createNavigationMonitor,
   ensureNavigationMonitor,
@@ -1335,6 +1337,7 @@ import {
           chunkSize: CHUNK_SIZE,
           baseTerrain: "grass"
         },
+        heightField: new HeightField({ width: 4096, height: 2304 }),
         terrainChunks: new Map(),
         featureChunks: new Map(),
         shadowFeatureChunks: new Map(),
@@ -1538,6 +1541,8 @@ import {
         teamFogVisibility: new Map(),
         activeSetupPlayer: 0
       };
+      state.heightField.setReliefProvider((x, y) => reliefFromFeatures(x, y));
+      state.heightField.reliefEnabled = false;
       state.economyZoneManager = new globalThis.AWTSystems.EconomyZoneManager();
       state.routeHistory = new globalThis.AWTSystems.RouteHistory();
       globalThis.awtChapterEvolution = Object.freeze({
@@ -2024,8 +2029,11 @@ import {
       function setWorldSize(width, height) {
         const safeWidth = clamp(Math.round(Number(width) || TEST_MAP_WIDTH), 640, 65536);
         const safeHeight = clamp(Math.round(Number(height) || TEST_MAP_HEIGHT), 360, 65536);
+        const sizeChanged = state.world.width !== safeWidth || state.world.height !== safeHeight;
         state.world.width = safeWidth;
         state.world.height = safeHeight;
+        state.heightField.resize(safeWidth, safeHeight);
+        if (sizeChanged) state.heightField.clear();
         state.terrainChunks = new Map();
         state.featureChunks = new Map();
         state.shadowFeatureChunks = new Map();
@@ -2194,8 +2202,33 @@ import {
         if (!state.featureIndexDirty) return;
         state.featureChunks = new Map();
         state.shadowFeatureChunks = new Map();
-        for (const feature of state.features) indexFeature(feature);
+        let reliefFeatures = 0;
+        for (const feature of state.features) {
+          indexFeature(feature);
+          if (!feature.deleted && FEATURE_RELIEF[feature.type] !== undefined) reliefFeatures += 1;
+        }
         state.featureIndexDirty = false;
+        state.heightField.reliefEnabled = reliefFeatures > 0;
+        state.heightField.invalidateRelief();
+      }
+
+      // Continuous relief contributed by legacy terrain features (hills, basins,
+      // water...) so existing maps gain slopes without being re-authored. Each
+      // feature falls off smoothly from its centre line to its radius.
+      function reliefFromFeatures(x, y) {
+        const point = { x, y };
+        let total = 0;
+        for (const feature of visibleFeatures({ left: x, right: x, top: y, bottom: y })) {
+          const relief = FEATURE_RELIEF[feature.type];
+          if (relief === undefined) continue;
+          const reach = Math.max(8, feature.r || 1) * 1.15;
+          const d = featureDistanceFromPoint(point, feature);
+          if (d >= reach) continue;
+          const t = 1 - d / reach;
+          const shaped = feature.type === "cliff" || feature.type === "plateau" ? Math.min(1, t * 2.4) : t * t * (3 - 2 * t);
+          total += relief * shaped * (feature.opacity ?? 1) * (feature.condition ?? 1);
+        }
+        return total;
       }
 
       function addIndexedFeature(feature) {
@@ -2203,6 +2236,10 @@ import {
         state.features.push(feature);
         indexFeature(feature);
         state.minimapTerrainDirty = true;
+        if (FEATURE_RELIEF[feature.type] !== undefined) {
+          state.heightField.reliefEnabled = true;
+          state.heightField.invalidateRelief();
+        }
       }
 
       function markFeatureDeleted(feature) {
@@ -2210,6 +2247,7 @@ import {
         feature.deleted = true;
         state.featureEditDirty = true;
         state.minimapTerrainDirty = true;
+        if (FEATURE_RELIEF[feature.type] !== undefined) state.heightField.invalidateRelief();
         return true;
       }
 
@@ -2398,6 +2436,11 @@ import {
           const opacity = featureCollisionShapes(feature, "vision")[0]?.opacity || 0;
           transmission *= 1 - opacity;
           if (transmission <= 0.12) return 0.12;
+        }
+        // A ridge between observer and target hides it behind dead ground.
+        if (state.heightField.active) {
+          const sight = state.heightField.lineOfSight(a.x, a.y, b.x, b.y, 1.8, 1.2, { step: HEIGHT_SAMPLE_SPACING });
+          if (!sight.clear) return 0.12;
         }
         return clamp(transmission, 0.12, 1);
       }
@@ -3468,6 +3511,7 @@ import {
           if (feature.type === "lower") info.elevation -= 3;
         }
         info.cover = Math.max(info.cover, environmentalCoverAt(point));
+        info.height = state.heightField.active ? state.heightField.heightAt(point.x, point.y) : 0;
         for (const feature of nearbyEnvironmentFeatures(point, 64)) {
           const visionShape = featureCollisionShapes(feature, "vision")[0];
           if (visionShape && pointOverlapsCollisionShape(point, visionShape)) info.detection *= 1 - (visionShape.opacity || 0) * 0.48;
@@ -3944,6 +3988,7 @@ import {
         state.startMinute = preset.startMinute;
         const nextWorld = presetKey === "custom" ? state.world : preset.world;
         setWorldSize(nextWorld.width, nextWorld.height);
+        if (presetKey !== "custom") state.heightField.clear();
         state.world.baseTerrain = presetKey === "ash" ? "ash" : presetKey === "verdant" ? "forestfloor" : "grass";
         state.battleSeed = `${presetKey}:${worldWidth()}x${worldHeight()}:${state.players.map(player => `${player.race}-${player.subfaction}-${player.battleObjective}`).join("|")}`;
         battleRandom = seededRandom(state.battleSeed);
@@ -4274,6 +4319,33 @@ import {
         updateUI(true);
       }
 
+      // Seeded height field per biome. Deployment zones are levelled so every
+      // faction starts on playable ground, and erosion slumps cliffs into talus.
+      function generateReliefFor(biome, seedText) {
+        const profiles = {
+          balanced: { amplitude: 30, scale: 900, ridged: 0.3, erosion: 4 },
+          forest: { amplitude: 24, scale: 760, ridged: 0.2, erosion: 5 },
+          archipelago: { amplitude: 34, scale: 640, ridged: 0.15, erosion: 3 },
+          desert: { amplitude: 38, scale: 1100, ridged: 0.55, erosion: 3 },
+          frozen: { amplitude: 46, scale: 820, ridged: 0.5, erosion: 4 },
+          volcanic: { amplitude: 62, scale: 700, ridged: 0.65, erosion: 2 },
+          urban: { amplitude: 8, scale: 1400, ridged: 0.1, erosion: 6 }
+        };
+        const profile = profiles[biome] || profiles.balanced;
+        const seed = Array.from(`${seedText}:${biome}`).reduce((hash, char) => (Math.imul(hash, 31) + char.charCodeAt(0)) | 0, 7);
+        state.heightField.generate({
+          seed,
+          amplitude: profile.amplitude,
+          scale: Math.min(profile.scale, Math.min(worldWidth(), worldHeight()) * 0.55),
+          ridged: profile.ridged,
+          erosionPasses: profile.erosion,
+          mapWidth: worldWidth(),
+          mapHeight: worldHeight(),
+          flatZones: state.players.map(player => ({ x: player.base.x, y: player.base.y, radius: Math.max(120, spawnZoneFor(player).size * 1.3), level: 0 }))
+        });
+        state.minimapTerrainDirty = true;
+      }
+
       function randomizeMap() {
         const biome = els.randomBiome.value;
         const seedText = els.randomSeed.value.trim() || `MAP-${Math.floor(battleRandom() * 999999)}`;
@@ -4331,6 +4403,7 @@ import {
         });
         state.features = generated;
         markFeatureIndexDirty();
+        generateReliefFor(biome, seedText);
         rebuildSpatialGrid();
         state.minimapMarkerDirty = true;
         state.nextTerritoryId = 1;
@@ -5723,6 +5796,22 @@ import {
         return recoverUnitAtSpawnOrigin(unit, objective);
       }
 
+      // Gradient is cached on the unit and refreshed only after it has moved a
+      // few world units, so slope costs almost nothing per movement tick.
+      function unitSlopeFactor(unit, dx, dy) {
+        const field = state.heightField;
+        if (!field.active) return 1;
+        const cache = unit.slopeProbe;
+        if (!cache || cache.version !== field.version || Math.abs(cache.x - unit.x) + Math.abs(cache.y - unit.y) > 6) {
+          const gradient = field.gradientAt(unit.x, unit.y);
+          unit.slopeProbe = { x: unit.x, y: unit.y, gx: gradient.gx, gy: gradient.gy, version: field.version };
+        }
+        const probe = unit.slopeProbe;
+        const length = Math.hypot(dx, dy) || 1;
+        const slope = (probe.gx * dx + probe.gy * dy) / length;
+        return slopeMovementFactor(slope, { vehicle: unit.role === "vehicle" });
+      }
+
       function moveToward(unit, point, dt, speedFactor = 1) {
         const radius = unit.collisionRadius || (unit.role === "vehicle" ? 14 : 3);
         const airborne = ignoresGroundObstacles(unit);
@@ -5777,7 +5866,8 @@ import {
           : 1;
         const fatigueFactor = 1 - unit.fatigue * 0.36;
         const clampedLegCondition = clamp(legCondition, 0.35, 1);
-        const effectiveSpeed = unit.speed * terrain.speed * obstacleMovement * (unit.roadMovementFactor || 1) * fatigueFactor
+        const slopeFactor = airborne ? 1 : unitSlopeFactor(unit, dx, dy);
+        const effectiveSpeed = unit.speed * terrain.speed * slopeFactor * obstacleMovement * (unit.roadMovementFactor || 1) * fatigueFactor
           * speedFactor * fuelFactor * vehicleFactor * clampedLegCondition * suppressionFactor * (unit.conditionMultiplier || 1)
           * (unit.waaaghMoveMultiplier || 1);
         const monitor = ensureNavigationMonitor(unit, state.time);
@@ -7517,7 +7607,9 @@ import {
           lowLight: 1 - visibilityMultiplier,
           obscuration: 1 - clamp(0.45 + occlusion * 0.55, 0.45, 1),
           occlusion,
-          elevationDelta: (targetTerrain.elevation || 0) - (terrain.elevation || 0),
+          elevationDelta: state.heightField.active
+            ? (targetTerrain.height || 0) - (terrain.height || 0)
+            : (targetTerrain.elevation || 0) - (terrain.elevation || 0),
           visualSignature: buildingCatalog[target.type] ? 1.35 : stealth.signatures.visual
         });
         const auspex = isSpaceMarineUnit(unit) ? profiler.profile("intelligence.auspex", () => auspexContact(unit, target, {
@@ -7744,7 +7836,26 @@ import {
         return best;
       }
 
+      // High ground bonus and ridge occlusion for a shooter/target pair. The
+      // sight-line ray is cached per pair for half a second of sim time.
+      function elevationCombatFor(unit, target) {
+        const field = state.heightField;
+        if (!field.active || ignoresGroundObstacles(unit)) return null;
+        const cache = unit.elevationCombatCache;
+        if (cache && cache.targetId === target.id && state.time - cache.at < 0.5 && cache.version === field.version) return cache.value;
+        const range = distance(unit, target);
+        const shooterHeight = field.heightAt(unit.x, unit.y);
+        const targetHeight = field.heightAt(target.x, target.y);
+        const high = highGroundModifiers(shooterHeight, targetHeight, range);
+        const sight = lineOfSightModifiers(field.lineOfSight(unit.x, unit.y, target.x, target.y, 1.8 + (unit.role === "vehicle" ? 1 : 0), buildingCatalog[target.type] ? 3 : 1.2));
+        const value = { high, sight };
+        unit.elevationCombatCache = { targetId: target.id, at: state.time, version: field.version, value };
+        return value;
+      }
+
       function hitChanceFor(unit, target) {
+        const elevation = elevationCombatFor(unit, target);
+        if (elevation?.sight.blocked) return 0.02;
         const weapon = weaponProfileFor(unit);
         const isStructure = Boolean(target.maxHp && buildingCatalog[target.type]);
         const cover = isStructure ? terrainAt(target).cover * 0.35 : terrainAt(target).cover;
@@ -7759,7 +7870,7 @@ import {
         const precisionModifier = clamp(0.72 + unit.precision * 0.32, 0.72, 1.05);
         const alertAim = proximityCombatModifiers(unit).aim * clamp(1 - (unit.aimShake || 0) * 0.22, 0.65, 1);
         const vehicleReliability = unit.role === "vehicle" ? clamp(unit.waaaghVehicleReliability || 1, 0.72, 1.16) : 1;
-        return clamp(unit.accuracy * weapon.accuracy * rangeModifier * aimModifier * visibilityModifier * (1 - cover) * movementModifier * fatigueModifier * precisionModifier * weapon.precision * (unit.conditionMultiplier || 1) * alertAim * vehicleReliability, 0.02, 0.98);
+        return clamp(unit.accuracy * weapon.accuracy * rangeModifier * aimModifier * visibilityModifier * (1 - cover) * movementModifier * fatigueModifier * precisionModifier * weapon.precision * (unit.conditionMultiplier || 1) * alertAim * vehicleReliability * (elevation ? elevation.high.accuracy * elevation.sight.accuracy : 1), 0.02, 0.98);
       }
 
       function acquireProjectile(data) {
@@ -14450,6 +14561,74 @@ import {
         ctx.globalAlpha = 1;
       }
 
+      const heightShadeCache = new Map();
+      const HEIGHT_SHADE_PIXELS = 32;
+
+      // Hillshade + hypsometric tint, baked per 256px chunk into a small
+      // canvas and cached until the height field changes.
+      function heightShadeCanvas(chunkX, chunkY) {
+        const field = state.heightField;
+        const key = chunkKey(chunkX, chunkY);
+        let entry = heightShadeCache.get(key);
+        if (entry && entry.version === field.version) return entry.canvas;
+        if (!entry) {
+          const canvasElement = document.createElement("canvas");
+          canvasElement.width = canvasElement.height = HEIGHT_SHADE_PIXELS;
+          entry = { canvas: canvasElement, version: -1 };
+          heightShadeCache.set(key, entry);
+        }
+        const shadeContext = entry.canvas.getContext("2d");
+        const image = shadeContext.createImageData(HEIGHT_SHADE_PIXELS, HEIGHT_SHADE_PIXELS);
+        const span = HEIGHT_CHUNK_SAMPLES * HEIGHT_SAMPLE_SPACING;
+        const step = span / HEIGHT_SHADE_PIXELS;
+        for (let py = 0; py < HEIGHT_SHADE_PIXELS; py += 1) {
+          for (let px = 0; px < HEIGHT_SHADE_PIXELS; px += 1) {
+            const wx = chunkX * span + (px + 0.5) * step;
+            const wy = chunkY * span + (py + 0.5) * step;
+            const shade = field.shadeAt(wx, wy);
+            const h = field.heightAt(wx, wy);
+            const offset = (py * HEIGHT_SHADE_PIXELS + px) * 4;
+            let r = 10;
+            let g = 14;
+            let b = 30;
+            let alpha = Math.max(0, 0.5 - shade) * 1.25;
+            if (shade > 0.5) {
+              r = 255; g = 246; b = 220;
+              alpha = (shade - 0.5) * 0.85;
+            }
+            // Tint: pale highlands, cool depressions.
+            if (h > 4) { r = (r * 2 + 255) / 3; g = (g * 2 + 240) / 3; b = (b * 2 + 200) / 3; alpha += Math.min(0.14, h / 320); }
+            else if (h < -3) { r = (r * 2 + 30) / 3; g = (g * 2 + 70) / 3; b = (b * 2 + 120) / 3; alpha += Math.min(0.16, -h / 160); }
+            // Contour hint every 8 units.
+            if (Math.floor(h / 8) !== Math.floor(field.heightAt(wx + step, wy + step) / 8)) alpha = Math.max(alpha, 0.22), r = 40, g = 36, b = 30;
+            image.data[offset] = r;
+            image.data[offset + 1] = g;
+            image.data[offset + 2] = b;
+            image.data[offset + 3] = Math.round(clamp(alpha, 0, 0.7) * 255);
+          }
+        }
+        shadeContext.putImageData(image, 0, 0);
+        entry.version = field.version;
+        return entry.canvas;
+      }
+
+      function drawHeightShading(bounds) {
+        const span = HEIGHT_CHUNK_SAMPLES * HEIGHT_SAMPLE_SPACING;
+        const minX = Math.max(0, Math.floor(bounds.left / span));
+        const maxX = Math.min(Math.ceil(worldWidth() / span) - 1, Math.floor(bounds.right / span));
+        const minY = Math.max(0, Math.floor(bounds.top / span));
+        const maxY = Math.min(Math.ceil(worldHeight() / span) - 1, Math.floor(bounds.bottom / span));
+        if ((maxX - minX + 1) * (maxY - minY + 1) > 400) return;
+        ctx.save();
+        ctx.imageSmoothingEnabled = true;
+        for (let chunkY = minY; chunkY <= maxY; chunkY += 1) {
+          for (let chunkX = minX; chunkX <= maxX; chunkX += 1) {
+            ctx.drawImage(heightShadeCanvas(chunkX, chunkY), chunkX * span, chunkY * span, span, span);
+          }
+        }
+        ctx.restore();
+      }
+
       function drawTerrain(
         bounds = cameraBounds(CHUNK_SIZE),
         terrainFeatures = state.camera.zoom < 0.15 ? visibleFeatureBuckets(bounds) : visibleFeatures(bounds)
@@ -14461,6 +14640,7 @@ import {
           ctx.fillStyle = basePattern || terrainPaintColor(state.world.baseTerrain);
           ctx.fillRect(bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top);
           drawSparseTerrainTiles(bounds);
+          if (state.heightField.active && state.camera.zoom >= 0.1) drawHeightShading(bounds);
         }
         for (const player of state.players) {
           if (circleVisible(player.base, spawnZoneFor(player).size, bounds)) drawSpawnZone(player);
@@ -17241,6 +17421,7 @@ import {
           savedAt: new Date().toISOString(),
           name: state.scenario === "custom" ? "Local custom theater" : `${presets[state.scenario]?.name || "Test theater"} copy`,
           world: { width: TEST_MAP_WIDTH, height: TEST_MAP_HEIGHT, baseTerrain: state.world.baseTerrain },
+          heightField: state.heightField.resampledSculpt(TEST_MAP_WIDTH, TEST_MAP_HEIGHT).serialize(),
           dayNight: { ...state.dayNight },
           lighting: { ...state.lighting },
           clock: { running: state.clock.running, rate: state.clock.rate, elapsedSeconds: state.clock.elapsedSeconds },
@@ -17345,6 +17526,13 @@ import {
         state.clock = { ...state.clock, ...(payload.clock || {}), elapsedSeconds: Number(payload.clock?.elapsedSeconds) || 0 };
         state.economicOverlay = { ...state.economicOverlay, ...(payload.economicOverlay || {}) };
         resetBattle("custom", payload.features.filter(feature => !feature.resourceNode).map(feature => scaleFeatureToTestMap(feature, loadScaleX, loadScaleY)));
+        state.heightField.clear();
+        if (payload.heightField) {
+          const savedWidth = Number(payload.world?.width) || TEST_MAP_WIDTH;
+          const savedHeight = Number(payload.world?.height) || TEST_MAP_HEIGHT;
+          const loaded = HeightField.deserialize(payload.heightField, { width: savedWidth, height: savedHeight });
+          state.heightField.adopt(loaded.resampledSculpt(TEST_MAP_WIDTH, TEST_MAP_HEIGHT));
+        }
         const legacyResourceZones = (payload.resourceZones || []).map((zone, index) => createResourceZone(
           zone.id || `resource-zone-${index + 1}`,
           { x: 0, y: 0 },
@@ -18401,7 +18589,10 @@ import {
         const cover = info.cover >= 0.35 ? "High" : info.cover >= 0.16 ? "Medium" : info.cover > 0.05 ? "Light" : "None";
         els.editorCursor.textContent = `${pixelX}, ${pixelY}`;
         els.editorTerrain.textContent = info.name;
-        els.editorElevation.textContent = info.elevation.toFixed(1);
+        const slopeValue = state.heightField.active ? state.heightField.slopeAt(point.x, point.y) : 0;
+        els.editorElevation.textContent = state.heightField.active
+          ? `${info.height.toFixed(1)} · ${describeSlope(slopeValue)} ${slopeValue.toFixed(2)}`
+          : info.elevation.toFixed(1);
         els.editorCover.textContent = cover;
         els.editorMovement.textContent = `${(1 / Math.max(0.01, info.speed)).toFixed(2)}× cost`;
         els.editorTip.textContent = `Pixel (${pixelX}, ${pixelY}) · Terrain ${info.name} · Elevation ${info.elevation} · Moisture ${Math.round(info.moisture)}% · ${temperature}°C · Move ${(1 / info.speed).toFixed(2)} · Visibility ${info.detection.toFixed(2)} · Cover ${cover} · Owner ${ownerLabel}`;
@@ -18451,6 +18642,26 @@ import {
         draw();
       }
 
+      const SCULPT_BRUSHES = new Set(["raise", "lower", "smooth", "flatten", "noise", "terrace"]);
+
+      // Elevation brushes edit the continuous height field instead of stamping
+      // a flat "raised ground" overlay, so slopes, ridges and dead ground work.
+      function sculptHeight(point, type, mode) {
+        const field = state.heightField;
+        const now = performance.now();
+        if (type === "flatten" && (state.sculptTarget == null || now - (state.sculptTargetAt || 0) > 450)) state.sculptTarget = field.heightAt(point.x, point.y);
+        state.sculptTargetAt = now;
+        const direction = mode === "remove" ? -1 : 1;
+        const strength = 3.2 * state.brushOpacity * (type === "lower" ? 1 : direction);
+        const touched = field.applyBrush(point.x, point.y, Math.max(HEIGHT_SAMPLE_SPACING, state.brushRadius), strength, type, { target: state.sculptTarget });
+        state.lastBrushPoint = { ...point };
+        state.minimapTerrainDirty = true;
+        const height = field.heightAt(point.x, point.y);
+        els.editorTip.textContent = `${brushNames[type] || type} · height ${height.toFixed(1)} · slope ${describeSlope(field.slopeAt(point.x, point.y))} · ${touched} samples`;
+        pixelProbe(point);
+        draw();
+      }
+
       function applyBrush(point) {
         const lockedTerritory = territoryAt(point);
         if (lockedTerritory?.locked) {
@@ -18481,6 +18692,10 @@ import {
           return;
         }
         const type = state.brush;
+        if (SCULPT_BRUSHES.has(type)) {
+          sculptHeight(point, type, mode);
+          return;
+        }
         if (isTileTerrainType(type)) {
           const changed = paintTerrainTiles(point, type, mode);
           state.lastBrushPoint = { ...point };
@@ -19476,6 +19691,7 @@ import {
         state.economicNodes = [];
         state.tradeRoutes = [];
         state.terrainChunks = new Map();
+        state.heightField.clear();
         state.world.baseTerrain = "grass";
         markFeatureIndexDirty();
         rebuildResourceZoneSelect();
