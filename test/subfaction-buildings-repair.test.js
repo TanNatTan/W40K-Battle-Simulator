@@ -82,7 +82,7 @@ test("browser runtime plans construction above builders and applies the universa
   assert.match(source, /subfactionBuildingLabelFor\(player, type, fallback\)/);
   assert.match(source, /chooseSubfactionBuildProject\(\{/);
   assert.match(source, /availableBuildingRepairs = state\.sustainmentRequests\.filter/);
-  assert.match(source, /builderRepairSlotAvailable\(\{/);
+  assert.match(source, /cachedBuilderRepairSlotAvailable\(player, unit, request, target\)/);
   assert.match(source, /planFactionConstruction\(player\)/);
   assert.match(source, /construction\.state = "planned"/);
   assert.doesNotMatch(source, /tryStartBuilderConstruction/);

@@ -152,7 +152,8 @@ import {
   territoryAgentContactResponse
 } from "../src/ai/TerritoryAgentSystem.js";
 import {
-  builderRepairSlotAvailable,
+  BUILDER_REPAIR_ASSIGNMENT_TTL,
+  builderRepairCrewLimit,
   claimRepairAssignment,
   releaseStaleRepairAssignment
 } from "../src/construction/RepairCrewSystem.js";
@@ -5054,6 +5055,60 @@ import {
         return true;
       }
 
+      // Builder decisions and the construction-project tick both need "how many
+      // builders are already assigned to this structure?" This used to run a
+      // state.units.filter() scan per candidate structure per builder, which is
+      // O(structures x units) *per builder* and dominates frame time once a
+      // battle has a few hundred units and builders. Cache one O(units) pass
+      // per simulation frame instead and let every caller look the count up.
+      function assignedBuilderCounts() {
+        if (state.builderAssignmentCacheFrame === state.performanceFrame && state.builderAssignmentCache) {
+          return state.builderAssignmentCache;
+        }
+        const counts = new Map();
+        for (const builder of state.units) {
+          if (!builder.alive || builder.role !== "builder" || !builder.buildProject) continue;
+          counts.set(builder.buildProject, (counts.get(builder.buildProject) || 0) + 1);
+        }
+        state.builderAssignmentCache = counts;
+        state.builderAssignmentCacheFrame = state.performanceFrame;
+        return counts;
+      }
+
+      // Every builder's per-call search for a repair job used to ask
+      // builderRepairSlotAvailable() -> activeRepairCrewCount() to scan the
+      // *entire* unit list for every open sustainment request it considered --
+      // O(sustainmentRequests x units) per builder, every call. With a few
+      // dozen damaged buildings and a couple thousand units that alone was the
+      // single largest cost in a dense battle (profiled over 10ms/call).
+      // Build the same "who is actively repairing what" information with one
+      // O(units) pass per frame and answer every lookup in O(1).
+      function activeRepairCrewCache() {
+        if (state.repairCrewCacheFrame === state.performanceFrame && state.repairCrewCache) {
+          return state.repairCrewCache;
+        }
+        const cache = new Map();
+        for (const unit of state.units) {
+          if (unit.alive === false || unit.role !== "builder" || !unit.repairTargetId) continue;
+          if (state.time - Number(unit.repairAssignmentAt || 0) > BUILDER_REPAIR_ASSIGNMENT_TTL) continue;
+          const key = `${unit.faction}|${unit.repairTargetId}`;
+          let crew = cache.get(key);
+          if (!crew) { crew = new Set(); cache.set(key, crew); }
+          crew.add(unit.id);
+        }
+        state.repairCrewCache = cache;
+        state.repairCrewCacheFrame = state.performanceFrame;
+        return cache;
+      }
+
+      function cachedBuilderRepairSlotAvailable(player, unit, request, target) {
+        const limit = builderRepairCrewLimit(player, unit, request, target);
+        if (!Number.isFinite(limit)) return true;
+        const crew = activeRepairCrewCache().get(`${unit.faction}|${request.targetId || target.id}`);
+        const count = crew ? crew.size - (crew.has(unit.id) ? 1 : 0) : 0;
+        return count < limit;
+      }
+
       function updateBuilder(unit, dt) {
         ensureIndividualRuntime(unit);
         if (recoverBuilderInsideSpawnZone(unit)) return;
@@ -5142,14 +5197,7 @@ import {
         const availableBuildingRepairs = state.sustainmentRequests.filter(request => {
           if (request.targetType !== "building") return false;
           const target = sustainmentTargetById(request.targetId);
-          return target && target.hp < target.maxHp && builderRepairSlotAvailable({
-            player,
-            unit,
-            request,
-            target,
-            units: state.units,
-            now: state.time
-          });
+          return target && target.hp < target.maxHp && cachedBuilderRepairSlotAvailable(player, unit, request, target);
         });
         const selectedBuildingRepairCandidate = selectSustainmentRequest(unit, availableBuildingRepairs, {
           targetById: sustainmentTargetById,
@@ -5210,7 +5258,7 @@ import {
               ...item,
               spec: buildingCatalog[item.type],
               desiredBuilders: desiredBuildersFor(item.type, buildingCatalog[item.type]),
-              assignedBuilders: state.units.filter(builder => builder.alive && builder.role === "builder" && builder.buildProject === item.id).length
+              assignedBuilders: assignedBuilderCounts().get(item.id) || 0
             }));
           const assignment = chooseBuilderAssignment({
             builder: unit,
@@ -5223,6 +5271,8 @@ import {
           if (alliedProject) {
             claimRepairAssignment(unit, null, state.time);
             unit.buildProject = alliedProject.id;
+            const counts = assignedBuilderCounts();
+            counts.set(alliedProject.id, (counts.get(alliedProject.id) || 0) + 1);
             alliedProject.contributors ||= {};
             alliedProject.contributors[unit.id] ||= 0;
             alliedProject.construction ||= createConstructionState({ now: alliedProject.createdAt || state.time });
@@ -5468,7 +5518,7 @@ import {
           structure.construction ||= createConstructionState({ now: structure.createdAt || state.time });
           structure.construction.stalledFor = Math.max(0, state.time - (structure.construction.lastProgressAt ?? structure.createdAt ?? state.time));
           const spec = buildingCatalog[structure.type] || {};
-          const activeBuilders = state.units.filter(builder => builder.alive && builder.role === "builder" && builder.buildProject === structure.id).length;
+          const activeBuilders = assignedBuilderCounts().get(structure.id) || 0;
           const territory = territoryAt(structure);
           const parentMissing = Boolean(spec.requires) && !state.structures.some(candidate => candidate.faction === structure.faction
             && candidate.type === spec.requires && candidate.progress >= 1 && candidate.alive !== false);
@@ -13375,6 +13425,20 @@ import {
         }
       }
 
+      // A dense brawl (several factions' armies piled onto one objective, or a
+      // stress-loaded battle) can put dozens to hundreds of units in the same
+      // handful of grid cells. The 3x3 neighborhood lookup already keeps this
+      // out of true O(units^2), but a single unit sitting in an overcrowded
+      // cluster still has to walk every other unit in that cluster, so the
+      // *local* cost is still O(k^2) in the cluster size k. Measured at 2000+
+      // unit battles, that alone produced 200ms+ separation calls -- enough to
+      // visibly freeze the frame. Capping how many candidates one unit
+      // examines per call bounds the worst case to O(units x cap); remaining
+      // overlap in a packed cluster is pushed out gradually over the next few
+      // separation ticks instead of all at once, which is not visually
+      // different from the uncapped result.
+      const SEPARATION_MAX_CANDIDATES_PER_UNIT = 24;
+
       function separateUnits() {
         if (!state.spatialGrid.size) rebuildSpatialGrid();
         let livingIndex = 0;
@@ -13385,6 +13449,8 @@ import {
           if (!a.alive || a.embarkedInId) continue;
           const cx = Math.floor(a.x / spatialCellSize);
           const cy = Math.floor(a.y / spatialCellSize);
+          let examined = 0;
+          outerNeighborhood:
           for (let ox = -1; ox <= 1; ox += 1) {
             for (let oy = -1; oy <= 1; oy += 1) {
               const bucket = state.spatialGrid.get(spatialGridKey(cx + ox, cy + oy));
@@ -13392,6 +13458,8 @@ import {
               for (const b of bucket.units) {
                 if (!b.alive || b.embarkedInId) continue;
                 if (b.separationIndex <= a.separationIndex) continue;
+                if (examined >= SEPARATION_MAX_CANDIDATES_PER_UNIT) break outerNeighborhood;
+                examined += 1;
                 if (!shouldSeparateUnits(a, b)) continue;
                 const dx = b.x - a.x;
                 const dy = b.y - a.y;
@@ -13768,9 +13836,19 @@ import {
           markHeavySystemRun();
         }
         state.roadAIAccumulator += dt;
-        if (state.roadAIAccumulator >= 3) {
+        // This was the one periodic heavy system that never checked
+        // heavySystemAvailable(): territory.update, construction.projects, and
+        // ai.strategic all defer to each other within the same tick so only one
+        // of them pays its cost on any given frame, but road dynamics ran
+        // unconditionally on its own 3s clock regardless of what else that tick
+        // already spent. When its schedule happened to land on the same tick as
+        // territory or strategic AI in a dense battle, their costs stacked
+        // instead of staggering, producing exactly the kind of multi-hundred-
+        // millisecond frame spike profiling showed. Gate it like its siblings.
+        if (state.roadAIAccumulator >= 3 && heavySystemAvailable()) {
           profiler.profile("logistics.roads", () => updateRoadDynamics(state.roadAIAccumulator));
           state.roadAIAccumulator = 0;
+          markHeavySystemRun();
         }
         state.armyAIAccumulator += dt;
         if (state.armyAIAccumulator >= 5 && heavySystemAvailable()) {
