@@ -689,6 +689,81 @@
       image-rendering: pixelated;
     }
 
+    #autonomous-war-theater #awt-planet-panel {
+      display: grid;
+      gap: 10px;
+    }
+
+    #autonomous-war-theater #awt-planet-panel[hidden] {
+      display: none;
+    }
+
+    #autonomous-war-theater .awt-planet-controls {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    #autonomous-war-theater .awt-planet-buttons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    #autonomous-war-theater #awt-planet-canvas {
+      width: 100%;
+      height: auto;
+      aspect-ratio: 2 / 1;
+      cursor: crosshair;
+      border-radius: 6px;
+      background: color-mix(in srgb, var(--muted) 55%, transparent);
+      image-rendering: pixelated;
+    }
+
+    #autonomous-war-theater .awt-planet-columns {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 12px;
+    }
+
+    #autonomous-war-theater .awt-planet-faction {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin: 2px 0;
+    }
+
+    #autonomous-war-theater .awt-planet-faction i {
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+      flex: none;
+    }
+
+    #autonomous-war-theater .awt-planet-faction.is-out {
+      opacity: 0.45;
+      text-decoration: line-through;
+    }
+
+    #autonomous-war-theater .awt-planet-log {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      max-height: 120px;
+      overflow: auto;
+      display: grid;
+      gap: 2px;
+    }
+
+    #autonomous-war-theater .awt-planet-log li[data-kind="conquest"] { font-weight: 600; }
+    #autonomous-war-theater .awt-planet-log li[data-kind="atrocity"],
+    #autonomous-war-theater .awt-planet-log li[data-kind="uprising"] { color: var(--destructive, #c0392b); }
+
+    @media (max-width: 680px) {
+      #autonomous-war-theater .awt-planet-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      #autonomous-war-theater .awt-planet-columns { grid-template-columns: minmax(0, 1fr); }
+    }
+
     #autonomous-war-theater.is-configuring .awt-field,
     #autonomous-war-theater.is-configuring #awt-canvas {
       min-height: 700px;
