@@ -318,4 +318,4 @@ function decodeWater(values, target) {
   for (let n = 0; n < target.length && n < values.length; n += 1) target[n] = values[n] == null ? NO_WATER : values[n];
 }
 
-export { NO_WATER, CHUNK_SPAN };
+export { NO_WATER, CHUNK_SPAN, BYTE_LAYERS };

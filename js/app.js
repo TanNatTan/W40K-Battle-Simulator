@@ -500,12 +500,8 @@ import {
       const els = {
         overlay: root.querySelector("#awt-overlay"),
         mainActions: root.querySelector("#awt-main-actions"),
-        setupPanel: root.querySelector("#awt-setup-panel"),
-        playerPanel: root.querySelector("#awt-player-panel"),
         loadPanel: root.querySelector("#awt-load-panel"),
         quitPanel: root.querySelector("#awt-quit-panel"),
-        editorBar: root.querySelector("#awt-editor-bar"),
-        editorTip: root.querySelector("#awt-editor-tip"),
         battleName: root.querySelector("#awt-battle-name"),
         pause: root.querySelector("#awt-pause-button"),
         victoryScreen: root.querySelector("#awt-victory-screen"),
@@ -598,33 +594,6 @@ import {
         replayPlay: root.querySelector("#awt-replay-play"),
         replayForward: root.querySelector("#awt-replay-forward"),
         replayLive: root.querySelector("#awt-replay-live"),
-        mapResolution: root.querySelector("#awt-map-resolution"),
-        scalePreset: root.querySelector("#awt-scale-preset"),
-        customResolution: root.querySelector("#awt-custom-resolution"),
-        customWidth: root.querySelector("#awt-custom-width"),
-        customHeight: root.querySelector("#awt-custom-height"),
-        playerCountSelect: root.querySelector("#awt-player-count"),
-        playerTabs: root.querySelector("#awt-player-tabs"),
-        playerPanelTitle: root.querySelector("#awt-player-panel-title"),
-        playerName: root.querySelector("#awt-player-name"),
-        playerRace: root.querySelector("#awt-player-race"),
-        playerFaction: root.querySelector("#awt-player-faction"),
-        playerSubfaction: root.querySelector("#awt-player-subfaction"),
-        playerTeam: root.querySelector("#awt-player-team"),
-        playerBattleObjective: root.querySelector("#awt-player-battle-objective"),
-        objectiveName: root.querySelector("#awt-objective-name"),
-        objectiveSummary: root.querySelector("#awt-objective-summary"),
-        objectiveMethod: root.querySelector("#awt-objective-method"),
-        objectiveSignals: root.querySelector("#awt-objective-signals"),
-        playerColor: root.querySelector("#awt-player-color"),
-        playerColorValue: root.querySelector("#awt-player-color-value"),
-        playerSecondaryColor: root.querySelector("#awt-player-secondary-color"),
-        playerSecondaryColorValue: root.querySelector("#awt-player-secondary-color-value"),
-        playerTertiaryColor: root.querySelector("#awt-player-tertiary-color"),
-        playerTertiaryColorValue: root.querySelector("#awt-player-tertiary-color-value"),
-        playerBodyColor: root.querySelector("#awt-player-body-color"),
-        playerBodyColorValue: root.querySelector("#awt-player-body-color-value"),
-        playerPattern: root.querySelector("#awt-player-pattern"),
         spritePanel: root.querySelector("#awt-sprite-panel"),
         spriteFamily: root.querySelector("#awt-sprite-family"),
         spriteVariant: root.querySelector("#awt-sprite-variant"),
@@ -632,102 +601,6 @@ import {
         spritePlayer: root.querySelector("#awt-sprite-player"),
         spriteCanvas: root.querySelector("#awt-sprite-canvas"),
         spriteMaskLine: root.querySelector("#awt-sprite-mask-line"),
-        editorTool: root.querySelector("#awt-editor-tool"),
-        editorMapDims: root.querySelector("#awt-editor-map-dims"),
-        editorInspector: root.querySelector("#awt-editor-inspector"),
-        editorCursor: root.querySelector("#awt-editor-cursor"),
-        editorTerrain: root.querySelector("#awt-editor-terrain"),
-        editorElevation: root.querySelector("#awt-editor-elevation"),
-        editorCover: root.querySelector("#awt-editor-cover"),
-        editorMovement: root.querySelector("#awt-editor-movement"),
-        spawnPlayer: root.querySelector("#awt-spawn-player"),
-        zoneShape: root.querySelector("#awt-zone-shape"),
-        zoneSize: root.querySelector("#awt-zone-size"),
-        zoneSizeValue: root.querySelector("#awt-zone-size-value"),
-        clearZone: root.querySelector("#awt-clear-zone"),
-        paintControls: root.querySelector("#awt-paint-controls"),
-        randomBiome: root.querySelector("#awt-random-biome"),
-        randomSeed: root.querySelector("#awt-random-seed"),
-        randomizeMap: root.querySelector("#awt-randomize-map"),
-        brushPresets: root.querySelector("#awt-brush-presets"),
-        brushCategory: root.querySelector("#awt-brush-category"),
-        brushType: root.querySelector("#awt-brush-type"),
-        brushSize: root.querySelector("#awt-brush-size"),
-        brushSizeValue: root.querySelector("#awt-brush-size-value"),
-        brushOpacity: root.querySelector("#awt-brush-opacity"),
-        brushOpacityValue: root.querySelector("#awt-brush-opacity-value"),
-        brushOpacityNumber: root.querySelector("#awt-brush-opacity-number"),
-        brushHardness: root.querySelector("#awt-brush-hardness"),
-        brushHardnessValue: root.querySelector("#awt-brush-hardness-value"),
-        brushFalloff: root.querySelector("#awt-brush-falloff"),
-        brushFalloffValue: root.querySelector("#awt-brush-falloff-value"),
-        brushShape: root.querySelector("#awt-brush-shape"),
-        paintMode: root.querySelector("#awt-paint-mode"),
-        resourceControls: root.querySelector("#awt-resource-controls"),
-        resourceSelect: root.querySelector("#awt-resource-select"),
-        resourceEditMode: root.querySelector("#awt-resource-edit-mode"),
-        resourceName: root.querySelector("#awt-resource-name"),
-        resourceType: root.querySelector("#awt-resource-type"),
-        resourceCapacity: root.querySelector("#awt-resource-capacity"),
-        resourceGather: root.querySelector("#awt-resource-gather"),
-        resourceRegeneration: root.querySelector("#awt-resource-regeneration"),
-        resourceOwner: root.querySelector("#awt-resource-owner"),
-        resourceCollectors: root.querySelector("#awt-resource-collectors"),
-        resourceRequiresBuilding: root.querySelector("#awt-resource-requires-building"),
-        resourceStrategic: root.querySelector("#awt-resource-strategic"),
-        resourceInfinite: root.querySelector("#awt-resource-infinite"),
-        tradeRouteControls: root.querySelector("#awt-trade-route-controls"),
-        tradeRouteSelect: root.querySelector("#awt-trade-route-select"),
-        tradeRouteName: root.querySelector("#awt-trade-route-name"),
-        tradeRouteType: root.querySelector("#awt-trade-route-type"),
-        tradeRouteFrom: root.querySelector("#awt-trade-route-from"),
-        tradeRouteTo: root.querySelector("#awt-trade-route-to"),
-        tradeRouteCapacity: root.querySelector("#awt-trade-route-capacity"),
-        tradeRouteResources: root.querySelector("#awt-trade-route-resources"),
-        tradeRouteFactions: root.querySelector("#awt-trade-route-factions"),
-        tradeRouteRoadRequired: root.querySelector("#awt-trade-route-road-required"),
-        tradeRouteBidirectional: root.querySelector("#awt-trade-route-bidirectional"),
-        tradeRouteActive: root.querySelector("#awt-trade-route-active"),
-        economicNodeControls: root.querySelector("#awt-economic-node-controls"),
-        economicNodeSelect: root.querySelector("#awt-economic-node-select"),
-        economicNodeName: root.querySelector("#awt-economic-node-name"),
-        economicNodeType: root.querySelector("#awt-economic-node-type"),
-        economicNodeOwner: root.querySelector("#awt-economic-node-owner"),
-        economicNodeFlows: root.querySelector("#awt-economic-node-flows"),
-        economicNodeCaptureStock: root.querySelector("#awt-economic-node-capture-stock"),
-        economicNodeUseDefaults: root.querySelector("#awt-economic-node-use-defaults"),
-        economicNodeValidation: root.querySelector("#awt-economic-node-validation"),
-        economicNodeCapacity: root.querySelector("#awt-economic-node-capacity"),
-        economicNodeValue: root.querySelector("#awt-economic-node-value"),
-        economicNodeActive: root.querySelector("#awt-economic-node-active"),
-        economicNodeStrategic: root.querySelector("#awt-economic-node-strategic"),
-        economicOverlayControls: root.querySelector("#awt-economic-overlay-controls"),
-        lightingControls: root.querySelector("#awt-lighting-controls"),
-        timeMode: root.querySelector("#awt-time-mode"),
-        clockRunning: root.querySelector("#awt-clock-running"),
-        clockRate: root.querySelector("#awt-clock-rate"),
-        timeOfDay: root.querySelector("#awt-time-of-day"),
-        timeOfDayValue: root.querySelector("#awt-time-of-day-value"),
-        dayLength: root.querySelector("#awt-day-length"),
-        dayLengthValue: root.querySelector("#awt-day-length-value"),
-        latitude: root.querySelector("#awt-latitude"),
-        latitudeValue: root.querySelector("#awt-latitude-value"),
-        season: root.querySelector("#awt-season"),
-        lightingWeather: root.querySelector("#awt-lighting-weather"),
-        enableLighting: root.querySelector("#awt-enable-lighting"),
-        castShadows: root.querySelector("#awt-cast-shadows"),
-        lightingOverlay: root.querySelector("#awt-lighting-overlay"),
-        artificialLights: root.querySelector("#awt-artificial-lights"),
-        buildingColors: root.querySelector("#awt-building-colors"),
-        colorIntensity: root.querySelector("#awt-color-intensity"),
-        colorIntensityValue: root.querySelector("#awt-color-intensity-value"),
-        factionPreservation: root.querySelector("#awt-faction-preservation"),
-        teamEmblems: root.querySelector("#awt-team-emblems"),
-        accessibilityPatterns: root.querySelector("#awt-accessibility-patterns"),
-        eraseBrush: root.querySelector("#awt-erase-brush"),
-        saveMap: root.querySelector("#awt-save-map"),
-        loadSavedMap: root.querySelector("#awt-load-saved-map"),
-        savedMapStatus: root.querySelector("#awt-saved-map-status")
       };
       const minimapCtx = els.minimap.getContext("2d");
       const minimapTerrainLayer = document.createElement("canvas");
@@ -1053,7 +926,7 @@ import {
         trooper: "Line Infantry",
         vehicle: "Crewed Vehicle"
       };
-      const trainingRoles = ["commander", "trooper", "trooper", "medic", "engineer", "trooper", "standard", "scout", "trooper", "vehicle"];
+      
       const squadNames = ["Alpha", "Bravo", "Cinder", "Delta", "Echo", "Ferro"];
       const formationTypes = [...FORMATION_TYPES, ...DOCTRINE_FORMATIONS];
       const routeOrderTypes = aiConfig.routeOrders || ["Hold Route", "Block Route", "Patrol Route", "Observe Route", "Escort Route", "Keep Route Open", "Delay Enemy", "Destroy Route if Overrun", "Ambush Route"];
@@ -1723,8 +1596,42 @@ import {
         incident: (text, id, level) => incident(text, id, level === "alert" ? "warning" : level),
         createNode: (point, overrides) => createEconomicNode(`economic-node-${state.nextEconomicNodeId++}`, point, { type: "civilian-settlement", ...overrides }),
         bakeVegetation: (layers, field, cx, cy, canvas) => profiler.profile("render.vegetationBake", () => bakeVegetationChunk(layers, field, cx, cy, canvas) || canvas),
-        deserializeField: payload => HeightField.deserialize(payload, { width: REGION_WORLD.width, height: REGION_WORLD.height })
+        deserializeField: payload => HeightField.deserialize(payload, { width: regionRuntime.world?.width || REGION_WORLD.width, height: regionRuntime.world?.height || REGION_WORLD.height })
       });
+      // ---- Armies: one place that turns a plain army config into a game player ----------------
+      const ARMY_TEXT_FIELDS = ["name", "race", "faction", "subfaction", "color", "secondaryColor", "tertiaryColor", "bodyColor", "pattern"];
+      function applyArmy(player, army = {}) {
+        for (const key of ARMY_TEXT_FIELDS) if (army[key] != null && army[key] !== "") player[key] = army[key];
+        if (army.team != null && army.team !== "") player.team = String(army.team);
+        player.battleObjective = normalizeBattleObjectiveId(army.battleObjective || player.battleObjective);
+        delete player.battleObjectivePlan;
+        delete player.dynamicAIBehavior;
+        return player;
+      }
+      function playersFromArmies(armies = [], bases = null, world = presets.region.world) {
+        const count = clamp(Math.floor(armies.length || 2), 2, ids.length);
+        return Array.from({ length: count }, (_, index) => applyArmy({
+          ...setupPlayers[index],
+          id: ids[index],
+          index,
+          base: bases?.[index] ? { x: bases[index].x, y: bases[index].y } : deploymentPosition(index, count, world)
+        }, armies[index]));
+      }
+      const armyKit = {
+        factory: index => {
+          const source = setupPlayers[index % setupPlayers.length];
+          return {
+            name: `Player ${index + 1}`, race: source.race, faction: source.faction, subfaction: source.subfaction,
+            team: String(source.team), battleObjective: source.battleObjective, color: source.color,
+            secondaryColor: source.secondaryColor, tertiaryColor: source.tertiaryColor, bodyColor: source.bodyColor, pattern: source.pattern
+          };
+        },
+        races: () => Object.keys(raceCatalog),
+        factions: race => Object.keys(raceCatalog[race]?.factions || {}),
+        subfactions: (race, faction) => raceCatalog[race]?.factions?.[faction] || [],
+        objectives: army => objectiveOptionsFor(army).map(option => ({ id: option.id, label: `${option.name} · ${option.category}` })),
+        visualDefaults: army => chapterVisualDefaultsFor(army)
+      };
       const regionUI = createRegionUI({
         root,
         runtime: regionRuntime,
@@ -1733,10 +1640,12 @@ import {
         onSave: () => saveRegionWorld(),
         onRemove: id => regionRuntime.removeSettlementById(id),
         onBegin: config => {
-          state.players = setupPlayers.slice(0, 2).map((player, index) => ({ ...player, id: ids[index], index, base: deploymentPosition(index, 2, presets.region.world) }));
+          state.players = playersFromArmies([], null, presets.region.world);
           state.regionConfig = config;
           state.regionAuthored = null;
           state.regionBasesOverride = null;
+          state.regionWorld = null;
+          state.regionArmies = null;
           resetBattle("region");
           regionUI.hideSetup();
           startSimulation();
@@ -1747,11 +1656,14 @@ import {
       const workshop = createWorkshopUI({
         root,
         store: worldStore,
-        players: () => (state.players.length ? state.players : setupPlayers.slice(0, 2)).map((player, index) => ({ id: player.id || ids[index], name: `${player.subfaction || player.faction || "Army"} (${player.name || `Army ${index === 0 ? "A" : "B"}`})` })),
+        armyKit,
         createWorker: () => new Worker(new URL("../src/terrain/terrain-bake-worker.js", import.meta.url), { type: "module" }),
         onClose: () => { root.classList.remove("is-configuring"); els.mainActions.hidden = false; },
         onPlay: payload => {
-          state.players = setupPlayers.slice(0, 2).map((player, index) => ({ ...player, id: ids[index], index, base: deploymentPosition(index, 2, presets.region.world) }));
+          const armies = payload.armies?.length ? payload.armies : [];
+          state.regionWorld = payload.world ? { width: payload.world.width, height: payload.world.height } : null;
+          state.regionArmies = armies.map(army => ({ ...army }));
+          state.players = playersFromArmies(armies, payload.bases, state.regionWorld || presets.region.world);
           state.regionConfig = payload.config;
           state.regionAuthored = payload;
           state.regionBasesOverride = payload.bases;
@@ -1765,17 +1677,22 @@ import {
       async function saveRegionWorld(slot = "region-autosave") {
         const payload = regionRuntime.serialize();
         if (!payload) return false;
+        payload.bases = state.players.map(player => ({ x: Math.round(player.base.x), y: Math.round(player.base.y) }));
+        payload.armies = state.regionArmies || state.players.map(player => ({ name: player.name, race: player.race, faction: player.faction, subfaction: player.subfaction, team: player.team, battleObjective: player.battleObjective, color: player.color, secondaryColor: player.secondaryColor, tertiaryColor: player.tertiaryColor, bodyColor: player.bodyColor, pattern: player.pattern }));
         worldSaveAt = performance.now();
         return worldStore.save(slot, payload, regionRuntime.summary());
       }
       async function continueRegionWorld(slot = "region-autosave") {
         const record = await worldStore.load(slot);
         if (!record?.payload) return false;
-        state.players = setupPlayers.slice(0, 2).map((player, index) => ({ ...player, id: ids[index], index, base: deploymentPosition(index, 2, presets.region.world) }));
+        const savedArmies = Array.isArray(record.payload.armies) ? record.payload.armies : [];
+        state.regionWorld = record.payload.world ? { width: record.payload.world.width, height: record.payload.world.height } : null;
+        state.regionArmies = savedArmies.map(army => ({ ...army }));
+        state.players = playersFromArmies(savedArmies, record.payload.bases, state.regionWorld || presets.region.world);
         state.regionConfig = record.payload.config;
         state.regionSave = record.payload;
         state.regionAuthored = null;
-        state.regionBasesOverride = null;
+        state.regionBasesOverride = Array.isArray(record.payload.bases) ? record.payload.bases : null;
         resetBattle("region");
         state.regionSave = null;
         regionUI.hideSetup();
@@ -1858,7 +1775,37 @@ import {
           return state.economicNodes.filter(isSettlementNode).map(node => ({ id: node.id, name: node.name, owner: node.owner, population: ensureSettlementPopulation(node) }));
         }
       };
+      root.awtArmyKit = armyKit;
       root.awtDebugControls = {
+        /**
+         * Stage a classic (non-region) battle with N armies without any menu clicks. Used by the stress and
+         * smoke scripts now that the tile editor is gone. `armies` are plain configs, like the workshop's.
+         */
+        stageClassicBattle({ players = 2, armies = [], width = TEST_MAP_WIDTH, height = TEST_MAP_HEIGHT, scale = "auto" } = {}) {
+          const count = clamp(Math.floor(Number(players) || armies.length || 2), 2, ids.length);
+          setWorldSize(width, height);
+          state.regionWorld = null;
+          state.players = Array.from({ length: count }, (_, index) => applyArmy({ ...setupPlayers[index], id: ids[index], index, base: deploymentPosition(index, count, state.world) }, armies[index]));
+          state.performanceRequested = scale;
+          state.performancePreset = scalePresetFor(state.units.length, scale);
+          state.scenario = "custom";
+          resetBattle("custom", []);
+          state.mode = "stage";
+          state.paused = true;
+          state.replay = false;
+          els.overlay.hidden = true;
+          setZoom("fit");
+          updatePauseButton();
+          updateUI(true);
+          return { players: state.players.length, width: worldWidth(), height: worldHeight() };
+        },
+        deployStaged() {
+          state.incidents = [];
+          state.snapshots = new SnapshotRingBuffer(180);
+          state.nextSnapshot = 0;
+          captureSnapshot();
+          startSimulation();
+        },
         injectSimulationFault(message = "Injected simulation fault") {
           state.debugSimulationFault = String(message);
         },
@@ -1950,7 +1897,7 @@ import {
           };
         },
         prepareFullRosterStressFixture(spawnRadius = 160) {
-          if (state.mode !== "editor") throw new Error("The full-roster fixture must be prepared from the map editor.");
+          if (state.mode !== "stage") throw new Error("The full-roster fixture must be prepared on a staged battle.");
           const radius = clamp(Number(spawnRadius) || 160, 80, 320);
           for (const player of state.players) player.spawnZone = { shape: "circle", size: radius, points: [] };
           state.territories = state.players.map(player => createTerritory(player.id, player.base, radius, {
@@ -2098,7 +2045,7 @@ import {
           return structuredClone(state.stressFixtureAudit);
         },
         prepareExactLoadFixture(targetUnits = 310, targetBuildings = 111) {
-          if (state.mode !== "editor") throw new Error("The exact-load fixture must be prepared from the map editor.");
+          if (state.mode !== "stage") throw new Error("The exact-load fixture must be prepared on a staged battle.");
           const unitTarget = Math.max(state.units.length, Math.floor(Number(targetUnits) || 310));
           const buildingTarget = Math.max(state.structures.length, Math.floor(Number(targetBuildings) || 111));
           const combatRoles = ["trooper", "trooper", "scout", "medic", "engineer", "vehicle", "vehicle", "commander"];
@@ -2269,13 +2216,6 @@ import {
         });
       }
 
-      function worldToCanvas(point) {
-        return {
-          x: ((point.x - state.camera.x) * state.camera.zoom + VW / 2) * canvas.width / VW,
-          y: ((point.y - state.camera.y) * state.camera.zoom + VH / 2) * canvas.height / VH
-        };
-      }
-
       function setWorldSize(width, height) {
         const safeWidth = clamp(Math.round(Number(width) || TEST_MAP_WIDTH), 640, 65536);
         const safeHeight = clamp(Math.round(Number(height) || TEST_MAP_HEIGHT), 360, 65536);
@@ -2296,7 +2236,6 @@ import {
         canvas.width = VW;
         canvas.height = VH;
         canvas.style.aspectRatio = `${VW} / ${VH}`;
-        if (els.editorMapDims) els.editorMapDims.textContent = `${safeWidth} × ${safeHeight}`;
         canvas.setAttribute("aria-label", `A ${VW} by ${VH} camera viewport looking into a ${safeWidth} by ${safeHeight} chunked battlefield.`);
       }
 
@@ -2315,95 +2254,6 @@ import {
         const tileY = clamp(Math.floor(point.y / TILE_SIZE), 0, Math.ceil(worldHeight() / TILE_SIZE) - 1);
         const chunk = terrainChunkAt(Math.floor(tileX * TILE_SIZE / CHUNK_SIZE), Math.floor(tileY * TILE_SIZE / CHUNK_SIZE));
         return chunk?.tiles.get(tileKey(tileX, tileY)) || { type: state.world.baseTerrain, opacity: 1 };
-      }
-
-      function setTerrainTile(tileX, tileY, value) {
-        if (tileX < 0 || tileY < 0 || tileX * TILE_SIZE >= worldWidth() || tileY * TILE_SIZE >= worldHeight()) return;
-        const chunk = terrainChunkAt(Math.floor(tileX * TILE_SIZE / CHUNK_SIZE), Math.floor(tileY * TILE_SIZE / CHUNK_SIZE), true);
-        const key = tileKey(tileX, tileY);
-        if (!value || value.type === state.world.baseTerrain) chunk.tiles.delete(key);
-        else chunk.tiles.set(key, value);
-        chunk.dirty = true;
-        state.minimapTerrainDirty = true;
-        state.navigationRevision += 1;
-        if (!chunk.tiles.size) state.terrainChunks.delete(chunkKey(chunk.x, chunk.y));
-      }
-
-      function isTileTerrainType(type) {
-        return brushLayers.Ground.includes(type) || ["water", "shallowwater", "deepwater", "river", "beach", "ice", "lava"].includes(type);
-      }
-
-      function paintTerrainTiles(point, type, mode) {
-        const radius = Math.max(TILE_SIZE * 0.55, state.brushRadius);
-        const previous = state.lastBrushPoint;
-        const segmentLength = previous ? hypot2(point.x - previous.x, point.y - previous.y) : 0;
-        const steps = previous ? Math.max(1, Math.ceil(segmentLength / (TILE_SIZE * 0.45))) : 0;
-        const changed = new Set();
-        for (let step = 0; step <= steps; step += 1) {
-          const progress = steps ? step / steps : 1;
-          const stamp = previous ? {
-            x: previous.x + (point.x - previous.x) * progress,
-            y: previous.y + (point.y - previous.y) * progress
-          } : point;
-          const minTileX = Math.floor((stamp.x - radius) / TILE_SIZE);
-          const maxTileX = Math.floor((stamp.x + radius) / TILE_SIZE);
-          const minTileY = Math.floor((stamp.y - radius) / TILE_SIZE);
-          const maxTileY = Math.floor((stamp.y + radius) / TILE_SIZE);
-          for (let tileY = minTileY; tileY <= maxTileY; tileY += 1) {
-            for (let tileX = minTileX; tileX <= maxTileX; tileX += 1) {
-              const center = { x: (tileX + 0.5) * TILE_SIZE, y: (tileY + 0.5) * TILE_SIZE };
-              const edgeDistance = state.brushShape === "square"
-                ? Math.max(Math.abs(center.x - stamp.x), Math.abs(center.y - stamp.y)) / radius
-                : hypot2(center.x - stamp.x, center.y - stamp.y) / (radius + TILE_SIZE * 0.45);
-              if (edgeDistance > 1) continue;
-              const hardness = clamp(state.brushHardness, 0, 1);
-              const edgeStrength = edgeDistance <= hardness
-                ? 1
-                : clamp((1 - edgeDistance) / Math.max(0.0001, 1 - hardness), 0, 1);
-              const strength = state.brushOpacity * Math.pow(edgeStrength, 1 + state.brushFalloff * 3);
-              if (strength <= 0.01) continue;
-              const chunk = terrainChunkAt(Math.floor(tileX * TILE_SIZE / CHUNK_SIZE), Math.floor(tileY * TILE_SIZE / CHUNK_SIZE));
-              const existing = chunk?.tiles.get(tileKey(tileX, tileY));
-              if (mode === "remove") {
-                if (!existing) continue;
-                const nextOpacity = (existing.opacity ?? 1) * (1 - strength);
-                setTerrainTile(tileX, tileY, nextOpacity <= 0.03 ? null : { ...existing, opacity: nextOpacity });
-              } else if (mode === "add" && existing) {
-                if (existing.type !== type && (existing.opacity ?? 1) >= strength) continue;
-                const nextOpacity = existing.type === type
-                  ? 1 - (1 - (existing.opacity ?? 1)) * (1 - strength)
-                  : strength;
-                setTerrainTile(tileX, tileY, { type, opacity: nextOpacity });
-              } else if (mode === "blend" && existing) {
-                const nextOpacity = existing.type === type
-                  ? clamp((existing.opacity ?? 1) + strength * 0.5, 0, 1)
-                  : clamp((existing.opacity ?? 1) * 0.35 + strength * 0.65, 0, 1);
-                setTerrainTile(tileX, tileY, { type, opacity: nextOpacity });
-              } else {
-                setTerrainTile(tileX, tileY, { type, opacity: strength });
-              }
-              changed.add(tileKey(tileX, tileY));
-            }
-          }
-        }
-        return changed.size;
-      }
-
-      function paintTerrainPatch(point, type, radius, random = Math.random) {
-        const minTileX = Math.floor((point.x - radius) / TILE_SIZE);
-        const maxTileX = Math.floor((point.x + radius) / TILE_SIZE);
-        const minTileY = Math.floor((point.y - radius) / TILE_SIZE);
-        const maxTileY = Math.floor((point.y + radius) / TILE_SIZE);
-        for (let tileY = minTileY; tileY <= maxTileY; tileY += 1) {
-          for (let tileX = minTileX; tileX <= maxTileX; tileX += 1) {
-            const centerX = (tileX + 0.5) * TILE_SIZE;
-            const centerY = (tileY + 0.5) * TILE_SIZE;
-            const edgeNoise = 0.82 + random() * 0.28;
-            if (hypot2(centerX - point.x, centerY - point.y) <= radius * edgeNoise) {
-              setTerrainTile(tileX, tileY, { type, opacity: 0.88 + random() * 0.12 });
-            }
-          }
-        }
       }
 
       function markFeatureIndexDirty() {
@@ -2492,15 +2342,6 @@ import {
         }
       }
 
-      function markFeatureDeleted(feature) {
-        if (!feature || feature.deleted) return false;
-        feature.deleted = true;
-        state.featureEditDirty = true;
-        state.minimapTerrainDirty = true;
-        if (FEATURE_RELIEF[feature.type] !== undefined) state.heightField.invalidateRelief();
-        return true;
-      }
-
       function compactFeatureEdits() {
         if (!state.featureEditDirty) return;
         state.features = state.features.filter(feature => !feature.deleted);
@@ -2534,13 +2375,6 @@ import {
           }
         }
         return buckets;
-      }
-
-      function shadowFeaturesAt(point) {
-        rebuildFeatureIndex();
-        const chunkX = clamp(Math.floor(point.x / CHUNK_SIZE), 0, Math.ceil(worldWidth() / CHUNK_SIZE) - 1);
-        const chunkY = clamp(Math.floor(point.y / CHUNK_SIZE), 0, Math.ceil(worldHeight() / CHUNK_SIZE) - 1);
-        return (state.shadowFeatureChunks.get(chunkKey(chunkX, chunkY)) || []).filter(feature => !feature.deleted);
       }
 
       function featureDistanceFromPoint(point, feature) {
@@ -2766,12 +2600,6 @@ import {
         const center = { x: left + CHUNK_SIZE / 2, y: top + CHUNK_SIZE / 2 };
         const reach = Math.max(1, feature.r || 1) + CHUNK_SIZE * Math.SQRT1_2;
         return featureDistanceFromPoint(center, feature) <= reach;
-      }
-
-      function featureAt(point) {
-        return [...visibleFeatures({ left: point.x, right: point.x, top: point.y, bottom: point.y })]
-          .reverse()
-          .find(feature => pointInsideFeature(point, feature));
       }
 
       root.awtDebugSnapshot = () => ({
@@ -3058,12 +2886,6 @@ import {
         });
       }
 
-      function nightShadeColor() {
-        const channels = String(colors.background).match(/\d+(?:\.\d+)?/g)?.slice(0, 3).map(Number) || [24, 24, 24];
-        const luminance = (channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722) / 255;
-        return luminance > 0.5 ? colors.foreground : colors.background;
-      }
-
       function formatHour(hour) {
         const normalized = (hour % 24 + 24) % 24;
         const totalMinutes = Math.round(normalized * 60) % 1440;
@@ -3132,104 +2954,6 @@ import {
         return 0;
       }
 
-      function shadowVector(height, time = state.clock.elapsedSeconds) {
-        const sun = sunState(time);
-        if (!sun.daylight || sun.altitude <= 0.015 || height <= 0) return { x: 0, y: 0, length: 0, strength: 0 };
-        const length = clamp(height * 2.8 / Math.tan(Math.max(0.055, sun.altitude)), height * 0.45, height * 18);
-        const direction = sun.azimuth + Math.PI;
-        return {
-          x: Math.cos(direction) * length,
-          y: Math.sin(direction) * length,
-          length,
-          strength: sun.shadowStrength * clamp(1 - sun.diffusion * 0.65, 0.08, 1)
-        };
-      }
-
-      let lightSourceCacheKey = "";
-      let lightSourceCache = [];
-      let lightSourceChunks = new Map();
-      function activeLightSources(time = state.clock.elapsedSeconds) {
-        if (!state.lighting.enabled || !state.lighting.artificial) {
-          lightSourceCacheKey = "";
-          lightSourceCache = [];
-          lightSourceChunks = new Map();
-          return lightSourceCache;
-        }
-        const snapshot = state.replay ? currentSnapshot() : null;
-        const structures = snapshot?.structures || state.structures;
-        const cacheKey = `${state.replay ? `replay:${state.replayIndex}:` : "live:"}${Math.floor(time * 4)}|${structures.length}|${state.features.length}|${state.lighting.weather}`;
-        if (cacheKey === lightSourceCacheKey) return lightSourceCache;
-        const sources = [];
-        const poweredFactions = new Set(
-          structures
-            .filter(item => item.alive !== false && item.type === "generator" && item.progress >= 1 && item.condition > 0.25)
-            .map(item => item.faction)
-        );
-        for (const item of structures) {
-          if (item.alive === false || item.progress < 1 || item.condition <= 0.18) continue;
-          const spec = buildingCatalog[item.type];
-          const powered = item.type === "generator" || poweredFactions.has(item.faction);
-          if (powered && spec?.light) {
-            sources.push({
-              x: item.x,
-              y: item.y,
-              radius: spec.light,
-              brightness: item.type === "generator" ? 0.92 : 0.66,
-              color: item.type === "fieldhospital" ? colors.water : colors.signal,
-              faction: item.faction,
-              searchlight: Boolean(spec.searchlight),
-              direction: time * 0.42 + playerFor(item.faction).index * 1.7
-            });
-          }
-          if (item.condition < 0.42) {
-            sources.push({ x: item.x, y: item.y, radius: 46, brightness: 0.78, color: colors.danger, faction: item.faction, fire: true });
-          }
-        }
-        for (const feature of state.features) {
-          if (feature.deleted) continue;
-          if (feature.type === "lava") sources.push({ x: feature.x, y: feature.y, radius: feature.r * 1.4, brightness: 0.72, color: colors.danger, fire: true });
-        }
-        lightSourceCacheKey = cacheKey;
-        lightSourceCache = sources;
-        lightSourceChunks = new Map();
-        for (const source of sources) {
-          const range = chunkRangeForBounds({
-            left: clamp(source.x - source.radius, 0, worldWidth()),
-            right: clamp(source.x + source.radius, 0, worldWidth()),
-            top: clamp(source.y - source.radius, 0, worldHeight()),
-            bottom: clamp(source.y + source.radius, 0, worldHeight())
-          });
-          for (let chunkY = range.minY; chunkY <= range.maxY; chunkY += 1) {
-            for (let chunkX = range.minX; chunkX <= range.maxX; chunkX += 1) {
-              const key = chunkKey(chunkX, chunkY);
-              if (!lightSourceChunks.has(key)) lightSourceChunks.set(key, []);
-              lightSourceChunks.get(key).push(source);
-            }
-          }
-        }
-        return lightSourceCache;
-      }
-
-      function lightSourcesInBounds(bounds, time = state.clock.elapsedSeconds) {
-        activeLightSources(time);
-        const found = new Set();
-        const range = chunkRangeForBounds(bounds);
-        for (let chunkY = range.minY; chunkY <= range.maxY; chunkY += 1) {
-          for (let chunkX = range.minX; chunkX <= range.maxX; chunkX += 1) {
-            for (const source of lightSourceChunks.get(chunkKey(chunkX, chunkY)) || []) found.add(source);
-          }
-        }
-        return [...found].filter(source => circleVisible(source, source.radius, bounds));
-      }
-
-      function lightSourcesAt(point, time = state.clock.elapsedSeconds) {
-        activeLightSources(time);
-        return lightSourceChunks.get(chunkKey(
-          clamp(Math.floor(point.x / CHUNK_SIZE), 0, Math.ceil(worldWidth() / CHUNK_SIZE) - 1),
-          clamp(Math.floor(point.y / CHUNK_SIZE), 0, Math.ceil(worldHeight() / CHUNK_SIZE) - 1)
-        )) || [];
-      }
-
       function pointSegmentDistance(point, a, b) {
         const dx = b.x - a.x;
         const dy = b.y - a.y;
@@ -3238,67 +2962,6 @@ import {
         return hypot2(point.x - (a.x + dx * t), point.y - (a.y + dy * t));
       }
 
-      let shadowCacheBucket = "";
-      const shadowSampleCache = new Map();
-      function pointInShadow(point, time = state.clock.elapsedSeconds) {
-        if (!state.lighting.enabled || !state.lighting.shadows) return false;
-        const sun = sunState(time);
-        if (!sun.daylight || sun.shadowStrength < 0.08) return false;
-        const bucket = state.replay
-          ? `replay:${state.replayIndex}:${time.toFixed(3)}`
-          : `live:${Math.floor(time * 4)}`;
-        if (bucket !== shadowCacheBucket) {
-          shadowCacheBucket = bucket;
-          shadowSampleCache.clear();
-        }
-        const cacheKey = `${Math.round(point.x / 8)},${Math.round(point.y / 8)}`;
-        if (shadowSampleCache.has(cacheKey)) return shadowSampleCache.get(cacheKey);
-        for (const feature of shadowFeaturesAt(point)) {
-          const height = featureHeight(feature);
-          if (!height) continue;
-          const vector = shadowVector(height, time);
-          const width = Math.max(5, feature.r * (["denseforest", "jungle"].includes(feature.type) ? 0.8 : 0.42));
-          if (pointSegmentDistance(point, feature, { x: feature.x + vector.x, y: feature.y + vector.y }) <= width) {
-            shadowSampleCache.set(cacheKey, true);
-            return true;
-          }
-        }
-        const snapshot = state.replay ? currentSnapshot() : null;
-        const nearbyStructures = snapshot
-          ? replayObjectsInBounds(snapshot, {
-            left: clamp(point.x - 560, 0, worldWidth()),
-            right: clamp(point.x + 560, 0, worldWidth()),
-            top: clamp(point.y - 560, 0, worldHeight()),
-            bottom: clamp(point.y + 560, 0, worldHeight())
-          }).structures
-          : nearbyCombatObjects(point, 560).structures;
-        for (const item of nearbyStructures) {
-          if (item.alive === false) continue;
-          if (item.progress < 0.25) continue;
-          const height = (buildingCatalog[item.type]?.height || 8) * item.progress;
-          const vector = shadowVector(height, time);
-          if (pointSegmentDistance(point, item, { x: item.x + vector.x, y: item.y + vector.y }) <= 10) {
-            shadowSampleCache.set(cacheKey, true);
-            return true;
-          }
-        }
-        shadowSampleCache.set(cacheKey, false);
-        return false;
-      }
-
-      function searchlightExposure(point, source) {
-        if (!source.searchlight) return 0;
-        const dx = point.x - source.x;
-        const dy = point.y - source.y;
-        const distanceToSource = hypot2(dx, dy);
-        if (distanceToSource > source.radius) return 0;
-        const angle = Math.atan2(dy, dx);
-        const delta = Math.atan2(Math.sin(angle - source.direction), Math.cos(angle - source.direction));
-        return Math.abs(delta) < 0.23 ? 1 - distanceToSource / source.radius * 0.35 : 0;
-      }
-
-      let lightingSampleCacheKey = "";
-      const lightingSampleCache = new Map();
       function lightingAt(point, observerFaction = null, time = state.clock.elapsedSeconds) {
         const sun = sunState(time);
         const brightness = globalDayNightVisibility({
@@ -3332,10 +2995,6 @@ import {
       function spawnZoneFor(player) {
         if (!player.spawnZone) player.spawnZone = { shape: "circle", size: 84, points: [] };
         return player.spawnZone;
-      }
-
-      function selectedSpawnPlayer() {
-        return state.players.find(player => player.id === state.spawnPlayerId) || state.players[0];
       }
 
       function pointInSpawnZone(point, player) {
@@ -4304,7 +3963,7 @@ import {
         state.time = 0;
         state.clock.elapsedSeconds = 0;
         state.startMinute = preset.startMinute;
-        const nextWorld = presetKey === "custom" ? state.world : preset.world;
+        const nextWorld = presetKey === "custom" ? state.world : (presetKey === "region" && state.regionWorld) || preset.world;
         setWorldSize(nextWorld.width, nextWorld.height);
         if (presetKey !== "custom") state.heightField.clear();
         state.world.baseTerrain = presetKey === "ash" ? "ash" : presetKey === "verdant" ? "forestfloor" : "grass";
@@ -4588,11 +4247,9 @@ import {
         state.supplyNetwork = new SupplyNetwork();
         if (presetKey === "region") {
           regionRuntime.populate();
-          rebuildEconomicNodeSelect();
         }
         constructionTelemetry.records.length = 0;
         constructionTelemetry.active.clear();
-        invalidateLightingCaches();
         updateExploration(0, true);
         state.logisticsPlayerId = state.players[0]?.id || "a";
         rebuildLogisticsPlayerSelect();
@@ -4656,136 +4313,9 @@ import {
 
       // Seeded height field per biome. Deployment zones are levelled so every
       // faction starts on playable ground, and erosion slumps cliffs into talus.
-      function generateReliefFor(biome, seedText) {
-        const profiles = {
-          balanced: { amplitude: 30, scale: 900, ridged: 0.3, erosion: 4 },
-          forest: { amplitude: 24, scale: 760, ridged: 0.2, erosion: 5 },
-          archipelago: { amplitude: 34, scale: 640, ridged: 0.15, erosion: 3 },
-          desert: { amplitude: 38, scale: 1100, ridged: 0.55, erosion: 3 },
-          frozen: { amplitude: 46, scale: 820, ridged: 0.5, erosion: 4 },
-          volcanic: { amplitude: 62, scale: 700, ridged: 0.65, erosion: 2 },
-          urban: { amplitude: 8, scale: 1400, ridged: 0.1, erosion: 6 }
-        };
-        const profile = profiles[biome] || profiles.balanced;
-        const seed = Array.from(`${seedText}:${biome}`).reduce((hash, char) => (Math.imul(hash, 31) + char.charCodeAt(0)) | 0, 7);
-        state.heightField.generate({
-          seed,
-          amplitude: profile.amplitude,
-          scale: Math.min(profile.scale, Math.min(worldWidth(), worldHeight()) * 0.55),
-          ridged: profile.ridged,
-          erosionPasses: profile.erosion,
-          mapWidth: worldWidth(),
-          mapHeight: worldHeight(),
-          flatZones: state.players.map(player => ({ x: player.base.x, y: player.base.y, radius: Math.max(120, spawnZoneFor(player).size * 1.3), level: 0 }))
-        });
-        state.minimapTerrainDirty = true;
-      }
-
-      function randomizeMap() {
-        const biome = els.randomBiome.value;
-        const seedText = els.randomSeed.value.trim() || `MAP-${Math.floor(battleRandom() * 999999)}`;
-        els.randomSeed.value = seedText;
-        const random = seededRandom(`${seedText}:${biome}:${state.players.length}`);
-        const profiles = {
-          balanced: { base: "grass", terrain: ["grass", "dirt", "sand", "rock", "shallowwater"], props: ["trees", "bushes", "boulders", "pond"], road: "dirtroad" },
-          forest: { base: "forestfloor", terrain: ["grass", "darkgrass", "forestfloor", "mud", "shallowwater"], props: ["denseforest", "trees", "pinetree", "bushes", "tallgrass", "pond"], road: "trail" },
-          archipelago: { base: "deepwater", terrain: ["sand", "beach", "grass", "shallowwater", "rock"], props: ["palmtree", "bushes", "pond", "boulders"], road: "woodenbridge" },
-          desert: { base: "sand", terrain: ["sand", "dirt", "rock", "mud"], props: ["cactus", "boulders", "smallrocks", "crystal"], road: "dirtroad" },
-          frozen: { base: "snow", terrain: ["snow", "ice", "rock", "dirt", "shallowwater"], props: ["pinetree", "boulders", "cave", "deadforest"], road: "stoneroad" },
-          volcanic: { base: "ash", terrain: ["ash", "rock", "lava", "dirt"], props: ["boulders", "crystal", "cave", "deadforest"], road: "stoneroad" },
-          urban: { base: "pavement", terrain: ["pavement", "dirt", "ash", "rock", "grass"], props: ["ruins", "boulders", "crystal", "deadforest"], road: "asphalt" }
-        };
-        const profile = profiles[biome] || profiles.balanced;
-        state.world.baseTerrain = profile.base;
-        state.terrainChunks = new Map();
-        const generated = [];
-        const patchCount = Math.min(120, Math.max(biome === "archipelago" ? 48 : 42, Math.round(Math.min(worldWidth(), worldHeight()) / 256)));
-        for (let index = 0; index < patchCount; index += 1) {
-          const type = profile.terrain[Math.floor(random() * profile.terrain.length)];
-          const point = {
-            x: 160 + random() * (worldWidth() - 320),
-            y: 160 + random() * (worldHeight() - 320)
-          };
-          paintTerrainPatch(point, type, 220 + random() * (biome === "archipelago" ? 720 : 520), random);
-        }
-        const propCount = Math.min(120, biome === "forest" ? patchCount : Math.round(patchCount * 0.62));
-        for (let index = 0; index < propCount; index += 1) {
-          const type = profile.props[Math.floor(random() * profile.props.length)];
-          generated.push({
-            type,
-            x: 64 + random() * (worldWidth() - 128),
-            y: 64 + random() * (worldHeight() - 128),
-            r: 28 + random() * 72,
-            shape: "circle",
-            opacity: 0.9 + random() * 0.1,
-            condition: 1,
-            age: 0,
-            visual: visualForBrush(type)
-          });
-        }
-        state.players.forEach((player, index) => {
-          const deployment = deploymentPosition(index, state.players.length, state.world);
-          player.base = {
-            x: clamp(deployment.x + (random() - 0.5) * 240, 88, worldWidth() - 88),
-            y: clamp(deployment.y + (random() - 0.5) * 240, 78, worldHeight() - 78)
-          };
-          player.spawnZone = { shape: random() > 0.7 ? "square" : "circle", size: 70 + Math.round(random() * 25), points: [] };
-          const builders = state.units.filter(unit => unit.faction === player.id && unit.role === "builder");
-          builders.forEach((builder, builderIndex) => {
-            builder.x = clamp(player.base.x + builderIndex * 8, 24, worldWidth() - 24);
-            builder.y = clamp(player.base.y + builderIndex * 8, 24, worldHeight() - 24);
-          });
-        });
-        state.features = generated;
-        markFeatureIndexDirty();
-        generateReliefFor(biome, seedText);
-        rebuildSpatialGrid();
-        state.minimapMarkerDirty = true;
-        state.nextTerritoryId = 1;
-        state.territories = state.players.map(player => {
-          const territory = createTerritory(player.id, player.base, spawnZoneFor(player).size, {
-            name: `${player.faction} heartland`,
-            status: "controlled",
-            resourceValue: 48 + Math.round(random() * 20),
-            strategicValue: 58 + Math.round(random() * 24),
-            defensibility: 48 + Math.round(random() * 30),
-            claimedAt: -20,
-            reason: "Generated headquarters supply"
-          });
-          return territory;
-        });
-        seedSettlements(random);
-        rebuildRoadNetwork();
-        rebuildStrategicTerritorySystem();
-        els.battleName.textContent = `${seedText} / ${els.randomBiome.selectedOptions[0].text}`;
-        els.editorTip.textContent = `${els.randomBiome.selectedOptions[0].text} terrain generated · ${generated.length} objects · authored resources, landmarks, and trade routes preserved`;
-        updateUI(true);
-        draw();
-      }
 
       // Scatter neutral civilian settlements between the bases so a generated
       // world has people worth protecting, taxing, enslaving or massacring.
-      function seedSettlements(random) {
-        if (state.economicNodes.some(isSettlementNode)) return;
-        const wanted = clamp(Math.round(Math.min(worldWidth(), worldHeight()) / 380), 2, 6);
-        const placed = [];
-        for (let attempt = 0; attempt < 80 && placed.length < wanted; attempt += 1) {
-          const point = { x: 220 + random() * (worldWidth() - 440), y: 220 + random() * (worldHeight() - 440) };
-          if (state.players.some(player => distance(player.base, point) < 260) || placed.some(other => distance(other, point) < 300)) continue;
-          if (["deepwater", "water", "lava"].includes(terrainAt(point).type)) continue;
-          placed.push(point);
-        }
-        placed.forEach((point, index) => {
-          const hive = index === 0 && wanted >= 4;
-          const node = createEconomicNode(`economic-node-${state.nextEconomicNodeId++}`, point, {
-            type: hive ? "hive-city" : "civilian-settlement",
-            name: SETTLEMENT_NAMES[Math.floor(random() * SETTLEMENT_NAMES.length)] + (hive ? " Hive" : "")
-          });
-          state.economicNodes.push(node);
-          ensureSettlementPopulation(node);
-        });
-        rebuildEconomicNodeSelect();
-      }
 
       function productionDemandFor(player, force = false) {
         const cached = player.productionDemandCache;
@@ -6645,32 +6175,6 @@ import {
         return member.index % 2 ? "left" : "right";
       }
 
-      function formationLocalPosition(formation, index, count, member = null, groupRank = 0) {
-        if (index === 0 && formation === "escort") return { x: 0, y: Math.max(20, count * 3.5) };
-        if (index === 0) return { x: 0, y: 0 };
-        const centered = index - (count - 1) / 2;
-        if (formation === "line") return { x: centered * 14, y: Math.abs(centered) * 1.5 };
-        if (formation === "column") return { x: (index % 2 ? -1 : 1) * 5, y: -Math.floor((index + 1) / 2) * 14 };
-        if (formation === "wedge" || formation === "triangle") {
-          if (["support", "protected"].includes(member?.formationGroup)) return { x: (groupRank % 2 ? -1 : 1) * (7 + groupRank * 3), y: -16 - groupRank * 9 };
-          const depth = Math.ceil(index / 2);
-          return { x: (index % 2 ? -1 : 1) * depth * 13, y: -depth * 12 };
-        }
-        if (formation === "circle" || formation === "escort") {
-          const protectedMember = ["support", "protected"].includes(member?.formationGroup);
-          const radius = protectedMember ? 11 + groupRank * 3 : Math.max(20, count * 3.5);
-          const angle = index / Math.max(1, count) * Math.PI * 2 - Math.PI / 2;
-          return { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
-        }
-        if (formation === "staggered") return { x: centered * 11, y: (index % 2 ? -10 : 6) - Math.abs(centered) * 2 };
-        if (formation === "flanking") {
-          if (["command", "support", "protected"].includes(member?.formationGroup)) return { x: groupRank % 2 ? -9 : 9, y: -18 - groupRank * 10 };
-          const side = member?.formationGroup === "left" ? -1 : 1;
-          return { x: side * (42 + groupRank * 12), y: 22 - groupRank * 9 };
-        }
-        return { x: centered * 12, y: 0 };
-      }
-
       // Per-squad data the box/mixed/encircle formations need to place slots.
       function prepareDoctrineFormation(squad, members, target) {
         const fighters = members.filter(member => !isProtectedGroup(member.formationGroup));
@@ -8319,20 +7823,6 @@ import {
           score: candidate => scoredTargets.find(item => item.target.id === candidate.id)?.score ?? -Infinity
         });
         return selected.target || bestTarget;
-      }
-
-      function nearestAlly(unit, predicate, radius = Infinity) {
-        let best = null;
-        let bestDistance = radius;
-        for (const other of state.units) {
-          if (!other.alive || !areAllies(other.faction, unit.faction) || other.id === unit.id || !predicate(other)) continue;
-          const d = distance(unit, other);
-          if (d < bestDistance) {
-            best = other;
-            bestDistance = d;
-          }
-        }
-        return best;
       }
 
       // High ground bonus and ridge occlusion for a shooter/target pair. The
@@ -12593,10 +12083,8 @@ import {
         selected.route.nextDispatch = state.time + (convoy ? 46 + player.index * 2 : 8);
       }
 
-
       // ---- NPC settlements: civilians, captives, levies and uprisings --------
       const SETTLEMENT_RADIUS = 110;
-      const SETTLEMENT_NAMES = ["Haven's Rest", "Ashfall", "Kestrel Reach", "Saint Orsolo", "Gantry Hollow", "Vigil Rest", "Marrow Fields", "Tallow End", "Ninefold Ford", "Cinder Parish"];
 
       function ensureSettlementPopulation(node) {
         if (!node.population) node.population = createPopulation(node, battleRandom);
@@ -13306,10 +12794,6 @@ import {
         return !["air", "orbital", "underground", "warp", "sea", "river"].includes(convoy.routeType);
       }
 
-      function convoyUsesSpecialTransit(convoy) {
-        return ["air", "orbital", "underground", "warp"].includes(convoy.routeType);
-      }
-
       function updateConvoys(dt) {
         for (const convoy of state.convoys) {
           if (convoy.finished) continue;
@@ -13753,7 +13237,7 @@ import {
         }
         const race = player.race;
         const ecology = state.factionEcology?.[player.id] || {};
-        const shortages = new Set(economyFor(player.id).shortages || []);
+        
         const usableActiveResources = new Set(economyFor(player.id).activeResources || []);
         const options = [];
         for (const key of candidates) {
@@ -14245,106 +13729,6 @@ import {
         root.dataset.strategicTerritoryCells = String(state.strategicTerritory?.cells.filter(cell => cell.owner).length || 0);
         root.dataset.strategicTerritorySieges = String(state.strategicTerritory?.cells.filter(cell => cell.siege).length || 0);
         root.dataset.strategicTerritoryGameOver = String(Boolean(state.strategicTerritory?.gameOver));
-      }
-
-      function updateTerritoryControl() {
-        // Kept as a compatibility entry point for older saves/tools. Runtime control now mutates
-        // the single cell-backed primary territory instead of appending frontier polygons.
-        return territoryTick();
-        /* legacy polygon implementation retained below for save migration reference only
-        let changed = false;
-        for (const territory of state.territories) {
-          const center = territoryCenter(territory);
-          territory.connected = !territory.supplyRequired || Boolean(territory.owner && (
-            distance(center, baseFor(territory.owner)) < 235
-            || state.structures.some(structure => structure.faction === territory.owner && structure.alive !== false && structure.progress >= 1 && (buildingCatalog[structure.type]?.supplyRadius || 0) > 0 && distance(center, structure) < (buildingCatalog[structure.type]?.supplyRadius || 0) + 75)
-          ));
-        }
-        for (let pass = 0; pass < 3; pass += 1) {
-          for (const territory of state.territories.filter(item => item.owner && !item.connected)) {
-            const center = territoryCenter(territory);
-            territory.connected = state.territories.some(other => other.connected && other.owner && (other.owner === territory.owner || areAllies(other.owner, territory.owner) && (other.shareAllies || territory.shareAllies)) && distance(center, territoryCenter(other)) < 185);
-          }
-        }
-        for (const territory of state.territories) {
-          const occupants = state.units.filter(unit => unit.alive && pointInTerritory(unit, territory));
-          const groups = new Map();
-          for (const unit of occupants) groups.set(unit.faction, (groups.get(unit.faction) || 0) + 1);
-          const factions = [...groups.keys()];
-          if (factions.length >= 2) {
-            territory.status = "contested · capture paused";
-            territory.reason = `${factions.length} forces present; capture timer paused`;
-            continue;
-          }
-          const claimant = factions[0] || null;
-          if (!territory.owner && claimant && !territory.unclaimable && !territory.locked) {
-            territory.captureFaction = claimant;
-            territory.pressure = (territory.pressure || 0) + (groups.get(claimant) || 1) * 10;
-            territory.status = "claiming neutral territory";
-            if (territory.pressure >= territory.captureDifficulty * 0.45) {
-              territory.owner = claimant;
-              territory.status = "claimed";
-              territory.claimedAt = state.time;
-              territory.pressure = 0;
-              territory.reason = "Neutral territory secured";
-              changed = true;
-              incident(`${playerFor(claimant).faction} secured neutral ${territory.name}.`, null, "info");
-            }
-            continue;
-          }
-          if (territory.owner && claimant && claimant !== territory.owner && !areAllies(claimant, territory.owner)) {
-            const blockingBuildings = state.structures.filter(structure => structure.alive !== false && structure.progress >= 1 && pointInTerritory(structure, territory) && !areAllies(structure.faction, claimant));
-            if (blockingBuildings.length) {
-              territory.status = "blocked by enemy buildings";
-              territory.reason = `${blockingBuildings.length} hostile hitbox${blockingBuildings.length === 1 ? "" : "es"} must be destroyed`;
-              territory.pressure = Math.max(0, (territory.pressure || 0) - 5);
-              continue;
-            }
-            territory.captureFaction = claimant;
-            territory.pressure = (territory.pressure || 0) + (groups.get(claimant) || 1) * 8;
-            territory.status = "seizing";
-            if (!territory.locked && !territory.unclaimable && territory.pressure >= territory.captureDifficulty) {
-              territory.previousOwner = territory.owner;
-              territory.owner = claimant;
-              territory.status = "claimed";
-              territory.claimedAt = state.time;
-              territory.pressure = 0;
-              territory.connected = false;
-              territory.reason = "Only one force remained after enemy buildings fell";
-              changed = true;
-              incident(`${playerFor(claimant).faction} seized ${territory.name}.`, null, "critical");
-            }
-            continue;
-          }
-          territory.pressure = Math.max(0, (territory.pressure || 0) - 8);
-          if (!territory.owner) territory.status = "neutral";
-          else if (!territory.connected) territory.status = "isolated";
-          else {
-            const fortified = state.structures.some(structure => structure.faction === territory.owner && structure.alive !== false && structure.progress >= 1 && ["bunker", "turret", "outpost"].includes(structure.type) && pointInTerritory(structure, territory));
-            territory.status = fortified ? "fortified" : state.time - territory.claimedAt < 12 ? "claimed" : "controlled";
-          }
-        }
-        for (const player of state.players) {
-          const completeOutposts = state.structures.filter(structure => structure.faction === player.id && structure.type === "outpost" && structure.progress >= 1 && structure.alive !== false);
-          for (const outpost of completeOutposts) {
-            if (state.territories.some(territory => territory.owner === player.id && distance(territoryCenter(territory), outpost) < 70)) continue;
-            state.territories.push(createTerritory(player.id, outpost, 70, { name: `${player.faction} outpost`, status: "fortified", strategicValue: 72, defensibility: 78, reason: "Headquarters expanded the supply perimeter" }));
-            changed = true;
-          }
-          const own = state.territories.filter(territory => territory.owner === player.id);
-          const cooldown = aiBehaviorFor(player).aggression >= 70 ? 16 : aiBehaviorFor(player).caution >= 70 ? 30 : 22;
-          if (own.length >= 8 || state.time - (player.lastTerritoryClaim || 0) < cooldown || economyFor(player.id).inventory.requisition < 24) continue;
-          const candidate = state.units.filter(unit => unit.alive && unit.faction === player.id && !["builder", "supply"].includes(unit.role) && !state.territories.some(territory => pointInTerritory(unit, territory)) && !state.units.some(enemy => enemy.alive && !areAllies(enemy.faction, player.id) && distance(unit, enemy) < 70)).sort((a, b) => distance(b, player.base) - distance(a, player.base))[0];
-          if (!candidate) continue;
-          const connected = own.some(territory => territory.connected && distance(candidate, territoryCenter(territory)) < 190);
-          if (!connected && aiBehaviorFor(player).aggression < 70) continue;
-          state.territories.push(createTerritory(player.id, candidate, aiBehaviorFor(player).aggression >= 70 ? 86 : 72, { name: `${player.faction} frontier ${own.length}`, resourceValue: 52, strategicValue: 62, defensibility: aiBehaviorFor(player).caution >= 70 ? 78 : 48, reason: "AI expanded its connected supply perimeter" }));
-          economyFor(player.id).inventory.requisition -= 20;
-          player.lastTerritoryClaim = state.time;
-          changed = true;
-          incident(`${player.faction} expanded its territory toward active forces.`, candidate.id, "info");
-        }
-        if (changed) state.minimapMarkerDirty = true; */
       }
 
       function updateEnvironment(dt) {
@@ -15504,11 +14888,10 @@ import {
         ctx.restore();
       }
 
-
       // ---- Lit, textured relief (replaces the flat tile base on sculpted maps) ----
       let proceduralTerrainTextures = null;
       const reliefChunkCache = new Map();
-      const reliefBakeQueue = new Set();
+      
       function reliefPaletteKey() {
         if (state.terrainPalette && TERRAIN_PALETTES[state.terrainPalette]) return state.terrainPalette;
         const base = state.world.baseTerrain;
@@ -15937,68 +15320,6 @@ import {
         ctx.restore();
       }
 
-      function drawCasterShadow(x, y, radius, height, softness = 0.18, time = state.time) {
-        if (!state.lighting.enabled || !state.lighting.shadows) return;
-        const vector = shadowVector(height, time);
-        if (vector.length <= 0 || vector.strength <= 0.02) return;
-        const end = { x: x + vector.x, y: y + vector.y };
-        const angle = Math.atan2(vector.y, vector.x);
-        const length = Math.max(radius * 0.9, vector.length);
-        const width = Math.max(3, radius * (0.7 + softness));
-        ctx.save();
-        ctx.translate((x + end.x) / 2, (y + end.y) / 2);
-        ctx.rotate(angle);
-        const gradient = ctx.createLinearGradient(-length / 2, 0, length / 2, 0);
-        gradient.addColorStop(0, nightShadeColor());
-        gradient.addColorStop(0.72, nightShadeColor());
-        gradient.addColorStop(1, "transparent");
-        ctx.fillStyle = gradient;
-        ctx.globalAlpha = clamp(0.16 + vector.strength * 0.24 - softness * 0.08, 0.08, 0.4);
-        ctx.beginPath();
-        ctx.ellipse(0, 0, length / 2 + radius * 0.45, width, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-      }
-
-      function drawFeatureShadows(time = state.clock.elapsedSeconds) {
-        for (const feature of visibleFeatures(cameraBounds(CHUNK_SIZE))) {
-          const height = featureHeight(feature);
-          if (!height) continue;
-          const canopy = ["denseforest", "jungle", "trees"].includes(feature.type);
-          const softness = ["bushes", "largebush", "tallgrass"].includes(feature.type) ? 0.56 : canopy ? 0.34 : 0.12;
-          const radius = canopy ? feature.r * 0.72 : Math.max(5, feature.r * 0.34);
-          drawCasterShadow(feature.x, feature.y, radius, height, softness, time);
-        }
-      }
-
-      function drawStructureShadows(snapshot, visibleStructures = state.structures) {
-        const time = currentSnapshot()?.clockElapsed ?? state.clock.elapsedSeconds;
-        const bounds = cameraBounds(CHUNK_SIZE);
-        for (const item of visibleStructures) {
-          if (item.progress < 0.18 || item.alive === false) continue;
-          const height = (buildingCatalog[item.type]?.height || 8) * item.progress;
-          const radius = item.type === "outpost" ? 18 : item.type === "observationtower" ? 7 : 13;
-          const vector = shadowVector(height, time);
-          if (!boundsIntersect(bounds, {
-            left: Math.min(item.x, item.x + vector.x) - radius,
-            right: Math.max(item.x, item.x + vector.x) + radius,
-            top: Math.min(item.y, item.y + vector.y) - radius,
-            bottom: Math.max(item.y, item.y + vector.y) + radius
-          })) continue;
-          drawCasterShadow(item.x, item.y, radius, height, 0.08, time);
-        }
-      }
-
-      function drawUnitShadows(snapshot, visibleUnits = state.units) {
-        const time = currentSnapshot()?.clockElapsed ?? state.clock.elapsedSeconds;
-        for (const unit of visibleUnits) {
-          if (!unit.alive) continue;
-          if (!pointVisible(unit, 80)) continue;
-          const height = unit.role === "vehicle" ? 3.2 : unit.role === "builder" ? 2.4 : 1.8;
-          drawCasterShadow(unit.x, unit.y, unit.role === "vehicle" ? 8 : 3.2, height, 0.12, time);
-        }
-      }
-
       function traceTerritory(territory) {
         if (!territory?.points?.length) return false;
         ctx.beginPath();
@@ -16029,7 +15350,7 @@ import {
           ctx.lineWidth = (contested ? 2.4 : 1.5) / state.camera.zoom;
           if (contested) ctx.setLineDash([4 / state.camera.zoom, 3 / state.camera.zoom]);
           else if (disconnected) ctx.setLineDash([3 / state.camera.zoom, 7 / state.camera.zoom]);
-          const neighbors = new Set(neighboringTerritoryCells(key));
+          
           const edge = (neighbor, x1, y1, x2, y2) => {
             if (neighbor && territory.claimedCells.has(neighbor)) return;
             ctx.beginPath();
@@ -16933,85 +16254,6 @@ import {
         ctx.globalAlpha = 1;
       }
 
-      let dynamicLightLayer = null;
-      let dynamicLightContext = null;
-
-      function drawDynamicLighting() {
-        dynamicLightLayer ||= document.createElement("canvas");
-        dynamicLightLayer.width ||= VW;
-        dynamicLightLayer.height ||= VH;
-        dynamicLightContext ||= dynamicLightLayer.getContext("2d");
-        if (!state.lighting.enabled) return;
-        const time = currentSnapshot()?.clockElapsed ?? state.clock.elapsedSeconds;
-        const sun = sunState(time);
-        const weatherDarkness = { clear: 0, fog: 0.1, rain: 0.12, snow: -0.05, dust: 0.2 }[state.lighting.weather] || 0;
-        const darkness = clamp((sun.daylight ? 0.22 - sun.intensity * 0.2 : 0.64) + weatherDarkness, 0, 0.72);
-        const layer = dynamicLightContext;
-        layer.setTransform(1, 0, 0, 1, 0, 0);
-        layer.clearRect(0, 0, VW, VH);
-        if (darkness > 0.01) {
-          layer.fillStyle = nightShadeColor();
-          layer.globalAlpha = darkness;
-          layer.fillRect(0, 0, VW, VH);
-        }
-        const sources = lightSourcesInBounds(cameraBounds(CHUNK_SIZE), time).filter(source => objectVisibleToFog(source));
-        if (sources.length && darkness > 0.08) {
-          layer.globalCompositeOperation = "destination-out";
-          for (const source of sources) {
-            const screen = worldToCanvas(source);
-            const radius = source.radius * state.camera.zoom * canvas.width / VW;
-            const gradient = layer.createRadialGradient(screen.x, screen.y, 0, screen.x, screen.y, radius);
-            gradient.addColorStop(0, "rgba(0,0,0,0.96)");
-            gradient.addColorStop(0.45, "rgba(0,0,0,0.58)");
-            gradient.addColorStop(1, "rgba(0,0,0,0)");
-            layer.fillStyle = gradient;
-            layer.globalAlpha = clamp(source.brightness, 0, 1);
-            layer.beginPath();
-            layer.arc(screen.x, screen.y, radius, 0, Math.PI * 2);
-            layer.fill();
-            if (source.searchlight) {
-              layer.globalAlpha = 0.82;
-              layer.beginPath();
-              layer.moveTo(screen.x, screen.y);
-              layer.arc(screen.x, screen.y, radius, source.direction - 0.23, source.direction + 0.23);
-              layer.closePath();
-              layer.fill();
-            }
-          }
-          layer.globalCompositeOperation = "source-over";
-        }
-        layer.globalAlpha = 1;
-        ctx.save();
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
-        ctx.drawImage(dynamicLightLayer, 0, 0, canvas.width, canvas.height);
-        ctx.restore();
-        if (sources.length) {
-          ctx.save();
-          ctx.globalCompositeOperation = "screen";
-          for (const source of sources) {
-            const glowRadius = source.radius * (source.searchlight ? 0.58 : 0.44);
-            const glow = ctx.createRadialGradient(source.x, source.y, 0, source.x, source.y, glowRadius);
-            glow.addColorStop(0, source.color);
-            glow.addColorStop(1, "transparent");
-            ctx.fillStyle = glow;
-            ctx.globalAlpha = clamp(source.brightness * (sun.daylight ? 0.09 : 0.22), 0.04, 0.24);
-            ctx.beginPath();
-            ctx.arc(source.x, source.y, glowRadius, 0, Math.PI * 2);
-            ctx.fill();
-            if (source.searchlight && !sun.daylight) {
-              ctx.fillStyle = source.color;
-              ctx.globalAlpha = 0.12;
-              ctx.beginPath();
-              ctx.moveTo(source.x, source.y);
-              ctx.arc(source.x, source.y, source.radius, source.direction - 0.23, source.direction + 0.23);
-              ctx.closePath();
-              ctx.fill();
-            }
-          }
-          ctx.restore();
-        }
-      }
-
       function drawDayNightTint() {
         if (!state.dayNight.enabled || !state.lighting.visualTint) return;
         const time = currentSnapshot()?.clockElapsed ?? state.clock.elapsedSeconds;
@@ -17022,63 +16264,6 @@ import {
         ctx.fillStyle = "#07101f";
         ctx.globalAlpha = darkness;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.restore();
-      }
-
-      function drawLightingOverlay() {
-        if (!state.lighting.enabled || !state.lighting.overlay || state.fogPlayer !== "observer") return;
-        const time = currentSnapshot()?.clockElapsed ?? state.clock.elapsedSeconds;
-        const sun = sunState(time);
-        const columns = 12;
-        const rows = 7;
-        const bounds = cameraBounds();
-        const cellW = (bounds.right - bounds.left) / columns;
-        const cellH = (bounds.bottom - bounds.top) / rows;
-        ctx.save();
-        for (let row = 0; row < rows; row += 1) {
-          for (let column = 0; column < columns; column += 1) {
-            const point = { x: bounds.left + (column + 0.5) * cellW, y: bounds.top + (row + 0.5) * cellH };
-            const sample = lightingAt(point, null, time);
-            ctx.fillStyle = sample.searchlight > 0.2
-              ? colors.danger
-              : sample.shadowed
-                ? colors.water
-                : sample.brightness > 0.55 ? colors.signal : colors.background;
-            ctx.globalAlpha = sample.searchlight > 0.2 ? 0.18 : 0.07 + Math.abs(sample.brightness - 0.5) * 0.08;
-            ctx.fillRect(bounds.left + column * cellW, bounds.top + row * cellH, cellW, cellH);
-          }
-        }
-        for (const source of lightSourcesInBounds(bounds, time).filter(item => objectVisibleToFog(item))) {
-          ctx.strokeStyle = source.searchlight ? colors.danger : source.color;
-          ctx.globalAlpha = 0.72;
-          ctx.lineWidth = 1.4 / state.camera.zoom;
-          ctx.setLineDash(source.searchlight ? [6 / state.camera.zoom, 4 / state.camera.zoom] : []);
-          ctx.beginPath();
-          ctx.arc(source.x, source.y, source.radius, 0, Math.PI * 2);
-          ctx.stroke();
-          if (source.searchlight) {
-            ctx.beginPath();
-            ctx.moveTo(source.x, source.y);
-            ctx.lineTo(source.x + Math.cos(source.direction - 0.23) * source.radius, source.y + Math.sin(source.direction - 0.23) * source.radius);
-            ctx.moveTo(source.x, source.y);
-            ctx.lineTo(source.x + Math.cos(source.direction + 0.23) * source.radius, source.y + Math.sin(source.direction + 0.23) * source.radius);
-            ctx.stroke();
-          }
-        }
-        ctx.setLineDash([]);
-        ctx.strokeStyle = colors.foreground;
-        ctx.fillStyle = colors.foreground;
-        ctx.globalAlpha = 0.9;
-        ctx.lineWidth = 2 / state.camera.zoom;
-        const compass = { x: bounds.right - 74 / state.camera.zoom, y: bounds.top + 52 / state.camera.zoom };
-        const arrowLength = 34 / state.camera.zoom;
-        ctx.beginPath();
-        ctx.moveTo(compass.x, compass.y);
-        ctx.lineTo(compass.x + Math.cos(sun.azimuth) * arrowLength, compass.y + Math.sin(sun.azimuth) * arrowLength);
-        ctx.stroke();
-        ctx.font = `${10 / state.camera.zoom}px system-ui, sans-serif`;
-        ctx.textAlign = "center";
-        ctx.fillText(`${sun.period} · ${formatHour(sun.hour)}`, compass.x, compass.y + 22 / state.camera.zoom);
         ctx.restore();
       }
 
@@ -17885,7 +17070,6 @@ import {
         if (state.cardUnitId) updateUnitCard();
       }
 
-
       // ---- unit markers, picking and the stat card -------------------------------------------
       const GLYPH_OUTLINE = "rgba(6, 10, 8, 0.92)";
       function unitRingRadius(unit) {
@@ -18616,14 +17800,9 @@ import {
         state.replay = false;
         els.overlay.hidden = false;
         els.mainActions.hidden = false;
-        els.setupPanel.hidden = true;
-        els.playerPanel.hidden = true;
         els.spritePanel.hidden = true;
         els.loadPanel.hidden = true;
         els.quitPanel.hidden = true;
-        els.editorBar.hidden = true;
-        els.editorTip.hidden = true;
-        els.editorInspector.hidden = true;
         state.logisticsOpen = false;
         els.logisticsPanel.hidden = true;
         els.logisticsButton.setAttribute("aria-pressed", "false");
@@ -18648,235 +17827,11 @@ import {
         state.lastFrame = performance.now();
         updateExploration(0, true);
         els.overlay.hidden = true;
-        els.editorBar.hidden = true;
-        els.editorTip.hidden = true;
-        els.editorInspector.hidden = true;
         setInspector(root.getBoundingClientRect().width > 680);
         const objectiveSummary = [...new Set(state.players.map(player => battleObjectivePlanFor(player).name))].slice(0, 2).join(" vs ");
         els.battleName.textContent = `${state.scenario === "custom" ? "Custom world theater" : presets[state.scenario].name} / ${objectiveSummary}`;
         updatePauseButton();
         incident("Builder autonomy released. Buildings will be selected from live priorities.", null, "info");
-      }
-
-      function scaleFeatureToTestMap(feature, scaleX, scaleY) {
-        const scaled = { ...feature };
-        if (Number.isFinite(feature.x)) scaled.x = clamp(feature.x * scaleX, 0, TEST_MAP_WIDTH);
-        if (Number.isFinite(feature.y)) scaled.y = clamp(feature.y * scaleY, 0, TEST_MAP_HEIGHT);
-        if (Number.isFinite(feature.x2)) scaled.x2 = clamp(feature.x2 * scaleX, 0, TEST_MAP_WIDTH);
-        if (Number.isFinite(feature.y2)) scaled.y2 = clamp(feature.y2 * scaleY, 0, TEST_MAP_HEIGHT);
-        if (Number.isFinite(feature.r)) scaled.r = Math.max(1, feature.r * Math.min(scaleX, scaleY));
-        return scaled;
-      }
-
-      function serializeTestMap() {
-        const scaleX = TEST_MAP_WIDTH / Math.max(1, worldWidth());
-        const scaleY = TEST_MAP_HEIGHT / Math.max(1, worldHeight());
-        return {
-          version: 4,
-          savedAt: new Date().toISOString(),
-          name: state.scenario === "custom" ? "Local custom theater" : `${presets[state.scenario]?.name || "Test theater"} copy`,
-          world: { width: TEST_MAP_WIDTH, height: TEST_MAP_HEIGHT, baseTerrain: state.world.baseTerrain },
-          heightField: state.heightField.resampledSculpt(TEST_MAP_WIDTH, TEST_MAP_HEIGHT).serialize(),
-          dayNight: { ...state.dayNight },
-          lighting: { ...state.lighting },
-          clock: { running: state.clock.running, rate: state.clock.rate, elapsedSeconds: state.clock.elapsedSeconds },
-          economicOverlay: { ...state.economicOverlay },
-          players: state.players.map(player => ({
-            id: player.id,
-            index: player.index,
-            name: player.name,
-            race: player.race,
-            faction: player.faction,
-            subfaction: player.subfaction,
-            team: player.team,
-            battleObjective: normalizeBattleObjectiveId(player.battleObjective),
-            color: player.color,
-            secondaryColor: player.secondaryColor,
-            tertiaryColor: player.tertiaryColor,
-            bodyColor: player.bodyColor,
-            pattern: player.pattern,
-            base: { x: player.base.x * scaleX, y: player.base.y * scaleY },
-            spawnZone: player.spawnZone ? {
-              ...player.spawnZone,
-              size: Math.max(24, player.spawnZone.size * Math.min(scaleX, scaleY)),
-              points: (player.spawnZone.points || []).map(point => ({ x: point.x * scaleX, y: point.y * scaleY }))
-            } : null
-          })),
-          features: state.features.filter(feature => !feature.deleted && !feature.resourceNode).map(feature => scaleFeatureToTestMap(feature, scaleX, scaleY)),
-          economicNodes: state.economicNodes.map(node => serializeEconomicNode(node, scaleX, scaleY)),
-          tradeRoutes: state.tradeRoutes.map(route => serializeTradeRoute(route, scaleX, scaleY))
-        };
-      }
-
-      function saveLocalTestMap() {
-        if (!storageAdapter) {
-          els.savedMapStatus.textContent = "Local storage is unavailable in this browser.";
-          return false;
-        }
-        const payload = serializeTestMap();
-        storageAdapter.save(TEST_MAP_SLOT, payload);
-        els.savedMapStatus.textContent = `${payload.name} saved at 1920 × 1080.`;
-        els.saveMap.innerHTML = '<i data-lucide="check" aria-hidden="true"></i>Saved · 1920 × 1080';
-        if (window.lucide) lucide.createIcons({ attrs: { width: 16, height: 16 } });
-        return true;
-      }
-
-      function objectiveFromSavedPlayer(saved = {}) {
-        if (saved.battleObjective) return normalizeBattleObjectiveId(saved.battleObjective);
-        const legacy = `${saved.aiPreset || ""} ${saved.doctrine || ""}`.toLowerCase();
-        if (/fortress|defensive|repair/.test(legacy)) return "stronghold_defense";
-        if (/expansion/.test(legacy)) return "territorial_domination";
-        if (/economic|rush tech/.test(legacy)) return "resource_supremacy";
-        return DEFAULT_BATTLE_OBJECTIVE;
-      }
-
-      function loadLocalTestMap() {
-        const payload = storageAdapter?.load(TEST_MAP_SLOT);
-        if (!payload?.features || !Array.isArray(payload.players) || !payload.players.length) {
-          els.savedMapStatus.textContent = "No valid local test map is saved yet.";
-          return false;
-        }
-        const loadScaleX = TEST_MAP_WIDTH / Math.max(1, Number(payload.world?.width) || TEST_MAP_WIDTH);
-        const loadScaleY = TEST_MAP_HEIGHT / Math.max(1, Number(payload.world?.height) || TEST_MAP_HEIGHT);
-        setWorldSize(TEST_MAP_WIDTH, TEST_MAP_HEIGHT);
-        payload.players.slice(0, 12).forEach((saved, index) => {
-          Object.assign(setupPlayers[index], saved, { id: ids[index], index, battleObjective: objectiveFromSavedPlayer(saved) });
-          delete setupPlayers[index].doctrine;
-          delete setupPlayers[index].aiPreset;
-          delete setupPlayers[index].aiBehavior;
-        });
-        state.players = payload.players.slice(0, 12).map((saved, index) => ({
-          ...setupPlayers[index],
-          ...saved,
-          id: ids[index],
-          index,
-          battleObjective: objectiveFromSavedPlayer(saved),
-          base: {
-            x: clamp(saved.base?.x == null ? deploymentPosition(index, payload.players.length, state.world).x : saved.base.x * loadScaleX, 24, TEST_MAP_WIDTH - 24),
-            y: clamp(saved.base?.y == null ? deploymentPosition(index, payload.players.length, state.world).y : saved.base.y * loadScaleY, 24, TEST_MAP_HEIGHT - 24)
-          }
-        }));
-        for (const player of state.players) {
-          delete player.doctrine;
-          delete player.aiPreset;
-          delete player.aiBehavior;
-        }
-        state.world.baseTerrain = payload.world?.baseTerrain || "grass";
-        const legacyLighting = payload.lighting || {};
-        state.dayNight = {
-          ...state.dayNight,
-          ...(payload.dayNight || {}),
-          ...(!payload.dayNight ? {
-            enabled: legacyLighting.enabled ?? state.dayNight.enabled,
-            mode: legacyLighting.mode ?? state.dayNight.mode,
-            startHour: legacyLighting.startHour ?? state.dayNight.startHour,
-            fixedHour: legacyLighting.fixedHour ?? state.dayNight.fixedHour,
-            dayLengthMinutes: legacyLighting.dayLengthMinutes ?? state.dayNight.dayLengthMinutes,
-            latitude: legacyLighting.latitude ?? state.dayNight.latitude,
-            season: legacyLighting.season ?? state.dayNight.season,
-            weather: legacyLighting.weather ?? state.dayNight.weather
-          } : {})
-        };
-        state.lighting = { ...state.lighting, ...legacyLighting, dynamicShadows: false, artificialGlows: false, searchlights: false, debugOverlay: false };
-        state.clock = { ...state.clock, ...(payload.clock || {}), elapsedSeconds: Number(payload.clock?.elapsedSeconds) || 0 };
-        state.economicOverlay = { ...state.economicOverlay, ...(payload.economicOverlay || {}) };
-        resetBattle("custom", payload.features.filter(feature => !feature.resourceNode).map(feature => scaleFeatureToTestMap(feature, loadScaleX, loadScaleY)));
-        state.heightField.clear();
-        if (payload.heightField) {
-          const savedWidth = Number(payload.world?.width) || TEST_MAP_WIDTH;
-          const savedHeight = Number(payload.world?.height) || TEST_MAP_HEIGHT;
-          const loaded = HeightField.deserialize(payload.heightField, { width: savedWidth, height: savedHeight });
-          state.heightField.adopt(loaded.resampledSculpt(TEST_MAP_WIDTH, TEST_MAP_HEIGHT));
-        }
-        const legacyResourceZones = (payload.resourceZones || []).map((zone, index) => createResourceZone(
-          zone.id || `resource-zone-${index + 1}`,
-          { x: 0, y: 0 },
-          { ...zone, points: (zone.points || []).map(point => ({ x: clamp(point.x * loadScaleX, 0, TEST_MAP_WIDTH), y: clamp(point.y * loadScaleY, 0, TEST_MAP_HEIGHT) })) }
-        ));
-        const migration = migrateLegacyResourceZones({ resourceZones: legacyResourceZones, structures: state.structures, carriers: state.units, players: state.players });
-        state.resourceZones = migration.resourceZones;
-        state.economyMigrationDiagnostics = migration.diagnostics;
-        state.nextResourceZoneId = 1;
-        state.selectedResourceZoneId = null;
-        state.economicNodes = (payload.economicNodes || []).map((node, index) => createEconomicNode(
-          node.id || `economic-node-${index + 1}`,
-          { x: clamp((node.x ?? node.position?.x ?? 0) * loadScaleX, 0, TEST_MAP_WIDTH), y: clamp((node.y ?? node.position?.y ?? 0) * loadScaleY, 0, TEST_MAP_HEIGHT) },
-          { ...node, x: (node.x ?? node.position?.x ?? 0) * loadScaleX, y: (node.y ?? node.position?.y ?? 0) * loadScaleY }
-        ));
-        state.tradeRoutes = (payload.tradeRoutes || []).map((route, index) => createTradeRoute(
-          route.id || `trade-route-${index + 1}`,
-          { ...route, points: (route.points || []).map(point => ({ x: clamp(point.x * loadScaleX, 0, TEST_MAP_WIDTH), y: clamp(point.y * loadScaleY, 0, TEST_MAP_HEIGHT) })) }
-        ));
-        state.nextEconomicNodeId = state.economicNodes.length + 1;
-        state.nextTradeRouteId = state.tradeRoutes.length + 1;
-        state.selectedEconomicNodeId = state.economicNodes[0]?.id || null;
-        state.selectedTradeRouteId = state.tradeRoutes[0]?.id || null;
-        state.world.baseTerrain = payload.world?.baseTerrain || "grass";
-        state.clock = { ...state.clock, ...(payload.clock || {}), elapsedSeconds: Number(payload.clock?.elapsedSeconds) || 0 };
-        payload.players.slice(0, state.players.length).forEach((saved, index) => {
-          const player = state.players[index];
-          player.base = {
-            x: clamp(saved.base?.x == null ? player.base.x : saved.base.x * loadScaleX, 24, TEST_MAP_WIDTH - 24),
-            y: clamp(saved.base?.y == null ? player.base.y : saved.base.y * loadScaleY, 24, TEST_MAP_HEIGHT - 24)
-          };
-          player.spawnZone = saved.spawnZone ? {
-            ...saved.spawnZone,
-            size: Math.max(24, (saved.spawnZone.size || 84) * Math.min(loadScaleX, loadScaleY)),
-            points: (saved.spawnZone.points || []).map(point => ({ x: clamp(point.x * loadScaleX, 0, TEST_MAP_WIDTH), y: clamp(point.y * loadScaleY, 0, TEST_MAP_HEIGHT) }))
-          } : { shape: "circle", size: 84, points: [] };
-          const builders = state.units.filter(unit => unit.faction === player.id && unit.role === "builder");
-          builders.forEach((builder, builderIndex) => {
-            builder.x = clamp(player.base.x + builderIndex * 8, 24, TEST_MAP_WIDTH - 24);
-            builder.y = clamp(player.base.y + builderIndex * 8, 24, TEST_MAP_HEIGHT - 24);
-          });
-        });
-        state.nextTerritoryId = 1;
-        state.territories = state.players.map(player => createTerritory(player.id, player.base, spawnZoneFor(player).size, {
-          name: `${player.faction} heartland`, status: "controlled", resourceValue: 55, strategicValue: 70,
-          defensibility: 65, claimedAt: -20, reason: "Loaded headquarters supply"
-        }));
-        rebuildRoadNetwork();
-        rebuildSpatialGrid();
-        state.minimapTerrainDirty = true;
-        state.minimapMarkerDirty = true;
-        els.savedMapStatus.textContent = `${payload.name || "Local test map"} loaded at 1920 × 1080.`;
-        startSimulation();
-        return true;
-      }
-
-      function saveActivePlayerForm() {
-        const player = setupPlayers[state.activeSetupPlayer];
-        player.name = els.playerName.value.trim() || `Player ${state.activeSetupPlayer + 1}`;
-        player.race = els.playerRace.value;
-        player.faction = els.playerFaction.value;
-        player.subfaction = els.playerSubfaction.value;
-        player.team = els.playerTeam.value;
-        player.battleObjective = normalizeBattleObjectiveId(els.playerBattleObjective.value);
-        delete player.battleObjectivePlan;
-        delete player.dynamicAIBehavior;
-        player.color = els.playerColor.value;
-        player.secondaryColor = els.playerSecondaryColor.value;
-        player.tertiaryColor = els.playerTertiaryColor.value;
-        player.bodyColor = els.playerBodyColor.value;
-        player.pattern = els.playerPattern.value;
-      }
-
-      function applySelectedChapterVisualDefaults() {
-        const defaults = chapterVisualDefaultsFor({
-          race: els.playerRace.value,
-          faction: els.playerFaction.value,
-          subfaction: els.playerSubfaction.value
-        });
-        if (!defaults) return;
-        els.playerColor.value = defaults.primary;
-        els.playerColorValue.textContent = defaults.primary.toUpperCase();
-        els.playerSecondaryColor.value = defaults.secondary;
-        els.playerSecondaryColorValue.textContent = defaults.secondary.toUpperCase();
-        els.playerTertiaryColor.value = defaults.accent || defaults.secondary;
-        els.playerTertiaryColorValue.textContent = els.playerTertiaryColor.value.toUpperCase();
-        els.playerBodyColor.value = defaults.body || defaults.primary;
-        els.playerBodyColorValue.textContent = els.playerBodyColor.value.toUpperCase();
-        els.playerPattern.value = defaults.pattern;
       }
 
       function prettyObjectiveMethod(method) {
@@ -18885,296 +17840,8 @@ import {
           .replace(/\b\w/g, character => character.toUpperCase());
       }
 
-      function populateBattleObjectiveSelect(player) {
-        const selected = normalizeBattleObjectiveId(player.battleObjective);
-        els.playerBattleObjective.textContent = "";
-        for (const optionData of objectiveOptionsFor(player)) {
-          const option = document.createElement("option");
-          option.value = optionData.id;
-          option.textContent = `${optionData.name} · ${optionData.category}`;
-          els.playerBattleObjective.append(option);
-        }
-        els.playerBattleObjective.value = selected;
-        player.battleObjective = normalizeBattleObjectiveId(els.playerBattleObjective.value);
-        delete player.battleObjectivePlan;
-        const plan = battleObjectivePlanFor(player);
-        const behavior = deriveDynamicAIBehavior(resolveFactionAIProfile(player), plan);
-        els.objectiveName.textContent = plan.name;
-        els.objectiveSummary.textContent = plan.summary;
-        els.objectiveMethod.textContent = `${player.subfaction} method: ${prettyObjectiveMethod(plan.method)}.`;
-        els.objectiveSignals.textContent = `Opening tendency is calculated, not scripted: attack ${Math.round(behavior.aggression)}, preservation ${Math.round(behavior.caution)}, expansion ${Math.round(behavior.expansion)}, economy ${Math.round(behavior.economy)}. It will adapt during battle.`;
-      }
-
-      function populateFactionSelect(race, selectedFaction, selectedSubfaction) {
-        const factions = raceCatalog[race]?.factions || {};
-        els.playerFaction.textContent = "";
-        for (const faction of Object.keys(factions)) {
-          const option = document.createElement("option");
-          option.value = faction;
-          option.textContent = faction;
-          els.playerFaction.append(option);
-        }
-        if (selectedFaction && factions[selectedFaction]) els.playerFaction.value = selectedFaction;
-        const faction = els.playerFaction.value;
-        els.playerSubfaction.textContent = "";
-        for (const subfaction of factions[faction] || []) {
-          const option = document.createElement("option");
-          option.value = subfaction;
-          option.textContent = subfaction;
-          els.playerSubfaction.append(option);
-        }
-        if (selectedSubfaction && (factions[faction] || []).includes(selectedSubfaction)) els.playerSubfaction.value = selectedSubfaction;
-      }
-
-      function loadActivePlayerForm() {
-        const player = setupPlayers[state.activeSetupPlayer];
-        els.playerPanelTitle.textContent = `Player ${state.activeSetupPlayer + 1} configuration`;
-        els.playerName.value = player.name;
-        els.playerRace.value = player.race;
-        populateFactionSelect(player.race, player.faction, player.subfaction);
-        els.playerTeam.value = player.team;
-        populateBattleObjectiveSelect(player);
-        els.playerColor.value = player.color;
-        els.playerColorValue.textContent = player.color.toUpperCase();
-        els.playerSecondaryColor.value = player.secondaryColor;
-        els.playerSecondaryColorValue.textContent = player.secondaryColor.toUpperCase();
-        player.tertiaryColor ||= playerAccentColor(player.id);
-        player.bodyColor ||= player.color;
-        els.playerTertiaryColor.value = player.tertiaryColor;
-        els.playerTertiaryColorValue.textContent = player.tertiaryColor.toUpperCase();
-        els.playerBodyColor.value = player.bodyColor;
-        els.playerBodyColorValue.textContent = player.bodyColor.toUpperCase();
-        els.playerPattern.value = player.pattern;
-        const count = Number(els.playerCountSelect.value);
-        for (const button of root.querySelectorAll("[data-player-tab]")) {
-          const index = Number(button.dataset.playerTab);
-          button.hidden = index >= count;
-          const active = index === state.activeSetupPlayer;
-          button.setAttribute("aria-pressed", String(active));
-          button.classList.toggle("btn-primary", active);
-        }
-      }
-
-      function selectedResolution() {
-        if (els.mapResolution.value === "custom") {
-          return {
-            width: clamp(Number(els.customWidth.value) || TEST_MAP_WIDTH, 640, 65536),
-            height: clamp(Number(els.customHeight.value) || TEST_MAP_HEIGHT, 360, 65536)
-          };
-        }
-        const [width, height] = els.mapResolution.value.split("x").map(Number);
-        return { width, height };
-      }
-
-      function populateSpawnPlayers() {
-        const previous = state.spawnPlayerId;
-        els.spawnPlayer.textContent = "";
-        for (const player of state.players) {
-          const option = document.createElement("option");
-          option.value = player.id;
-          option.textContent = `P${player.index + 1} · ${player.faction}`;
-          els.spawnPlayer.append(option);
-        }
-        state.spawnPlayerId = state.players.some(player => player.id === previous) ? previous : state.players[0]?.id;
-        els.spawnPlayer.value = state.spawnPlayerId || "";
-      }
-
-      function defaultCustomZone(player) {
-        const size = spawnZoneFor(player).size;
-        return [
-          { x: clamp(player.base.x, 0, worldWidth()), y: clamp(player.base.y - size, 0, worldHeight()) },
-          { x: clamp(player.base.x + size, 0, worldWidth()), y: clamp(player.base.y, 0, worldHeight()) },
-          { x: clamp(player.base.x, 0, worldWidth()), y: clamp(player.base.y + size, 0, worldHeight()) },
-          { x: clamp(player.base.x - size, 0, worldWidth()), y: clamp(player.base.y, 0, worldHeight()) }
-        ];
-      }
-
-      function populateEconomicOwners() {
-        for (const select of [els.resourceOwner, els.economicNodeOwner]) {
-          const previous = select.value;
-          select.textContent = "";
-          const neutral = document.createElement("option");
-          neutral.value = "";
-          neutral.textContent = "Neutral";
-          select.append(neutral);
-          for (const player of state.players) {
-            const option = document.createElement("option");
-            option.value = player.id;
-            option.textContent = `P${player.index + 1} · ${player.faction}`;
-            select.append(option);
-          }
-          if ([...select.options].some(option => option.value === previous)) select.value = previous;
-        }
-      }
-
-      function selectedResourceZone() {
-        return state.resourceZones.find(zone => zone.id === state.selectedResourceZoneId) || null;
-      }
-
-      function rebuildResourceZoneSelect() {
-        state.economyZoneManager.adopt(state.resourceZones);
-        if (!els.resourceType.options.length) {
-          for (const resource of RESOURCE_TYPES) {
-            const option = document.createElement("option");
-            option.value = resource;
-            option.textContent = economyResourceLabels[resource] || resource;
-            els.resourceType.append(option);
-          }
-        }
-        const previous = state.selectedResourceZoneId;
-        els.resourceSelect.textContent = "";
-        for (const zone of state.resourceZones) {
-          const option = document.createElement("option");
-          option.value = zone.id;
-          option.textContent = `${zone.name} · ${economyResourceLabels[zone.resourceType] || zone.resourceType}`;
-          els.resourceSelect.append(option);
-        }
-        state.selectedResourceZoneId = state.resourceZones.some(zone => zone.id === previous) ? previous : state.resourceZones[0]?.id || null;
-        els.resourceSelect.value = state.selectedResourceZoneId || "";
-      }
-
-      function loadResourceZoneForm() {
-        const zone = selectedResourceZone();
-        if (!zone) return;
-        syncResourceZone(zone);
-        els.resourceSelect.value = zone.id;
-        els.resourceEditMode.value = state.resourceZoneEditMode;
-        els.resourceName.value = zone.name;
-        els.resourceType.value = zone.resourceType;
-        els.resourceCapacity.value = String(zone.capacity);
-        els.resourceGather.value = String(zone.gatherRate);
-        els.resourceRegeneration.value = String(zone.regeneration);
-        els.resourceOwner.value = zone.startingOwner || "";
-        els.resourceCollectors.value = zone.allowedCollectors.join(",");
-        els.resourceRequiresBuilding.checked = zone.requiresBuilding;
-        els.resourceStrategic.checked = zone.strategicObjective;
-        els.resourceInfinite.checked = Boolean(zone.infinite);
-        els.resourceCapacity.disabled = Boolean(zone.infinite);
-      }
-
-      function saveResourceZoneForm() {
-        const zone = selectedResourceZone();
-        if (!zone) return;
-        zone.name = els.resourceName.value.trim() || zone.name;
-        zone.resourceType = els.resourceType.value;
-        const previousCapacity = zone.capacity;
-        zone.capacity = clamp(Number(els.resourceCapacity.value) || 0, 0, 100000);
-        zone.remaining = clamp(zone.remaining + (zone.capacity - previousCapacity), 0, zone.capacity);
-        zone.gatherRate = clamp(Number(els.resourceGather.value) || 0, 0, 1000);
-        zone.regeneration = clamp(Number(els.resourceRegeneration.value) || 0, 0, 100);
-        zone.startingOwner = els.resourceOwner.value;
-        zone.owner = zone.startingOwner;
-        zone.ownershipInitialized = true;
-        zone.capturePressure = 0;
-        zone.captureFaction = null;
-        zone.captureStatus = zone.owner ? "Controlled" : "Neutral";
-        zone.allowedCollectors = els.resourceCollectors.value.split(",").filter(Boolean);
-        zone.requiresBuilding = els.resourceRequiresBuilding.checked;
-        zone.strategicObjective = els.resourceStrategic.checked;
-        zone.infinite = els.resourceInfinite.checked;
-        els.resourceCapacity.disabled = zone.infinite;
-        syncResourceZone(zone);
-        state.minimapMarkerDirty = true;
-        rebuildResourceZoneSelect();
-        draw();
-      }
-
-      function nearestResourceZoneAnchor(zone, point, limit = 22 / state.camera.zoom) {
-        let best = -1;
-        let bestDistance = limit;
-        zone.points.forEach((anchor, index) => {
-          const current = distance(anchor, point);
-          if (current < bestDistance) {
-            best = index;
-            bestDistance = current;
-          }
-        });
-        return best;
-      }
-
-      function editResourceZoneAtPoint(point) {
-        const zone = selectedResourceZone();
-        if (!zone) {
-          els.editorTip.textContent = "Create or select a resource zone before editing its shape.";
-          return;
-        }
-        const mode = state.resourceZoneEditMode;
-        if (mode === "translate") {
-          if (!pointInResourceZone(point, zone)) {
-            els.editorTip.textContent = `Click inside ${zone.name}, then drag to move the whole zone.`;
-            return;
-          }
-          state.resourceZoneDragStart = { point: { ...point }, points: zone.points.map(anchor => ({ ...anchor })) };
-          return;
-        }
-        if (mode === "delete") {
-          const index = nearestResourceZoneAnchor(zone, point);
-          if (index >= 0 && zone.points.length > 3) zone.points.splice(index, 1);
-        } else if (mode === "move") state.resourceZoneDragIndex = nearestResourceZoneAnchor(zone, point);
-        else if (mode === "bend" && zone.points.length >= 2) {
-          let insertAt = zone.points.length;
-          let best = Infinity;
-          for (let index = 0; index < zone.points.length; index += 1) {
-            const a = zone.points[index];
-            const b = zone.points[(index + 1) % zone.points.length];
-            const midpoint = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-            const current = distance(midpoint, point);
-            if (current < best) { best = current; insertAt = index + 1; }
-          }
-          zone.points.splice(insertAt, 0, { x: Math.round(point.x), y: Math.round(point.y) });
-        } else zone.points.push({ x: Math.round(point.x), y: Math.round(point.y) });
-        touchResourceZoneGeometry(zone);
-        state.minimapMarkerDirty = true;
-        els.editorTip.textContent = `${zone.name} · ${zone.points.length} points · ${mode}`;
-        draw();
-      }
-
-      function selectedEconomicNode() {
-        return state.economicNodes.find(node => node.id === state.selectedEconomicNodeId) || null;
-      }
-
       function selectedTradeRoute() {
         return state.tradeRoutes.find(route => route.id === state.selectedTradeRouteId) || null;
-      }
-
-      function rebuildEconomicNodeSelect() {
-        if (!els.economicNodeType.options.length) {
-          for (const type of ECONOMIC_NODE_TYPES) {
-            const option = document.createElement("option");
-            option.value = type;
-            option.textContent = type.split("-").map(word => word[0].toUpperCase() + word.slice(1)).join(" ");
-            els.economicNodeType.append(option);
-          }
-        }
-        const previous = state.selectedEconomicNodeId;
-        els.economicNodeSelect.textContent = "";
-        for (const node of state.economicNodes) {
-          const option = document.createElement("option");
-          option.value = node.id;
-          option.textContent = `${node.name} · ${node.type}`;
-          els.economicNodeSelect.append(option);
-        }
-        state.selectedEconomicNodeId = state.economicNodes.some(node => node.id === previous) ? previous : state.economicNodes[0]?.id || null;
-        els.economicNodeSelect.value = state.selectedEconomicNodeId || "";
-        rebuildTradeRouteNodeOptions();
-      }
-
-      function rebuildTradeRouteNodeOptions() {
-        for (const select of [els.tradeRouteFrom, els.tradeRouteTo]) {
-          const previous = select.value;
-          select.textContent = "";
-          const unset = document.createElement("option");
-          unset.value = "";
-          unset.textContent = "Click a landmark";
-          select.append(unset);
-          for (const node of state.economicNodes) {
-            const option = document.createElement("option");
-            option.value = node.id;
-            option.textContent = node.name;
-            select.append(option);
-          }
-          if ([...select.options].some(option => option.value === previous)) select.value = previous;
-        }
       }
 
       function drawStrategicTerritory() {
@@ -19262,346 +17929,6 @@ import {
         root.dataset.publicObjectiveStates = publicStates.map(objective => `${objective.objectiveId}:${objective.ownerId || "neutral"}:${objective.state}:${Math.round(objective.captureProgress * 100)}`).join("|");
       }
 
-      function loadEconomicNodeForm() {
-        const node = selectedEconomicNode();
-        if (!node) return;
-        syncEconomicNodeResources(node);
-        els.economicNodeSelect.value = node.id;
-        els.economicNodeName.value = node.name;
-        els.economicNodeType.value = node.type;
-        els.economicNodeOwner.value = node.startingOwner || "";
-        els.economicNodeUseDefaults.checked = Boolean(node.useTypeDefaults);
-        els.economicNodeCapacity.value = String(node.capacity);
-        els.economicNodeValue.value = String(node.strategicValue);
-        els.economicNodeActive.checked = node.active;
-        els.economicNodeStrategic.checked = node.strategicObjective !== false;
-        renderEconomicNodeFlows(node);
-        renderEconomicNodeCaptureStock(node);
-        updateEconomicNodeValidation(node);
-      }
-
-      function economicFlowRow(flow) {
-        const row = document.createElement("div");
-        row.className = "awt-landmark-flow-row";
-
-        const directionLabel = document.createElement("label");
-        directionLabel.className = "form-label text-small";
-        directionLabel.append("Direction");
-        const direction = document.createElement("select");
-        direction.className = "form-select";
-        direction.dataset.flowField = "direction";
-        for (const value of RESOURCE_FLOW_DIRECTIONS) {
-          const option = document.createElement("option");
-          option.value = value;
-          option.textContent = value === "produce" ? "Produce / export" : "Consume / import";
-          direction.append(option);
-        }
-        direction.value = flow.direction;
-        directionLabel.append(direction);
-
-        const resourceLabel = document.createElement("label");
-        resourceLabel.className = "form-label text-small";
-        resourceLabel.append("Resource");
-        const resource = document.createElement("select");
-        resource.className = "form-select";
-        resource.dataset.flowField = "resource";
-        for (const id of RESOURCE_IDS) {
-          const option = document.createElement("option");
-          option.value = id;
-          option.textContent = RESOURCE_DEFINITIONS[id].name;
-          resource.append(option);
-        }
-        resource.value = flow.resource;
-        resourceLabel.append(resource);
-
-        const rateLabel = document.createElement("label");
-        rateLabel.className = "form-label text-small";
-        rateLabel.append("Rate / min");
-        const rate = document.createElement("input");
-        rate.className = "form-control";
-        rate.type = "number";
-        rate.min = "0.1";
-        rate.max = "10000";
-        rate.step = "0.1";
-        rate.value = String(flow.rate);
-        rate.dataset.flowField = "rate";
-        rateLabel.append(rate);
-
-        const enabledLabel = document.createElement("label");
-        enabledLabel.className = "form-check awt-landmark-flow-enabled";
-        const enabled = document.createElement("input");
-        enabled.className = "form-check-input";
-        enabled.type = "checkbox";
-        enabled.checked = flow.enabled !== false;
-        enabled.dataset.flowField = "enabled";
-        const enabledText = document.createElement("span");
-        enabledText.className = "form-check-label";
-        enabledText.textContent = "Enabled";
-        enabledLabel.append(enabled, enabledText);
-
-        const remove = document.createElement("button");
-        remove.type = "button";
-        remove.className = "btn btn-ghost awt-landmark-flow-remove";
-        remove.textContent = "Remove";
-        remove.setAttribute("aria-label", `Remove ${RESOURCE_DEFINITIONS[flow.resource]?.name || "resource"} flow`);
-        remove.addEventListener("click", () => {
-          row.remove();
-          els.economicNodeUseDefaults.checked = false;
-          saveEconomicNodeForm({ rebuildSelect: false });
-        });
-        for (const control of [direction, resource, rate, enabled]) {
-          control.addEventListener("change", () => {
-            els.economicNodeUseDefaults.checked = false;
-            saveEconomicNodeForm({ rebuildSelect: false });
-          });
-        }
-        row.append(directionLabel, resourceLabel, rateLabel, enabledLabel, remove);
-        return row;
-      }
-
-      function renderEconomicNodeFlows(node) {
-        els.economicNodeFlows.textContent = "";
-        for (const flow of normalizeResourceFlows(node.flows)) els.economicNodeFlows.append(economicFlowRow(flow));
-        if (!els.economicNodeFlows.children.length) {
-          const empty = document.createElement("p");
-          empty.className = "text-small awt-landmark-flow-empty";
-          empty.textContent = "No resource flows. Add one or restore the landmark defaults.";
-          els.economicNodeFlows.append(empty);
-        }
-      }
-
-      function readEconomicNodeFlows() {
-        return normalizeResourceFlows([...els.economicNodeFlows.querySelectorAll(".awt-landmark-flow-row")].map(row => ({
-          direction: row.querySelector('[data-flow-field="direction"]').value,
-          resource: row.querySelector('[data-flow-field="resource"]').value,
-          rate: Number(row.querySelector('[data-flow-field="rate"]').value),
-          enabled: row.querySelector('[data-flow-field="enabled"]').checked
-        })));
-      }
-
-      function economicCaptureStockRow(item) {
-        const row = document.createElement("div");
-        row.className = "awt-landmark-flow-row";
-        const resourceLabel = document.createElement("label");
-        resourceLabel.className = "form-label text-small";
-        resourceLabel.append("Resource");
-        const resource = document.createElement("select");
-        resource.className = "form-select";
-        resource.dataset.captureField = "resource";
-        for (const id of RESOURCE_IDS) {
-          const option = document.createElement("option");
-          option.value = id;
-          option.textContent = RESOURCE_DEFINITIONS[id].name;
-          resource.append(option);
-        }
-        resource.value = item.resource;
-        resourceLabel.append(resource);
-        const amountLabel = document.createElement("label");
-        amountLabel.className = "form-label text-small";
-        amountLabel.append("Capture amount");
-        const amount = document.createElement("input");
-        amount.className = "form-control";
-        amount.type = "number";
-        amount.min = "0.1";
-        amount.max = "1000000";
-        amount.step = "0.1";
-        amount.value = String(item.amount);
-        amount.dataset.captureField = "amount";
-        amountLabel.append(amount);
-        const enabledLabel = document.createElement("label");
-        enabledLabel.className = "form-check awt-landmark-flow-enabled";
-        const enabled = document.createElement("input");
-        enabled.className = "form-check-input";
-        enabled.type = "checkbox";
-        enabled.checked = item.enabled !== false;
-        enabled.dataset.captureField = "enabled";
-        const enabledText = document.createElement("span");
-        enabledText.className = "form-check-label";
-        enabledText.textContent = "Enabled";
-        enabledLabel.append(enabled, enabledText);
-        const remove = document.createElement("button");
-        remove.type = "button";
-        remove.className = "btn btn-ghost awt-landmark-flow-remove";
-        remove.textContent = "Remove";
-        remove.addEventListener("click", () => { row.remove(); saveEconomicNodeForm({ rebuildSelect: false }); });
-        for (const control of [resource, amount, enabled]) control.addEventListener("change", () => saveEconomicNodeForm({ rebuildSelect: false }));
-        row.append(resourceLabel, amountLabel, enabledLabel, remove);
-        return row;
-      }
-
-      function renderEconomicNodeCaptureStock(node) {
-        els.economicNodeCaptureStock.textContent = "";
-        for (const item of normalizeCaptureStock(node.captureStock)) els.economicNodeCaptureStock.append(economicCaptureStockRow(item));
-        if (!els.economicNodeCaptureStock.children.length) {
-          const empty = document.createElement("p");
-          empty.className = "text-small awt-landmark-flow-empty";
-          empty.textContent = "No resources transfer on capture.";
-          els.economicNodeCaptureStock.append(empty);
-        }
-      }
-
-      function readEconomicNodeCaptureStock() {
-        return normalizeCaptureStock([...els.economicNodeCaptureStock.querySelectorAll(".awt-landmark-flow-row")].map(row => ({
-          resource: row.querySelector('[data-capture-field="resource"]').value,
-          amount: Number(row.querySelector('[data-capture-field="amount"]').value),
-          enabled: row.querySelector('[data-capture-field="enabled"]').checked
-        })));
-      }
-
-      function updateEconomicNodeValidation(node) {
-        const result = validateEconomicNode(node);
-        els.economicNodeValidation.dataset.valid = String(result.valid);
-        els.economicNodeValidation.textContent = result.valid
-          ? result.warnings.length ? `Valid with warning: ${result.warnings.join(" ")}` : "Landmark is valid."
-          : result.errors.join(" ");
-      }
-
-      function saveEconomicNodeForm({ rebuildSelect = true } = {}) {
-        const node = selectedEconomicNode();
-        if (!node) return;
-        node.name = els.economicNodeName.value.trim() || node.name;
-        node.type = els.economicNodeType.value;
-        node.startingOwner = els.economicNodeOwner.value;
-        node.owner = node.startingOwner;
-        node.flows = readEconomicNodeFlows();
-        node.captureStock = readEconomicNodeCaptureStock();
-        node.useTypeDefaults = els.economicNodeUseDefaults.checked;
-        node.capacity = clamp(Number(els.economicNodeCapacity.value) || 1, 1, 1000000);
-        node.strategicValue = clamp(Number(els.economicNodeValue.value) || 0, 0, 100);
-        node.active = els.economicNodeActive.checked;
-        node.strategicObjective = els.economicNodeStrategic.checked;
-        syncEconomicNodeResources(node);
-        updateEconomicNodeValidation(node);
-        if (rebuildSelect) rebuildEconomicNodeSelect();
-        rebuildRoadNetwork();
-        state.minimapMarkerDirty = true;
-        draw();
-      }
-
-      function placeEconomicNode(point) {
-        const node = selectedEconomicNode();
-        if (!node) {
-          els.editorTip.textContent = "Create an economic landmark before placing it.";
-          return;
-        }
-        node.x = clamp(Math.round(point.x), 0, worldWidth());
-        node.y = clamp(Math.round(point.y), 0, worldHeight());
-        for (const route of state.tradeRoutes) {
-          if (route.fromNodeId === node.id && route.points.length) route.points[0] = { x: node.x, y: node.y };
-          if (route.toNodeId === node.id && route.points.length) route.points[route.points.length - 1] = { x: node.x, y: node.y };
-        }
-        rebuildRoadNetwork();
-        state.minimapMarkerDirty = true;
-        els.editorTip.textContent = `${node.name} placed at ${node.x}, ${node.y}.`;
-        draw();
-      }
-
-      function rebuildTradeRouteSelect() {
-        if (!els.tradeRouteType.options.length) {
-          for (const type of TRADE_ROUTE_TYPES) {
-            const option = document.createElement("option");
-            option.value = type;
-            option.textContent = type[0].toUpperCase() + type.slice(1);
-            els.tradeRouteType.append(option);
-          }
-        }
-        const previous = state.selectedTradeRouteId;
-        els.tradeRouteSelect.textContent = "";
-        for (const route of state.tradeRoutes) {
-          const option = document.createElement("option");
-          option.value = route.id;
-          option.textContent = `${route.name} · ${route.type}`;
-          els.tradeRouteSelect.append(option);
-        }
-        state.selectedTradeRouteId = state.tradeRoutes.some(route => route.id === previous) ? previous : state.tradeRoutes[0]?.id || null;
-        els.tradeRouteSelect.value = state.selectedTradeRouteId || "";
-        rebuildTradeRouteNodeOptions();
-      }
-
-      function loadTradeRouteForm() {
-        const route = selectedTradeRoute();
-        if (!route) return;
-        els.tradeRouteSelect.value = route.id;
-        els.tradeRouteName.value = route.name;
-        els.tradeRouteType.value = route.type;
-        els.tradeRouteFrom.value = route.fromNodeId;
-        els.tradeRouteTo.value = route.toNodeId;
-        els.tradeRouteCapacity.value = String(route.capacity);
-        els.tradeRouteResources.value = route.resources.join(", ");
-        els.tradeRouteFactions.value = route.allowedFactions.join(", ");
-        els.tradeRouteRoadRequired.checked = route.roadRequired;
-        els.tradeRouteBidirectional.checked = route.bidirectional;
-        els.tradeRouteActive.checked = route.active;
-      }
-
-      function saveTradeRouteForm() {
-        const route = selectedTradeRoute();
-        if (!route) return;
-        route.name = els.tradeRouteName.value.trim() || route.name;
-        route.type = els.tradeRouteType.value;
-        route.fromNodeId = els.tradeRouteFrom.value;
-        route.toNodeId = els.tradeRouteTo.value;
-        route.capacity = clamp(Number(els.tradeRouteCapacity.value) || 1, 1, 10000);
-        route.resources = els.tradeRouteResources.value.split(",").map(value => value.trim()).filter(Boolean);
-        route.allowedFactions = els.tradeRouteFactions.value.split(",").map(value => value.trim()).filter(Boolean);
-        if (!route.allowedFactions.length) route.allowedFactions = ["*"];
-        route.roadRequired = els.tradeRouteRoadRequired.checked;
-        route.bidirectional = els.tradeRouteBidirectional.checked;
-        route.active = els.tradeRouteActive.checked;
-        const from = state.economicNodes.find(node => node.id === route.fromNodeId);
-        const to = state.economicNodes.find(node => node.id === route.toNodeId);
-        if (!route.points.length && from && to) route.points = [{ x: from.x, y: from.y }, { x: to.x, y: to.y }];
-        rebuildTradeRouteSelect();
-        rebuildRoadNetwork();
-        state.minimapMarkerDirty = true;
-        draw();
-      }
-
-      function nearestEconomicNode(point, limit = 24 / state.camera.zoom) {
-        let nearest = null;
-        let nearestDistance = limit;
-        for (const node of state.economicNodes) {
-          const candidateDistance = distance(node, point);
-          if (candidateDistance <= nearestDistance) {
-            nearest = node;
-            nearestDistance = candidateDistance;
-          }
-        }
-        return nearest;
-      }
-
-      function editTradeRouteAtPoint(point) {
-        const route = selectedTradeRoute();
-        if (!route) {
-          els.editorTip.textContent = "Create a trade route before drawing its economic backbone.";
-          return;
-        }
-        const node = nearestEconomicNode(point);
-        if (!route.fromNodeId) {
-          if (!node) { els.editorTip.textContent = "Start the route by clicking an economic landmark."; return; }
-          route.fromNodeId = node.id;
-          route.points = [{ x: node.x, y: node.y }];
-        } else if (node && node.id !== route.fromNodeId) {
-          route.toNodeId = node.id;
-          route.points.push({ x: node.x, y: node.y });
-        } else if (route.toNodeId && route.points.length >= 2) route.points.splice(route.points.length - 1, 0, { x: Math.round(point.x), y: Math.round(point.y) });
-        else route.points.push({ x: Math.round(point.x), y: Math.round(point.y) });
-        rebuildRoadNetwork();
-        loadTradeRouteForm();
-        state.minimapMarkerDirty = true;
-        els.editorTip.textContent = route.toNodeId ? `${route.name} connected · ${route.points.length} authored points.` : `${route.name} · add waypoints, then click a destination landmark.`;
-        draw();
-      }
-
-      function invalidateLightingCaches() {
-        lightSourceCacheKey = "";
-        lightSourceChunks = new Map();
-        lightingSampleCacheKey = "";
-        shadowCacheBucket = "";
-        shadowSampleCache.clear();
-        lightingSampleCache.clear();
-      }
-
       function updateLightingButton() {
         const enabled = Boolean(state.dayNight.enabled);
         const active = enabled && Boolean(state.lighting.visualTint);
@@ -19610,79 +17937,6 @@ import {
         els.lightingToggle.innerHTML = `<i data-lucide="${enabled ? active ? "moon-star" : "sun-medium" : "circle-off"}" aria-hidden="true"></i>${enabled ? `Night tint ${active ? "on" : "off"}` : "Day/night disabled"}`;
         if (els.castShadows) els.castShadows.checked = active;
         if (window.lucide) lucide.createIcons({ attrs: { width: 16, height: 16 } });
-      }
-
-      function syncLightingControls() {
-        const configuredHour = state.dayNight.mode === "fixed" ? state.dayNight.fixedHour : state.dayNight.startHour;
-        const dayNightDisabled = !state.dayNight.enabled;
-        els.enableLighting.checked = state.dayNight.enabled;
-        els.castShadows.checked = state.lighting.visualTint;
-        els.castShadows.disabled = dayNightDisabled;
-        els.timeMode.value = state.dayNight.mode;
-        els.timeMode.disabled = dayNightDisabled;
-        els.clockRunning.checked = state.clock.running;
-        els.clockRunning.disabled = dayNightDisabled || state.dayNight.mode === "fixed";
-        els.clockRate.value = String(state.clock.rate);
-        els.clockRate.disabled = dayNightDisabled || state.dayNight.mode === "fixed" || !state.clock.running;
-        els.timeOfDay.value = String(configuredHour);
-        els.timeOfDay.disabled = dayNightDisabled;
-        els.timeOfDayValue.textContent = formatHour(configuredHour);
-        els.dayLength.value = String(state.dayNight.dayLengthMinutes);
-        els.dayLengthValue.textContent = String(state.dayNight.dayLengthMinutes);
-        els.dayLength.disabled = dayNightDisabled || state.dayNight.mode === "fixed";
-        els.latitude.value = String(state.dayNight.latitude);
-        els.latitude.disabled = dayNightDisabled;
-        els.latitudeValue.textContent = String(state.dayNight.latitude);
-        els.season.value = state.dayNight.season;
-        els.season.disabled = dayNightDisabled;
-        els.lightingWeather.value = state.dayNight.weather;
-        els.lightingWeather.disabled = dayNightDisabled;
-        els.lightingOverlay.checked = state.lighting.affectsDetection;
-        els.lightingOverlay.disabled = dayNightDisabled;
-        els.artificialLights.checked = false;
-        els.artificialLights.disabled = true;
-        els.buildingColors.checked = state.lighting.buildingColors;
-        els.colorIntensity.value = String(Math.round(state.lighting.colorIntensity * 100));
-        els.colorIntensityValue.textContent = String(Math.round(state.lighting.colorIntensity * 100));
-        els.factionPreservation.value = state.lighting.factionPreservation;
-        els.teamEmblems.checked = state.lighting.teamEmblems;
-        els.accessibilityPatterns.checked = state.lighting.accessibilityPatterns;
-        updateLightingButton();
-      }
-
-      function syncEditorControls() {
-        const player = selectedSpawnPlayer();
-        if (!player) return;
-        const zone = spawnZoneFor(player);
-        for (const input of els.economicOverlayControls.querySelectorAll("[data-economic-overlay]")) input.checked = state.economicOverlay[input.dataset.economicOverlay] !== false;
-        els.editorTool.value = state.editorTool;
-        els.spawnPlayer.value = player.id;
-        els.zoneShape.value = zone.shape;
-        els.zoneSize.value = String(zone.size);
-        els.zoneSizeValue.textContent = String(zone.size);
-        const terrainMode = state.editorTool === "terrain";
-        const resourceMode = state.editorTool === "resource";
-        const tradeRouteMode = state.editorTool === "trade-route";
-        const economicNodeMode = state.editorTool === "economic-node";
-        const lightingMode = state.editorTool === "lighting";
-        els.paintControls.hidden = !terrainMode;
-        els.resourceControls.hidden = !resourceMode;
-        els.tradeRouteControls.hidden = !tradeRouteMode;
-        els.economicNodeControls.hidden = !economicNodeMode;
-        els.lightingControls.hidden = !lightingMode;
-        els.brushCategory.disabled = !terrainMode;
-        els.brushType.disabled = !terrainMode;
-        els.brushSize.disabled = !terrainMode;
-        els.eraseBrush.disabled = !terrainMode;
-        els.zoneSize.disabled = !["spawn", "zone"].includes(state.editorTool) || zone.shape === "custom";
-        els.spawnPlayer.disabled = !["spawn", "zone"].includes(state.editorTool);
-        els.zoneShape.disabled = !["spawn", "zone"].includes(state.editorTool);
-        els.clearZone.hidden = state.editorTool !== "zone" || zone.shape !== "custom";
-        if (resourceMode) loadResourceZoneForm();
-        if (tradeRouteMode) loadTradeRouteForm();
-        if (economicNodeMode) loadEconomicNodeForm();
-        if (lightingMode) syncLightingControls();
-        canvas.style.cursor = state.editorTool === "spawn" ? "move" : "crosshair";
       }
 
       function moveSpawn(player, point) {
@@ -19731,84 +17985,7 @@ import {
         state.minimapMarkerDirty = true;
         rebuildRoadNetwork();
         state.cameraFocus = { ...player.base };
-        els.editorTip.textContent = `P${player.index + 1} spawn moved to (${Math.round(player.base.x)}, ${Math.round(player.base.y)}) · ${zone.shape} zone`;
         draw();
-      }
-
-      function addCustomZonePoint(player, point) {
-        const zone = spawnZoneFor(player);
-        if (zone.shape !== "custom") {
-          els.editorTip.textContent = "Choose Custom as the spawn-zone shape first.";
-          return;
-        }
-        if (zone.points.length >= 12) zone.points = [];
-        zone.points.push({ x: Math.round(point.x), y: Math.round(point.y) });
-        els.editorTip.textContent = `P${player.index + 1} custom zone · ${zone.points.length} point${zone.points.length === 1 ? "" : "s"}${zone.points.length < 3 ? " · add at least 3" : ""}`;
-        draw();
-      }
-
-      function enterEditor() {
-        root.classList.remove("is-configuring");
-        root.classList.add("is-editing");
-        saveActivePlayerForm();
-        const count = Number(els.playerCountSelect.value);
-        const selectedWorld = selectedResolution();
-        setWorldSize(selectedWorld.width, selectedWorld.height);
-        state.players = setupPlayers.slice(0, count).map((player, index) => ({
-          ...player,
-          id: ids[index],
-          index,
-          base: deploymentPosition(index, count, state.world)
-        }));
-        state.scenario = "custom";
-        resetBattle("custom", []);
-        state.spawnPlayerId = state.players[0]?.id || "a";
-        state.editorTool = "terrain";
-        state.brushOpacity = 1;
-        state.brushHardness = 1;
-        state.brushFalloff = 0;
-        state.brushShape = "circle";
-        state.paintMode = "replace";
-        setBrushOpacity(100);
-        els.brushHardness.value = "100";
-        els.brushHardnessValue.textContent = "100";
-        els.brushFalloff.value = "0";
-        els.brushFalloffValue.textContent = "0";
-        els.brushShape.value = "circle";
-        els.paintMode.value = "replace";
-        populateSpawnPlayers();
-        populateEconomicOwners();
-        rebuildResourceZoneSelect();
-        rebuildEconomicNodeSelect();
-        rebuildTradeRouteSelect();
-        state.mode = "editor";
-        state.paused = true;
-        state.replay = false;
-        els.overlay.hidden = true;
-        els.editorBar.hidden = false;
-        els.editorTip.hidden = false;
-        els.editorInspector.hidden = false;
-        els.editorMapDims.textContent = `${worldWidth()} × ${worldHeight()}`;
-        syncEditorControls();
-        selectBrushPreset("grass");
-        setInspector(false);
-        setZoom("fit");
-        els.battleName.textContent = `Untitled theater / ${worldWidth()} × ${worldHeight()} world editor`;
-        updatePauseButton();
-        updateUI(true);
-      }
-
-      function updateBrushTypes() {
-        const values = brushLayers[els.brushCategory.value] || brushLayers.Ground;
-        els.brushType.textContent = "";
-        for (const value of values) {
-          const option = document.createElement("option");
-          option.value = value;
-          option.textContent = brushNames[value];
-          els.brushType.append(option);
-        }
-        state.brush = els.brushType.value;
-        state.erasing = false;
       }
 
       function pointerPosition(event, allowOutsideWorld = false) {
@@ -19834,181 +18011,8 @@ import {
         } : point;
       }
 
-      function pixelProbe(point) {
-        const info = terrainAt(point);
-        const pixelX = Math.floor(point.x);
-        const pixelY = Math.floor(point.y);
-        const temperature = Math.round(26 - info.elevation * 1.4 - (info.moisture - 50) * 0.04);
-        const owner = state.players.find(player => pointInSpawnZone(point, player));
-        const ownerLabel = owner ? `P${owner.index + 1}` : "Neutral";
-        const cover = info.cover >= 0.35 ? "High" : info.cover >= 0.16 ? "Medium" : info.cover > 0.05 ? "Light" : "None";
-        els.editorCursor.textContent = `${pixelX}, ${pixelY}`;
-        els.editorTerrain.textContent = info.name;
-        const slopeValue = state.heightField.active ? state.heightField.slopeAt(point.x, point.y) : 0;
-        els.editorElevation.textContent = state.heightField.active
-          ? `${info.height.toFixed(1)} · ${describeSlope(slopeValue)} ${slopeValue.toFixed(2)}`
-          : info.elevation.toFixed(1);
-        els.editorCover.textContent = cover;
-        els.editorMovement.textContent = `${(1 / Math.max(0.01, info.speed)).toFixed(2)}× cost`;
-        els.editorTip.textContent = `Pixel (${pixelX}, ${pixelY}) · Terrain ${info.name} · Elevation ${info.elevation} · Moisture ${Math.round(info.moisture)}% · ${temperature}°C · Move ${(1 / info.speed).toFixed(2)} · Visibility ${info.detection.toFixed(2)} · Cover ${cover} · Owner ${ownerLabel}`;
-      }
-
-      function selectBrushPreset(type) {
-        const isErase = type === "erase";
-        state.erasing = isErase;
-        if (isErase) {
-          state.paintMode = "remove";
-          els.paintMode.value = "remove";
-        } else {
-          if (state.paintMode === "remove") {
-            state.paintMode = "replace";
-            els.paintMode.value = "replace";
-          }
-          state.brush = type;
-          const category = Object.keys(brushLayers).find(name => brushLayers[name].includes(type));
-          if (category) {
-            els.brushCategory.value = category;
-            updateBrushTypes();
-            els.brushType.value = type;
-            state.brush = type;
-            const editorLayer = category === "Elevation" ? "Elevation"
-              : category === "Roads" ? "Roads"
-                : ["Vegetation", "Natural objects", "Rocks & urban"].includes(category) ? "Vegetation"
-                  : "Ground";
-            for (const tab of root.querySelectorAll("[data-editor-layer]")) tab.classList.toggle("is-active", tab.dataset.editorLayer === editorLayer);
-          }
-        }
-        for (const button of root.querySelectorAll("[data-brush-preset]")) {
-          const selected = button.dataset.brushPreset === type;
-          button.setAttribute("aria-pressed", String(selected));
-          button.classList.toggle("btn-primary", selected);
-        }
-        els.eraseBrush.setAttribute("aria-pressed", String(isErase));
-        els.editorTip.textContent = `${isErase ? "Erase terrain" : brushNames[type] || type} · ${Math.round(state.brushOpacity * 100)}% · ${state.brushShape}`;
-        draw();
-      }
-
-      function setBrushOpacity(value) {
-        const percent = clamp(Math.round(Number(value) || 0), 0, 100);
-        state.brushOpacity = percent / 100;
-        els.brushOpacity.value = String(percent);
-        els.brushOpacityNumber.value = String(percent);
-        els.brushOpacityValue.textContent = String(percent);
-        draw();
-      }
-
-      const SCULPT_BRUSHES = new Set(["raise", "lower", "smooth", "flatten", "noise", "terrace"]);
-
       // Elevation brushes edit the continuous height field instead of stamping
       // a flat "raised ground" overlay, so slopes, ridges and dead ground work.
-      function sculptHeight(point, type, mode) {
-        const field = state.heightField;
-        const now = performance.now();
-        if (type === "flatten" && (state.sculptTarget == null || now - (state.sculptTargetAt || 0) > 450)) state.sculptTarget = field.heightAt(point.x, point.y);
-        state.sculptTargetAt = now;
-        const direction = mode === "remove" ? -1 : 1;
-        const strength = 3.2 * state.brushOpacity * (type === "lower" ? 1 : direction);
-        const touched = field.applyBrush(point.x, point.y, Math.max(HEIGHT_SAMPLE_SPACING, state.brushRadius), strength, type, { target: state.sculptTarget });
-        state.lastBrushPoint = { ...point };
-        state.minimapTerrainDirty = true;
-        const height = field.heightAt(point.x, point.y);
-        els.editorTip.textContent = `${brushNames[type] || type} · height ${height.toFixed(1)} · slope ${describeSlope(field.slopeAt(point.x, point.y))} · ${touched} samples`;
-        pixelProbe(point);
-        draw();
-      }
-
-      function applyBrush(point) {
-        const lockedTerritory = territoryAt(point);
-        if (lockedTerritory?.locked) {
-          els.editorTip.textContent = `${lockedTerritory.name} is locked · painting blocked.`;
-          return;
-        }
-        const mode = state.erasing ? "remove" : state.paintMode;
-        if (mode === "sample") {
-          const sampled = featureAt(point);
-          selectBrushPreset(sampled?.type || terrainTileAt(point).type);
-          return;
-        }
-        if (mode === "remove") {
-          const clearedTiles = paintTerrainTiles(point, state.world.baseTerrain, "remove");
-          state.lastBrushPoint = { ...point };
-          let removedFeatures = 0;
-          for (const feature of visibleFeatures({ left: point.x, right: point.x, top: point.y, bottom: point.y })) {
-            if (featureDistanceFromPoint(point, feature) <= Math.max(feature.r, state.brushRadius) * 0.72) {
-              if (markFeatureDeleted(feature)) removedFeatures += 1;
-            }
-          }
-          els.editorTip.textContent = `Erase terrain · ${clearedTiles} tile${clearedTiles === 1 ? "" : "s"} reset · ${removedFeatures} overlay${removedFeatures === 1 ? "" : "s"} removed`;
-          draw();
-          return;
-        }
-        if (state.brushOpacity <= 0) {
-          els.editorTip.textContent = "Opacity 0% · no terrain change.";
-          return;
-        }
-        const type = state.brush;
-        if (SCULPT_BRUSHES.has(type)) {
-          sculptHeight(point, type, mode);
-          return;
-        }
-        if (isTileTerrainType(type)) {
-          const changed = paintTerrainTiles(point, type, mode);
-          state.lastBrushPoint = { ...point };
-          els.editorTip.textContent = `${brushNames[type] || type} · ${changed} tile${changed === 1 ? "" : "s"} · chunked terrain`;
-          pixelProbe(point);
-          draw();
-          return;
-        }
-        const spacing = Math.max(6, state.brushRadius * (state.brushShape === "line" ? 0.18 : 0.42));
-        const existing = visibleFeatures({
-          left: clamp(point.x - spacing, 0, worldWidth()),
-          right: clamp(point.x + spacing, 0, worldWidth()),
-          top: clamp(point.y - spacing, 0, worldHeight()),
-          bottom: clamp(point.y + spacing, 0, worldHeight())
-        }).reverse().find(feature => feature.type === type && featureDistanceFromPoint(point, feature) < spacing);
-        if (existing && mode === "add") {
-          existing.opacity = clamp((existing.opacity ?? 1) + state.brushOpacity * 0.25, 0, 1);
-          existing.condition = 1;
-          state.minimapTerrainDirty = true;
-          pixelProbe(point);
-          draw();
-          return;
-        }
-        if (existing && mode !== "blend" && state.brushShape !== "line") {
-          existing.opacity = Math.max(existing.opacity ?? 1, state.brushOpacity);
-          existing.hardness = state.brushHardness;
-          existing.falloff = state.brushFalloff;
-          state.minimapTerrainDirty = true;
-          pixelProbe(point);
-          draw();
-          return;
-        }
-        if (mode === "replace") {
-          for (const feature of visibleFeatures({ left: point.x, right: point.x, top: point.y, bottom: point.y })) {
-            if (weatherTypes.has(feature.type)) continue;
-            if (featureDistanceFromPoint(point, feature) <= Math.max(feature.r, state.brushRadius) * 0.62) markFeatureDeleted(feature);
-          }
-        }
-        const previous = state.lastBrushPoint || point;
-        addIndexedFeature({
-          type,
-          visual: visualForBrush(type),
-          x: Math.round(state.brushShape === "line" ? previous.x : point.x),
-          y: Math.round(state.brushShape === "line" ? previous.y : point.y),
-          x2: Math.round(point.x),
-          y2: Math.round(point.y),
-          r: state.brushRadius,
-          opacity: state.brushOpacity,
-          hardness: state.brushHardness,
-          falloff: state.brushFalloff,
-          shape: state.brushShape,
-          condition: 1,
-          age: 0
-        });
-        state.lastBrushPoint = { ...point };
-        pixelProbe(point);
-        draw();
-      }
 
       function beginRightPan(event, trigger = "pointer") {
         if (!pointerPosition(event, true)) return false;
@@ -20039,9 +18043,6 @@ import {
         state.camera.y = state.panStart.cameraY - dy;
         clampCamera();
         state.cameraFocus = { x: state.camera.x, y: state.camera.y };
-        if (state.mode === "editor") {
-          els.editorTip.textContent = `Panning view · center (${Math.round(state.camera.x)}, ${Math.round(state.camera.y)})`;
-        }
         draw();
       }
 
@@ -20054,7 +18055,7 @@ import {
         state.panning = false;
         state.panPointerId = null;
         state.panStart = null;
-        canvas.style.cursor = state.spaceHeld ? "grab" : state.mode === "editor" && state.editorTool === "spawn" ? "move" : "crosshair";
+        canvas.style.cursor = state.spaceHeld ? "grab" : "crosshair";
       }
 
       canvas.addEventListener("pointerdown", event => {
@@ -20067,26 +18068,6 @@ import {
         const point = pointerPosition(event);
         if (!point) return;
         state.cameraFocus = { ...point };
-        if (state.mode === "editor") {
-          const player = selectedSpawnPlayer();
-          if (state.editorTool === "terrain") {
-            state.brushDown = true;
-            state.lastBrushPoint = null;
-            canvas.setPointerCapture?.(event.pointerId);
-            applyBrush(point);
-          } else if (state.editorTool === "spawn" && player) {
-            moveSpawn(player, point);
-          } else if (state.editorTool === "zone" && player) {
-            addCustomZonePoint(player, point);
-          } else if (state.editorTool === "resource") {
-            editResourceZoneAtPoint(point);
-          } else if (state.editorTool === "trade-route") {
-            editTradeRouteAtPoint(point);
-          } else if (state.editorTool === "economic-node") {
-            placeEconomicNode(point);
-          }
-          return;
-        }
         const best = pickUnitAtPoint(point, 16);
         if (best) {
           selectUnitForCard(best);
@@ -20118,64 +18099,15 @@ import {
         if (!state.hover) { if (state.hoverUnitId) { state.hoverUnitId = null; unitHoverTip.hidden = true; } return; }
         state.cameraFocus = { ...state.hover };
         queueHoverPick(event);
-        if (state.mode === "editor") {
-          if (state.editorTool === "terrain") {
-            pixelProbe(state.hover);
-            if (state.brushDown) applyBrush(state.hover);
-          } else if (state.editorTool === "resource") {
-            const zone = selectedResourceZone();
-            if (zone && state.resourceZoneDragStart && (event.buttons & 1)) {
-              const dx = state.hover.x - state.resourceZoneDragStart.point.x;
-              const dy = state.hover.y - state.resourceZoneDragStart.point.y;
-              zone.points = state.resourceZoneDragStart.points.map(anchor => ({
-                x: clamp(anchor.x + dx, 0, worldWidth()),
-                y: clamp(anchor.y + dy, 0, worldHeight())
-              }));
-              touchResourceZoneGeometry(zone);
-              state.minimapMarkerDirty = true;
-              draw();
-            } else if (zone && state.resourceZoneDragIndex >= 0 && (event.buttons & 1)) {
-              zone.points[state.resourceZoneDragIndex] = { x: Math.round(state.hover.x), y: Math.round(state.hover.y) };
-              touchResourceZoneGeometry(zone);
-              state.minimapMarkerDirty = true;
-              draw();
-            } else {
-              els.editorTip.textContent = `${zone?.name || "Resource zone"} · ${state.resourceZoneEditMode} · world (${Math.floor(state.hover.x)}, ${Math.floor(state.hover.y)})`;
-            }
-          } else if (state.editorTool === "trade-route") {
-            const route = selectedTradeRoute();
-            const nearNode = nearestEconomicNode(state.hover);
-            els.editorTip.textContent = `${route?.name || "Trade route"} · ${nearNode ? `landmark ${nearNode.name}` : "waypoint"} · world (${Math.floor(state.hover.x)}, ${Math.floor(state.hover.y)})`;
-          } else if (state.editorTool === "economic-node") {
-            els.editorTip.textContent = `${selectedEconomicNode()?.name || "Economic landmark"} · click to place · world (${Math.floor(state.hover.x)}, ${Math.floor(state.hover.y)})`;
-          } else {
-            const pixelX = Math.floor(state.hover.x);
-            const pixelY = Math.floor(state.hover.y);
-            els.editorTip.textContent = `${state.editorTool === "spawn" ? "Move spawn" : "Custom zone point"} · pixel (${pixelX}, ${pixelY})`;
-          }
-        }
       });
       canvas.addEventListener("pointerup", event => {
         if (state.panning) endRightPan(event);
-        state.brushDown = false;
-        state.lastBrushPoint = null;
-        compactFeatureEdits();
-        state.resourceZoneDragIndex = -1;
-        state.resourceZoneDragStart = null;
       });
       canvas.addEventListener("pointercancel", event => {
         endRightPan(event);
-        state.brushDown = false;
-        state.lastBrushPoint = null;
-        compactFeatureEdits();
-        state.resourceZoneDragIndex = -1;
-        state.resourceZoneDragStart = null;
       });
       canvas.addEventListener("pointerleave", () => {
-        state.brushDown = false;
-        state.resourceZoneDragStart = null;
         state.hover = null;
-        compactFeatureEdits();
       });
       canvas.addEventListener("contextmenu", event => event.preventDefault());
       canvas.addEventListener("wheel", event => {
@@ -20338,11 +18270,6 @@ import {
       els.zoomLevel.addEventListener("change", () => setZoom(els.zoomLevel.value, state.cameraFocus));
       document.addEventListener("fullscreenchange", updateFullscreenButton);
 
-      root.querySelector("#awt-create-map").addEventListener("click", () => {
-        root.classList.add("is-configuring");
-        els.mainActions.hidden = true;
-        els.setupPanel.hidden = false;
-      });
       root.querySelector("#awt-workshop-open").addEventListener("click", () => {
         root.classList.add("is-configuring");
         els.mainActions.hidden = true;
@@ -20383,91 +18310,10 @@ import {
       els.spriteVariant.addEventListener("change", drawSpritePreview);
       els.spriteMode.addEventListener("change", drawSpritePreview);
       els.spritePlayer.addEventListener("change", drawSpritePreview);
-      root.querySelector("#awt-setup-back").addEventListener("click", () => {
-        root.classList.remove("is-configuring");
-        els.setupPanel.hidden = true;
-        els.mainActions.hidden = false;
-      });
-      root.querySelector("#awt-configure-players").addEventListener("click", () => {
-        state.activeSetupPlayer = 0;
-        els.setupPanel.hidden = true;
-        els.playerPanel.hidden = false;
-        loadActivePlayerForm();
-      });
-      root.querySelector("#awt-player-back").addEventListener("click", () => {
-        saveActivePlayerForm();
-        els.playerPanel.hidden = true;
-        els.setupPanel.hidden = false;
-      });
-      root.querySelector("#awt-shape-map").addEventListener("click", enterEditor);
-      els.mapResolution.addEventListener("change", () => {
-        els.customResolution.hidden = els.mapResolution.value !== "custom";
-      });
-      els.scalePreset.addEventListener("change", () => {
-        state.performanceRequested = els.scalePreset.value;
-        state.performancePreset = scalePresetFor(state.units.length, state.performanceRequested);
-        const requestedScale = state.performanceRequested === "auto" ? "skirmish" : state.performanceRequested;
-        const battleScalePreset = scalePresetFor(0, requestedScale);
-        state.battleScale = { id: battleScalePreset.id, targetUnits: battleScalePreset.targetUnits };
-      });
-      els.playerCountSelect.addEventListener("change", () => {
-        const count = Number(els.playerCountSelect.value);
-        if (state.activeSetupPlayer >= count) state.activeSetupPlayer = 0;
-        loadActivePlayerForm();
-      });
-      for (const button of root.querySelectorAll("[data-player-tab]")) {
-        button.addEventListener("click", () => {
-          saveActivePlayerForm();
-          state.activeSetupPlayer = Number(button.dataset.playerTab);
-          loadActivePlayerForm();
-        });
-      }
-      els.playerRace.addEventListener("change", () => {
-        populateFactionSelect(els.playerRace.value);
-        saveActivePlayerForm();
-        populateBattleObjectiveSelect(setupPlayers[state.activeSetupPlayer]);
-      });
-      els.playerFaction.addEventListener("change", () => {
-        populateFactionSelect(els.playerRace.value, els.playerFaction.value);
-        saveActivePlayerForm();
-        populateBattleObjectiveSelect(setupPlayers[state.activeSetupPlayer]);
-      });
-      els.playerSubfaction.addEventListener("change", () => {
-        applySelectedChapterVisualDefaults();
-        saveActivePlayerForm();
-        populateBattleObjectiveSelect(setupPlayers[state.activeSetupPlayer]);
-      });
-      els.playerBattleObjective.addEventListener("change", () => {
-        saveActivePlayerForm();
-        populateBattleObjectiveSelect(setupPlayers[state.activeSetupPlayer]);
-      });
-      els.playerColor.addEventListener("input", () => {
-        els.playerColorValue.textContent = els.playerColor.value.toUpperCase();
-        saveActivePlayerForm();
-        drawSpritePreview();
-        draw();
-      });
-      els.playerSecondaryColor.addEventListener("input", () => {
-        els.playerSecondaryColorValue.textContent = els.playerSecondaryColor.value.toUpperCase();
-        saveActivePlayerForm();
-        drawSpritePreview();
-        draw();
-      });
-      els.playerPattern.addEventListener("change", () => {
-        saveActivePlayerForm();
-        draw();
-      });
-
       root.querySelector("#awt-load-map").addEventListener("click", () => {
         els.mainActions.hidden = true;
         els.loadPanel.hidden = false;
-        const saved = storageAdapter?.load(TEST_MAP_SLOT);
-        els.savedMapStatus.textContent = saved?.savedAt
-          ? `${saved.name || "Local test map"} · saved ${new Date(saved.savedAt).toLocaleString()} · 1920 × 1080`
-          : "No local test map is saved yet.";
       });
-      els.saveMap.addEventListener("click", saveLocalTestMap);
-      els.loadSavedMap.addEventListener("click", loadLocalTestMap);
       root.querySelector("#awt-load-back").addEventListener("click", () => {
         els.loadPanel.hidden = true;
         els.mainActions.hidden = false;
@@ -20490,218 +18336,6 @@ import {
         els.mainActions.hidden = false;
       });
 
-      for (const layerName of Object.keys(brushLayers)) {
-        const option = document.createElement("option");
-        option.value = layerName;
-        option.textContent = layerName;
-        els.brushCategory.append(option);
-      }
-      updateBrushTypes();
-      els.editorTool.addEventListener("change", () => {
-        state.editorTool = els.editorTool.value;
-        syncEditorControls();
-        const player = selectedSpawnPlayer();
-        const zone = player ? spawnZoneFor(player) : null;
-        els.editorTip.textContent = state.editorTool === "terrain"
-          ? `Terrain paint · ${brushNames[state.brush] || state.brush} · ${Math.round(state.brushOpacity * 100)}%`
-          : state.editorTool === "spawn"
-            ? `Click the map to move P${(player?.index ?? 0) + 1}'s spawn.`
-            : state.editorTool === "resource"
-              ? "Resource zones ready · draw the polygon and configure capacity, gathering, regeneration, ownership, and collectors."
-            : state.editorTool === "trade-route"
-              ? "Authored trade routes ready · click an origin landmark, optional waypoints, then a destination landmark."
-            : state.editorTool === "economic-node"
-              ? "Economic landmarks ready · create a node, configure imports and exports, then click to place it."
-            : state.editorTool === "lighting"
-              ? "Day/night ready · configure the theater clock, weather, global tint, detection, and faction materials."
-            : zone?.shape === "custom"
-              ? "Click the map to add custom zone points."
-              : "Choose Custom as the spawn-zone shape first.";
-        draw();
-      });
-      els.timeMode.addEventListener("change", () => {
-        const currentHour = lightingHour();
-        state.dayNight.mode = els.timeMode.value;
-        if (state.dayNight.mode === "fixed") state.dayNight.fixedHour = currentHour;
-        else {
-          state.dayNight.startHour = currentHour;
-          state.clock.elapsedSeconds = 0;
-        }
-        syncLightingControls();
-        updateUI(true);
-        draw();
-      });
-      els.timeOfDay.addEventListener("input", () => {
-        const hour = Number(els.timeOfDay.value);
-        if (state.dayNight.mode === "fixed") state.dayNight.fixedHour = hour;
-        else {
-          state.dayNight.startHour = hour;
-          state.clock.elapsedSeconds = 0;
-        }
-        els.timeOfDayValue.textContent = formatHour(hour);
-        updateUI(true);
-        draw();
-      });
-      els.clockRunning.addEventListener("change", () => {
-        state.clock.running = els.clockRunning.checked;
-        syncLightingControls();
-        updateUI(true);
-      });
-      els.clockRate.addEventListener("change", () => {
-        state.clock.rate = clamp(Number(els.clockRate.value) || 1, 1, 24);
-        updateUI(true);
-      });
-      els.dayLength.addEventListener("input", () => {
-        state.dayNight.dayLengthMinutes = Number(els.dayLength.value);
-        els.dayLengthValue.textContent = els.dayLength.value;
-        updateUI(true);
-        draw();
-      });
-      els.latitude.addEventListener("input", () => {
-        state.dayNight.latitude = Number(els.latitude.value);
-        els.latitudeValue.textContent = els.latitude.value;
-        updateUI(true);
-        draw();
-      });
-      els.season.addEventListener("change", () => {
-        state.dayNight.season = els.season.value;
-        updateUI(true);
-        draw();
-      });
-      els.lightingWeather.addEventListener("change", () => {
-        state.dayNight.weather = els.lightingWeather.value;
-        invalidateLightingCaches();
-        updateUI(true);
-        draw();
-      });
-      els.enableLighting.addEventListener("change", () => {
-        state.dayNight.enabled = els.enableLighting.checked;
-        invalidateLightingCaches();
-        syncLightingControls();
-        els.editorTip.textContent = state.dayNight.enabled
-          ? "Day/night cycle restored with global tint and visibility effects."
-          : "Day/night cycle disabled; the theater clock state remains independent.";
-        updateUI(true);
-        draw();
-      });
-      els.castShadows.addEventListener("change", () => {
-        state.lighting.visualTint = els.castShadows.checked;
-        els.editorTip.textContent = state.lighting.visualTint ? "Global day/night tint enabled." : "Global tint disabled; the clock and detection rules remain active.";
-        updateUI(true);
-        draw();
-      });
-      els.lightingOverlay.addEventListener("change", () => {
-        state.lighting.affectsDetection = els.lightingOverlay.checked;
-        updateLightingButton();
-        draw();
-      });
-      els.artificialLights.addEventListener("change", () => {
-        els.artificialLights.checked = false;
-      });
-      els.buildingColors.addEventListener("change", () => {
-        state.lighting.buildingColors = els.buildingColors.checked;
-        draw();
-      });
-      els.colorIntensity.addEventListener("input", () => {
-        state.lighting.colorIntensity = Number(els.colorIntensity.value) / 100;
-        els.colorIntensityValue.textContent = els.colorIntensity.value;
-        draw();
-      });
-      els.factionPreservation.addEventListener("change", () => {
-        state.lighting.factionPreservation = els.factionPreservation.value;
-        draw();
-      });
-      els.teamEmblems.addEventListener("change", () => {
-        state.lighting.teamEmblems = els.teamEmblems.checked;
-        draw();
-      });
-      els.accessibilityPatterns.addEventListener("change", () => {
-        state.lighting.accessibilityPatterns = els.accessibilityPatterns.checked;
-        draw();
-      });
-      els.spawnPlayer.addEventListener("change", () => {
-        state.spawnPlayerId = els.spawnPlayer.value;
-        const player = selectedSpawnPlayer();
-        if (player) {
-          state.cameraFocus = { ...player.base };
-          if (state.camera.zoom > fitWorldZoom() + 0.0001) {
-            state.camera.x = player.base.x;
-            state.camera.y = player.base.y;
-            clampCamera();
-          }
-        }
-        syncEditorControls();
-        draw();
-      });
-      els.zoneShape.addEventListener("change", () => {
-        const player = selectedSpawnPlayer();
-        if (!player) return;
-        const zone = spawnZoneFor(player);
-        zone.shape = els.zoneShape.value;
-        if (zone.shape === "custom" && zone.points.length < 3) zone.points = defaultCustomZone(player);
-        syncEditorControls();
-        els.editorTip.textContent = `P${player.index + 1} spawn zone · ${zone.shape}${zone.shape === "custom" ? ` · ${zone.points.length} points` : ` · ${zone.size} px`}`;
-        draw();
-      });
-      els.zoneSize.addEventListener("input", () => {
-        const player = selectedSpawnPlayer();
-        if (!player) return;
-        const zone = spawnZoneFor(player);
-        zone.size = Number(els.zoneSize.value);
-        els.zoneSizeValue.textContent = String(zone.size);
-        draw();
-      });
-      els.clearZone.addEventListener("click", () => {
-        const player = selectedSpawnPlayer();
-        if (!player) return;
-        spawnZoneFor(player).points = [];
-        els.editorTip.textContent = `P${player.index + 1} custom zone cleared · click at least 3 new points.`;
-        draw();
-      });
-      els.brushCategory.addEventListener("change", updateBrushTypes);
-      els.brushType.addEventListener("change", () => {
-        state.brush = els.brushType.value;
-        state.erasing = false;
-        const matchingPreset = root.querySelector(`[data-brush-preset="${state.brush}"]`);
-        if (matchingPreset) selectBrushPreset(state.brush);
-        else {
-          for (const button of root.querySelectorAll("[data-brush-preset]")) {
-            button.setAttribute("aria-pressed", "false");
-            button.classList.remove("btn-primary");
-          }
-          draw();
-        }
-      });
-      for (const button of root.querySelectorAll("[data-brush-preset]")) {
-        button.addEventListener("click", () => selectBrushPreset(button.dataset.brushPreset));
-      }
-      els.brushSize.addEventListener("input", () => {
-        state.brushRadius = Number(els.brushSize.value);
-        els.brushSizeValue.textContent = String(state.brushRadius);
-        draw();
-      });
-      els.brushOpacity.addEventListener("input", () => setBrushOpacity(els.brushOpacity.value));
-      els.brushOpacityNumber.addEventListener("input", () => setBrushOpacity(els.brushOpacityNumber.value));
-      els.brushHardness.addEventListener("input", () => {
-        state.brushHardness = Number(els.brushHardness.value) / 100;
-        els.brushHardnessValue.textContent = els.brushHardness.value;
-        draw();
-      });
-      els.brushFalloff.addEventListener("input", () => {
-        state.brushFalloff = Number(els.brushFalloff.value) / 100;
-        els.brushFalloffValue.textContent = els.brushFalloff.value;
-        draw();
-      });
-      els.brushShape.addEventListener("change", () => {
-        state.brushShape = els.brushShape.value;
-        draw();
-      });
-      els.paintMode.addEventListener("change", () => {
-        state.paintMode = els.paintMode.value;
-        state.erasing = state.paintMode === "remove";
-        if (state.erasing) selectBrushPreset("erase");
-        else if (els.eraseBrush.getAttribute("aria-pressed") === "true") selectBrushPreset(state.brush);
-      });
       document.addEventListener("keydown", event => {
         if (event.code !== "Space" || event.repeat || ["INPUT", "SELECT", "TEXTAREA", "BUTTON"].includes(event.target?.tagName)) return;
         if (!["editor", "sim"].includes(state.mode)) return;
@@ -20715,284 +18349,13 @@ import {
         state.spaceHeld = false;
         canvas.classList.remove("is-pan-ready");
         if (state.panning && state.panStart?.trigger === "space") endRightPan();
-        else canvas.style.cursor = state.mode === "editor" && state.editorTool === "spawn" ? "move" : "crosshair";
+        else canvas.style.cursor = "crosshair";
       });
       window.addEventListener("blur", () => {
         state.spaceHeld = false;
         canvas.classList.remove("is-pan-ready");
         endRightPan();
         compactFeatureEdits();
-      });
-      document.addEventListener("keydown", event => {
-        if (state.mode !== "editor" || state.editorTool !== "terrain" || event.ctrlKey || event.metaKey || event.altKey) return;
-        if (["INPUT", "SELECT", "TEXTAREA"].includes(event.target?.tagName)) return;
-        const button = [...root.querySelectorAll("[data-shortcut]")].find(candidate => candidate.dataset.shortcut === event.key.toLowerCase());
-        if (button) {
-          event.preventDefault();
-          selectBrushPreset(button.dataset.brushPreset);
-        }
-      });
-
-      els.resourceSelect.addEventListener("change", () => {
-        state.selectedResourceZoneId = els.resourceSelect.value;
-        loadResourceZoneForm();
-        draw();
-      });
-      els.resourceEditMode.addEventListener("change", () => {
-        state.resourceZoneEditMode = els.resourceEditMode.value;
-        els.editorTip.textContent = `Resource-zone tool · ${state.resourceZoneEditMode}`;
-      });
-      [els.resourceName, els.resourceType, els.resourceCapacity, els.resourceGather, els.resourceRegeneration, els.resourceOwner, els.resourceCollectors, els.resourceRequiresBuilding, els.resourceStrategic, els.resourceInfinite]
-        .forEach(control => control.addEventListener("change", saveResourceZoneForm));
-      root.querySelector("#awt-new-resource-zone").addEventListener("click", () => {
-        const id = `resource-zone-${state.nextResourceZoneId++}`;
-        const zone = createResourceZone(id, state.cameraFocus || worldCenter(), { name: `Resource Zone ${state.nextResourceZoneId - 1}` });
-        zone.points = [];
-        state.resourceZones.push(zone);
-        state.selectedResourceZoneId = zone.id;
-        state.resourceZoneEditMode = "pen";
-        rebuildResourceZoneSelect();
-        loadResourceZoneForm();
-        els.editorTip.textContent = "New resource zone · click at least three map points, then close the shape.";
-        draw();
-      });
-      root.querySelector("#awt-close-resource-zone").addEventListener("click", () => {
-        const zone = selectedResourceZone();
-        if (!zone) return;
-        syncResourceZone(zone);
-        els.editorTip.textContent = zone.points.length >= 3 ? `${zone.name} closed with ${zone.points.length} points.` : `${zone.name} needs at least three points.`;
-        draw();
-      });
-      root.querySelector("#awt-duplicate-resource-zone").addEventListener("click", () => {
-        const zone = selectedResourceZone();
-        if (!zone) return;
-        const id = `resource-zone-${state.nextResourceZoneId++}`;
-        const copy = createResourceZone(id, resourceZoneCenter(zone), {
-          ...zone,
-          id,
-          name: `${zone.name} copy`,
-          startingOwner: "",
-          owner: "",
-          points: zone.points.map(point => ({ x: clamp(point.x + 18, 0, worldWidth()), y: clamp(point.y + 18, 0, worldHeight()) }))
-        });
-        state.resourceZones.push(copy);
-        state.selectedResourceZoneId = copy.id;
-        state.minimapMarkerDirty = true;
-        rebuildResourceZoneSelect();
-        loadResourceZoneForm();
-        draw();
-      });
-      root.querySelector("#awt-delete-resource-zone").addEventListener("click", () => {
-        const zone = selectedResourceZone();
-        if (!zone) return;
-        state.resourceZones = state.resourceZones.filter(item => item.id !== zone.id);
-        state.selectedResourceZoneId = state.resourceZones[0]?.id || null;
-        state.minimapMarkerDirty = true;
-        rebuildResourceZoneSelect();
-        loadResourceZoneForm();
-        draw();
-      });
-      els.economicNodeSelect.addEventListener("change", () => {
-        state.selectedEconomicNodeId = els.economicNodeSelect.value;
-        loadEconomicNodeForm();
-        draw();
-      });
-      [els.economicNodeName, els.economicNodeOwner, els.economicNodeCapacity, els.economicNodeValue, els.economicNodeActive, els.economicNodeStrategic]
-        .forEach(control => control.addEventListener("change", saveEconomicNodeForm));
-      els.economicNodeType.addEventListener("change", () => {
-        const node = selectedEconomicNode();
-        if (!node) return;
-        node.type = els.economicNodeType.value;
-        if (els.economicNodeUseDefaults.checked) {
-          node.flows = flowsForLandmarkType(node.type);
-          node.captureStock = captureStockForLandmarkType(node.type);
-          node.modifiers = modifiersForLandmarkType(node.type);
-        }
-        syncEconomicNodeResources(node);
-        loadEconomicNodeForm();
-        saveEconomicNodeForm();
-      });
-      els.economicNodeUseDefaults.addEventListener("change", () => {
-        const node = selectedEconomicNode();
-        if (!node) return;
-        node.useTypeDefaults = els.economicNodeUseDefaults.checked;
-        if (node.useTypeDefaults) {
-          node.flows = flowsForLandmarkType(node.type);
-          node.captureStock = captureStockForLandmarkType(node.type);
-          node.modifiers = modifiersForLandmarkType(node.type);
-        }
-        syncEconomicNodeResources(node);
-        loadEconomicNodeForm();
-        saveEconomicNodeForm({ rebuildSelect: false });
-      });
-      root.querySelector("#awt-add-economic-flow").addEventListener("click", () => {
-        const node = selectedEconomicNode();
-        if (!node) return;
-        node.flows.push({ resource: "materials", direction: "produce", rate: 1, enabled: true });
-        node.useTypeDefaults = false;
-        syncEconomicNodeResources(node);
-        loadEconomicNodeForm();
-        saveEconomicNodeForm({ rebuildSelect: false });
-      });
-      root.querySelector("#awt-add-economic-capture-stock").addEventListener("click", () => {
-        const node = selectedEconomicNode();
-        if (!node) return;
-        node.captureStock.push({ resource: "ammunition", amount: 25, enabled: true });
-        loadEconomicNodeForm();
-        saveEconomicNodeForm({ rebuildSelect: false });
-      });
-      root.querySelector("#awt-new-economic-node").addEventListener("click", () => {
-        const id = `economic-node-${state.nextEconomicNodeId++}`;
-        const node = createEconomicNode(id, state.cameraFocus || worldCenter(), { name: `Economic Node ${state.nextEconomicNodeId - 1}` });
-        state.economicNodes.push(node);
-        state.selectedEconomicNodeId = node.id;
-        rebuildEconomicNodeSelect();
-        loadEconomicNodeForm();
-        els.editorTip.textContent = "Economic landmark created · configure it, then click the map to place it.";
-        draw();
-      });
-      els.playerTertiaryColor.addEventListener("input", () => {
-        els.playerTertiaryColorValue.textContent = els.playerTertiaryColor.value.toUpperCase();
-        saveActivePlayerForm();
-        drawSpritePreview();
-        draw();
-      });
-      els.playerBodyColor.addEventListener("input", () => {
-        els.playerBodyColorValue.textContent = els.playerBodyColor.value.toUpperCase();
-        saveActivePlayerForm();
-        drawSpritePreview();
-        draw();
-      });
-      root.querySelector("#awt-duplicate-economic-node").addEventListener("click", () => {
-        const source = selectedEconomicNode();
-        if (!source) return;
-        const id = `economic-node-${state.nextEconomicNodeId++}`;
-        const node = createEconomicNode(id, { x: source.x + 24, y: source.y + 24 }, {
-          ...source,
-          id,
-          name: `${source.name} copy`,
-          x: clamp(source.x + 24, 0, worldWidth()),
-          y: clamp(source.y + 24, 0, worldHeight()),
-          flows: source.flows.map(flow => ({ ...flow }))
-        });
-        state.economicNodes.push(node);
-        state.selectedEconomicNodeId = node.id;
-        rebuildEconomicNodeSelect();
-        loadEconomicNodeForm();
-        rebuildRoadNetwork();
-        rebuildStrategicTerritorySystem();
-        draw();
-      });
-      root.querySelector("#awt-delete-economic-node").addEventListener("click", () => {
-        const node = selectedEconomicNode();
-        if (!node) return;
-        state.economicNodes = state.economicNodes.filter(item => item.id !== node.id);
-        state.tradeRoutes = state.tradeRoutes.filter(route => route.fromNodeId !== node.id && route.toNodeId !== node.id);
-        state.selectedEconomicNodeId = state.economicNodes[0]?.id || null;
-        rebuildEconomicNodeSelect();
-        rebuildTradeRouteSelect();
-        rebuildRoadNetwork();
-        draw();
-      });
-      els.tradeRouteSelect.addEventListener("change", () => {
-        state.selectedTradeRouteId = els.tradeRouteSelect.value;
-        loadTradeRouteForm();
-        draw();
-      });
-      [els.tradeRouteName, els.tradeRouteType, els.tradeRouteFrom, els.tradeRouteTo, els.tradeRouteCapacity, els.tradeRouteResources, els.tradeRouteFactions, els.tradeRouteRoadRequired, els.tradeRouteBidirectional, els.tradeRouteActive]
-        .forEach(control => control.addEventListener("change", saveTradeRouteForm));
-      root.querySelector("#awt-new-trade-route").addEventListener("click", () => {
-        const id = `trade-route-${state.nextTradeRouteId++}`;
-        const route = createTradeRoute(id, { name: `Trade Route ${state.nextTradeRouteId - 1}` });
-        state.tradeRoutes.push(route);
-        state.selectedTradeRouteId = route.id;
-        rebuildTradeRouteSelect();
-        loadTradeRouteForm();
-        els.editorTip.textContent = "New authored route · click an origin landmark, optional waypoints, then a destination landmark.";
-        draw();
-      });
-      root.querySelector("#awt-clear-trade-route").addEventListener("click", () => {
-        const route = selectedTradeRoute();
-        if (!route) return;
-        route.fromNodeId = "";
-        route.toNodeId = "";
-        route.points = [];
-        rebuildRoadNetwork();
-        loadTradeRouteForm();
-        draw();
-      });
-      root.querySelector("#awt-delete-trade-route").addEventListener("click", () => {
-        const route = selectedTradeRoute();
-        if (!route) return;
-        state.tradeRoutes = state.tradeRoutes.filter(item => item.id !== route.id);
-        state.selectedTradeRouteId = state.tradeRoutes[0]?.id || null;
-        rebuildTradeRouteSelect();
-        rebuildRoadNetwork();
-        draw();
-      });
-      for (const input of els.economicOverlayControls.querySelectorAll("[data-economic-overlay]")) {
-        input.addEventListener("change", () => {
-          const key = input.dataset.economicOverlay;
-          state.economicOverlay[key] = input.checked;
-          if (key === "territory") state.territoryOverlay = input.checked;
-          if (key === "supply") state.showSupplyRadii = input.checked;
-          state.minimapMarkerDirty = true;
-          draw();
-        });
-      }
-      els.randomizeMap.addEventListener("click", randomizeMap);
-      root.querySelector("#awt-editor-save").addEventListener("click", saveLocalTestMap);
-      for (const tab of root.querySelectorAll("[data-editor-layer]")) {
-        tab.addEventListener("click", () => {
-          state.editorTool = "terrain";
-          els.editorTool.value = "terrain";
-          els.brushCategory.value = tab.dataset.editorLayer;
-          updateBrushTypes();
-          selectBrushPreset(tab.dataset.editorBrush);
-          syncEditorControls();
-          for (const item of root.querySelectorAll("[data-editor-layer]")) item.classList.toggle("is-active", item === tab);
-        });
-      }
-      for (const tab of root.querySelectorAll("[data-editor-tool-target]")) {
-        tab.addEventListener("click", () => {
-          state.editorTool = tab.dataset.editorToolTarget;
-          els.editorTool.value = state.editorTool;
-          syncEditorControls();
-          for (const item of root.querySelectorAll(".awt-editor-tab")) item.classList.toggle("is-active", item === tab);
-          els.editorTip.textContent = state.editorTool === "resource"
-            ? "Resource zones · author polygons and configure their economy rules."
-            : state.editorTool === "trade-route"
-              ? "Trade routes · connect authored economic landmarks; the AI can only operate these links."
-              : state.editorTool === "economic-node"
-                ? "Economic nodes · place strategic landmarks and define their imports and exports."
-                : state.editorTool === "territory"
-                  ? "Territories · author strategic control areas."
-                  : "Bases · place player starting positions.";
-          draw();
-        });
-      }
-      root.querySelector("#awt-clear-map").addEventListener("click", () => {
-        state.features = [];
-        state.resourceZones = [];
-        state.economicNodes = [];
-        state.tradeRoutes = [];
-        state.terrainChunks = new Map();
-        state.heightField.clear();
-        state.world.baseTerrain = "grass";
-        markFeatureIndexDirty();
-        rebuildResourceZoneSelect();
-        rebuildEconomicNodeSelect();
-        rebuildTradeRouteSelect();
-        rebuildRoadNetwork();
-        els.editorTip.textContent = "Map cleared · terrain, resources, economic landmarks, and authored trade routes removed.";
-        draw();
-      });
-      root.querySelector("#awt-deploy-map").addEventListener("click", () => {
-        state.incidents = [];
-        state.snapshots = new SnapshotRingBuffer(180);
-        state.nextSnapshot = 0;
-        captureSnapshot();
-        startSimulation();
       });
 
       els.attachButton.addEventListener("click", () => {
@@ -21076,12 +18439,6 @@ import {
         state.replay = state.replayIndex < last;
         state.replayPlaying = false;
         state.paused = true;
-        lightSourceCacheKey = "";
-        lightSourceChunks = new Map();
-        shadowCacheBucket = "";
-        shadowSampleCache.clear();
-        lightingSampleCacheKey = "";
-        lightingSampleCache.clear();
         updatePauseButton();
         updateUI(true);
       });
@@ -21097,12 +18454,6 @@ import {
         });
       }
 
-      for (const race of Object.keys(raceCatalog)) {
-        const option = document.createElement("option");
-        option.value = race;
-        option.textContent = race;
-        els.playerRace.append(option);
-      }
       for (const family of Object.keys(spriteCatalog)) {
         const option = document.createElement("option");
         option.value = family;
@@ -21111,7 +18462,6 @@ import {
       }
       populateSpritePlayers();
       populateSpriteVariants();
-      loadActivePlayerForm();
 
       function recordFrameFailure(error, phase) {
         const message = error?.stack || error?.message || String(error || "Unknown frame failure");

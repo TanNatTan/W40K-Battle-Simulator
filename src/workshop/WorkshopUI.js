@@ -2,7 +2,7 @@
 // (brush, generator, inspector, checks) and a status bar. Pure DOM; the model is RegionWorkshop
 // and the renderer is WorkshopView.
 
-import { RegionWorkshop, TOOL_GROUPS, BRUSH_TOOLS, MAX_SETTLEMENTS } from "./RegionWorkshop.js";
+import { RegionWorkshop, TOOL_GROUPS, BRUSH_TOOLS, MAX_SETTLEMENTS, MIN_PLAYERS, MAX_PLAYERS, PLAYER_IDS, WORLD_PRESETS, REGION_WORLD_LIMITS } from "./RegionWorkshop.js";
 import { WorkshopView } from "./WorkshopView.js";
 import { REGION_CULTURES, DEFAULT_REGION_CONFIG } from "../region/RegionRuntime.js";
 
@@ -16,8 +16,13 @@ const SLIDER_OPTIONS = {
 };
 const DRAFT_SLOT = "map:__draft__";
 
-export function createWorkshopUI({ root, store = null, players = () => [], createWorker = null, onPlay = () => {}, onClose = () => {} }) {
-  const shop = new RegionWorkshop();
+/**
+ * `armyKit` lets the host describe armies without the workshop knowing the game's catalogue:
+ *   factory(index) -> army config, races(), factions(race), subfactions(race, faction),
+ *   objectives(army) -> [{ id, label }], visualDefaults(army) -> colours/pattern or null.
+ */
+export function createWorkshopUI({ root, store = null, armyKit = null, createWorker = null, onPlay = () => {}, onClose = () => {} }) {
+  const shop = new RegionWorkshop({ armyFactory: armyKit?.factory });
   const el = document.createElement("section");
   el.className = "ws-root";
   el.hidden = true;
@@ -60,7 +65,7 @@ export function createWorkshopUI({ root, store = null, players = () => [], creat
   const canvas = $(".ws-canvas");
   const view = new WorkshopView({ canvas, shop, createWorker });
   view.attachMinimap($(".ws-minimap"));
-  const state = { tool: "raise", radius: 70, strength: 0.5, depth: 4, selection: null, spaceDown: false, drag: null, open: false, toastTimer: 0, draftTimer: 0, genOpen: false };
+  const state = { openArmy: -1, sizeOpen: false, tool: "raise", radius: 70, strength: 0.5, depth: 4, selection: null, spaceDown: false, drag: null, open: false, toastTimer: 0, draftTimer: 0, genOpen: false };
 
   // ---- tool palette ---------------------------------------------------------------------------
   const toolbar = $(".ws-tools");
@@ -87,10 +92,7 @@ export function createWorkshopUI({ root, store = null, players = () => [], creat
 
   // ---- side panel -----------------------------------------------------------------------------
   const side = $(".ws-side");
-  const playerOptions = selected => {
-    const list = players();
-    return [`<option value="">Independent</option>`, ...list.map(player => `<option value="${esc(player.id)}"${selected === player.id ? " selected" : ""}>${esc(player.name || player.id)}</option>`)].join("");
-  };
+  const playerOptions = selected => [`<option value="">Independent</option>`, ...shop.armies.map((army, index) => `<option value="${PLAYER_IDS[index]}"${selected === PLAYER_IDS[index] ? " selected" : ""}>${esc(shop.armyLabel(index))}</option>`)].join("");
   const selectedSettlement = () => state.selection?.type === "settlement" ? shop.settlements.find(item => item.id === state.selection.id) : null;
   const slider = (name, label, min, max, step, value, suffix = "") => `<label class="ws-field"><span>${label}<output data-out="${name}">${value}${suffix}</output></span><input type="range" data-opt="${name}" min="${min}" max="${max}" step="${step}" value="${value}"></label>`;
   const selectField = (name, label, options, current) => `<label class="ws-field"><span>${label}</span><select data-gen="${name}">${options.map(([value, text]) => `<option value="${value}"${String(current ?? "") === value ? " selected" : ""}>${text}</option>`).join("")}</select></label>`;
@@ -116,6 +118,8 @@ export function createWorkshopUI({ root, store = null, players = () => [], creat
       </section>
       ${item ? settlementCard(item) : ""}
       ${base !== null ? baseCard(base) : ""}
+      ${armiesCard()}
+      ${sizeCard()}
       <details class="ws-card ws-gen"${state.genOpen ? " open" : ""}>
         <summary>Generate or reset terrain</summary>
         <p class="ws-help">Builds a whole region the way the <em>Single region</em> scenario does. Your armies' bases stay level and dry. It replaces the map, but you can undo it.</p>
@@ -126,7 +130,7 @@ export function createWorkshopUI({ root, store = null, players = () => [], creat
         <div class="ws-grid3">
           <label class="ws-field"><span>Rivers</span><input type="number" data-gen="riverCount" min="0" max="5" value="${config.riverCount}"></label>
           <label class="ws-field"><span>Lakes</span><input type="number" data-gen="lakeCount" min="0" max="4" value="${config.lakeCount}"></label>
-          <label class="ws-field"><span>Settlements</span><input type="number" data-gen="settlementCount" min="0" max="${MAX_SETTLEMENTS}" value="${shop.settlements.length || config.settlements.length || DEFAULT_REGION_CONFIG.settlements.length}"></label>
+          <label class="ws-field"><span>Settlements</span><input type="number" data-gen="settlementCount" min="0" max="${MAX_SETTLEMENTS}" value="${Math.min(MAX_SETTLEMENTS, shop.settlements.length || config.settlements.length || DEFAULT_REGION_CONFIG.settlements.length)}"></label>
         </div>
         <div class="ws-grid3">
           <label class="ws-field"><span>Iron</span><input type="number" data-gen="iron" min="0" max="8" value="${config.deposits.iron}"></label>
@@ -159,6 +163,57 @@ export function createWorkshopUI({ root, store = null, players = () => [], creat
     syncHeader();
   }
 
+
+  const SWATCH_FIELDS = [["color", "Primary"], ["secondaryColor", "Secondary"], ["tertiaryColor", "Detail"], ["bodyColor", "Armour"]];
+  const PATTERNS = [["solid", "Solid"], ["vertical", "Vertical stripe"], ["diagonal", "Diagonal stripe"], ["split", "Split"], ["checker", "Checker"], ["border", "Border trim"], ["quartered", "Quartered"]];
+  const options = (list, current) => list.map(entry => { const [value, label] = Array.isArray(entry) ? entry : [entry, entry]; return `<option value="${esc(value)}"${value === current ? " selected" : ""}>${esc(label)}</option>`; }).join("");
+
+  function armyRow(army, index) {
+    const open = state.openArmy === index;
+    const selected = state.selection?.type === "base" && state.selection.index === index;
+    const head = `<button type="button" class="ws-army-head${selected ? " is-selected" : ""}" data-army-toggle="${index}" aria-expanded="${open}"><i style="background:${esc(army.color || "#888")}"></i><span><strong>${esc(shop.armyLabel(index))}</strong><small>${esc([army.race, army.subfaction].filter(Boolean).join(" · ") || "Army")}</small></span></button>`;
+    if (!open) return `<div class="ws-army">${head}</div>`;
+    const kit = armyKit;
+    const factions = kit ? kit.factions(army.race) : [];
+    const subfactions = kit ? kit.subfactions(army.race, army.faction) : [];
+    const objectives = kit ? kit.objectives(army) : [];
+    return `<div class="ws-army is-open">${head}<div class="ws-army-body">
+      <label class="ws-field"><span>Name</span><input type="text" maxlength="20" data-af="name" data-army="${index}" value="${esc(army.name)}"></label>
+      ${kit ? `
+      <label class="ws-field"><span>Race</span><select data-af="race" data-army="${index}">${options(kit.races(), army.race)}</select></label>
+      <label class="ws-field"><span>Army / faction</span><select data-af="faction" data-army="${index}">${options(factions, army.faction)}</select></label>
+      <label class="ws-field"><span>Subfaction</span><select data-af="subfaction" data-army="${index}">${options(subfactions, army.subfaction)}</select></label>
+      <label class="ws-field"><span>Team</span><select data-af="team" data-army="${index}">${options([["1", "Team 1"], ["2", "Team 2"], ["3", "Team 3"], ["4", "Team 4"]], String(army.team))}</select></label>
+      <label class="ws-field"><span>Battle objective</span><select data-af="battleObjective" data-army="${index}">${options(objectives.map(entry => [entry.id, entry.label]), army.battleObjective)}</select></label>` : ""}
+      <div class="ws-swatches">${SWATCH_FIELDS.map(([key, label]) => `<label><span>${label}</span><input type="color" data-af="${key}" data-army="${index}" value="${esc(army[key] || army.color || "#888888")}"></label>`).join("")}</div>
+      <label class="ws-field"><span>Pattern</span><select data-af="pattern" data-army="${index}">${options(PATTERNS, army.pattern || "solid")}</select></label>
+      <div class="ws-row"><button type="button" class="ws-btn" data-act="centre-army" data-army="${index}">Show base</button><button type="button" class="ws-btn" data-act="level-army" data-army="${index}">Level base</button></div>
+    </div></div>`;
+  }
+
+  function armiesCard() {
+    return `<section class="ws-card ws-armies">
+      <h2>Armies</h2>
+      <label class="ws-field"><span>Players<output>${shop.armies.length}</output></span><input type="range" min="${MIN_PLAYERS}" max="${MAX_PLAYERS}" step="1" value="${shop.armies.length}" data-players></label>
+      ${shop.armies.map(armyRow).join("")}
+    </section>`;
+  }
+
+  function sizeCard() {
+    const world = shop.world;
+    const preset = WORLD_PRESETS.find(entry => entry.width === world.width && entry.height === world.height);
+    return `<details class="ws-card ws-size"${state.sizeOpen ? " open" : ""}>
+      <summary>Map size · ${world.width} × ${world.height}</summary>
+      <label class="ws-field"><span>Preset</span><select data-size="preset">${WORLD_PRESETS.map(entry => `<option value="${entry.id}"${preset?.id === entry.id ? " selected" : ""}>${entry.label}</option>`).join("")}<option value="custom"${preset ? "" : " selected"}>Custom</option></select></label>
+      <div class="ws-grid3">
+        <label class="ws-field"><span>Width</span><input type="number" data-size="width" min="${REGION_WORLD_LIMITS.minWidth}" max="${REGION_WORLD_LIMITS.maxWidth}" step="${REGION_WORLD_LIMITS.step}" value="${world.width}"></label>
+        <label class="ws-field"><span>Height</span><input type="number" data-size="height" min="${REGION_WORLD_LIMITS.minHeight}" max="${REGION_WORLD_LIMITS.maxHeight}" step="${REGION_WORLD_LIMITS.step}" value="${world.height}"></label>
+        <label class="ws-field"><span>&nbsp;</span><button type="button" class="ws-btn ws-primary" data-act="apply-size">Apply</button></label>
+      </div>
+      <p class="ws-help">Resizing keeps the middle of the map; new ground is meadow and anything outside is clipped (undo restores it). Bigger maps cost more on slow PCs: ${world.width * world.height > 3840 * 2160 ? "<strong>this size may run slowly.</strong>" : "this size is fine."}</p>
+    </details>`;
+  }
+
   function settlementCard(item) {
     return `<section class="ws-card ws-inspector">
       <h2>Settlement</h2>
@@ -175,7 +230,7 @@ export function createWorkshopUI({ root, store = null, players = () => [], creat
 
   function baseCard(index) {
     return `<section class="ws-card ws-inspector">
-      <h2>Army ${index === 0 ? "A" : "B"} base</h2>
+      <h2>${esc(shop.armyLabel(index))} · base</h2>
       <p class="ws-help">Drag the banner with the Army base tool. Troops muster inside the dashed ring.</p>
       <div class="ws-row"><button type="button" class="ws-btn" data-act="level-base">Level ground</button><button type="button" class="ws-btn" data-act="centre-selection">Centre view</button></div>
     </section>`;
@@ -206,10 +261,54 @@ export function createWorkshopUI({ root, store = null, players = () => [], creat
     }
   });
   side.addEventListener("change", event => {
-    if (event.target.dataset.set && event.target.tagName !== "INPUT") renderSide();
-    if (event.target.dataset.gen) readGenerator();
+    const target = event.target;
+    if (target.dataset.set && target.tagName !== "INPUT") renderSide();
+    if (target.dataset.gen) readGenerator();
+    if (target.dataset.players !== undefined) { shop.setPlayerCount(Number(target.value)); renderSide(); return; }
+    if (target.dataset.af !== undefined) { editArmy(Number(target.dataset.army), target.dataset.af, target.value); return; }
+    if (target.dataset.size === "preset") {
+      const preset = WORLD_PRESETS.find(entry => entry.id === target.value);
+      if (preset) { const result = shop.resize(preset.width, preset.height); afterResize(result); }
+      else { state.sizeOpen = true; }
+    }
   });
-  side.addEventListener("toggle", event => { if (event.target.classList?.contains("ws-gen")) state.genOpen = event.target.open; }, true);
+  side.addEventListener("input", event => {
+    if (event.target.dataset.players !== undefined) {
+      const out = event.target.closest("label")?.querySelector("output");
+      if (out) out.textContent = event.target.value;
+    }
+  });
+
+  function afterResize(changed) {
+    if (!changed) return;
+    view.resetBakes();
+    view.fit();
+    toast(`Map is now ${shop.world.width} × ${shop.world.height}.`);
+  }
+
+  // Changing race, faction or subfaction cascades to the dependent choices, the way the setup screen did.
+  function editArmy(index, field, value) {
+    const army = shop.armies[index];
+    if (!army) return;
+    const patch = { [field]: value };
+    if (armyKit && field === "race") {
+      patch.faction = armyKit.factions(value)[0];
+      patch.subfaction = armyKit.subfactions(value, patch.faction)[0];
+    } else if (armyKit && field === "faction") {
+      patch.subfaction = armyKit.subfactions(army.race, value)[0];
+    }
+    if (armyKit && ["race", "faction", "subfaction"].includes(field)) {
+      const next = { ...army, ...patch };
+      const defaults = armyKit.visualDefaults?.(next);
+      if (defaults) Object.assign(patch, { color: defaults.primary, secondaryColor: defaults.secondary, tertiaryColor: defaults.accent || defaults.secondary, bodyColor: defaults.body || defaults.primary, pattern: defaults.pattern });
+      const allowed = armyKit.objectives(next).map(entry => entry.id);
+      if (!allowed.includes(army.battleObjective)) patch.battleObjective = allowed[0];
+    }
+    if (field === "name") patch.name = String(value).trim().slice(0, 20) || `Player ${index + 1}`;
+    shop.updateArmy(index, patch);
+    renderSide();
+  }
+  side.addEventListener("toggle", event => { if (event.target.classList?.contains("ws-gen")) state.genOpen = event.target.open; if (event.target.classList?.contains("ws-size")) state.sizeOpen = event.target.open; }, true);
   side.addEventListener("click", event => {
     const note = event.target.closest("[data-note]");
     if (note) {
@@ -223,8 +322,15 @@ export function createWorkshopUI({ root, store = null, players = () => [], creat
       if (kind === "level") shop.levelBase(Number(index));
       return;
     }
+    const toggle = event.target.closest("[data-army-toggle]");
+    if (toggle) {
+      const index = Number(toggle.dataset.armyToggle);
+      state.openArmy = state.openArmy === index ? -1 : index;
+      select({ type: "base", index });
+      return;
+    }
     const act = event.target.closest("[data-act]")?.dataset.act;
-    if (act) action(act);
+    if (act) action(act, event.target);
   });
 
   let genDraft = null;
@@ -259,7 +365,7 @@ export function createWorkshopUI({ root, store = null, players = () => [], creat
     state.toastTimer = setTimeout(() => { node.hidden = true; }, ms);
   }
 
-  async function action(act) {
+  async function action(act, source = null) {
     switch (act) {
       case "close": close(); break;
       case "undo": { const label = shop.undo(); if (label) toast(`Undid: ${label}`); break; }
@@ -272,6 +378,19 @@ export function createWorkshopUI({ root, store = null, players = () => [], creat
         const result = shop.generate(readGenerator());
         view.resetBakes();
         toast(`Generated: ${result.settlements} settlements, ${result.rivers} rivers, ${result.lakes} lakes.`);
+        break;
+      }
+      case "apply-size": {
+        const width = Number(side.querySelector('[data-size="width"]')?.value);
+        const height = Number(side.querySelector('[data-size="height"]')?.value);
+        afterResize(shop.resize(width, height));
+        break;
+      }
+      case "centre-army": case "level-army": {
+        const index = Number(source?.closest("[data-army]")?.dataset.army);
+        if (act === "level-army") shop.levelBase(index);
+        else { view.camera.x = shop.bases[index].x; view.camera.y = shop.bases[index].y; view.invalidate(); }
+        select({ type: "base", index });
         break;
       }
       case "blank": shop.blank({ biome: readGenerator().biome }); view.resetBakes(); toast("Blank meadow. Sculpt, paint and place."); break;
@@ -483,7 +602,7 @@ export function createWorkshopUI({ root, store = null, players = () => [], creat
   // ---- lifecycle ------------------------------------------------------------------------------
   shop.on(event => {
     if (["stroke", "history"].includes(event.type)) { view.invalidate(); return; }
-    if (["edit", "settlement", "base", "generate", "blank", "load", "undo", "redo"].includes(event.type)) {
+    if (["edit", "settlement", "base", "army", "resize", "generate", "blank", "load", "undo", "redo"].includes(event.type)) {
       if (state.selection?.type === "settlement" && !selectedSettlement()) { state.selection = null; view.selection = null; }
       renderSide();
       scheduleDraft();

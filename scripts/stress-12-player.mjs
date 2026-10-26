@@ -48,7 +48,7 @@ const chromiumCandidates = [
   "/usr/bin/google-chrome",
   "/usr/bin/chromium"
 ];
-const browserPath = chromiumCandidates
+const browserPath = process.env.AWT_BROWSER || chromiumCandidates
   .sort((left, right) => Number(!left.toLowerCase().includes(browserPreference)) - Number(!right.toLowerCase().includes(browserPreference)))
   .find(existsSync);
 if (!browserPath) throw new Error("Chrome or Edge is required for the 12-player stress test.");
@@ -95,7 +95,7 @@ try {
   const serverPort = server.address().port;
   const debugPort = await freePort();
   browser = spawn(browserPath, [
-    "--headless=new", "--disable-extensions", "--no-first-run",
+    "--headless=new", "--disable-extensions", "--no-first-run", ...(process.getuid?.() === 0 ? ["--no-sandbox"] : []),
     "--disable-background-timer-throttling", "--disable-renderer-backgrounding",
     "--disable-backgrounding-occluded-windows",
     "--disable-features=CalculateNativeWinOcclusion,IntensiveWakeUpThrottling,UseEcoQoSForBackgroundProcess",
@@ -199,70 +199,24 @@ try {
 
   const setup = await evaluate(`(() => {
     const root = document.querySelector('#autonomous-war-theater');
-    document.querySelector('#awt-create-map').click();
-    const resolution = document.querySelector('#awt-map-resolution');
-    resolution.value = '1920x1080';
-    resolution.dispatchEvent(new Event('change', { bubbles: true }));
-    const players = document.querySelector('#awt-player-count');
-    players.value = '${playerCount}';
-    players.dispatchEvent(new Event('change', { bubbles: true }));
-    const scale = document.querySelector('#awt-scale-preset');
-    scale.value = '${performancePreset}';
-    scale.dispatchEvent(new Event('change', { bubbles: true }));
-    document.querySelector('#awt-configure-players').click();
+    // The classic tile editor is gone; stage the battle straight from plain army configs.
+    const armies = [];
     ${allianceEvolution ? `
-    const alliancePlayers = ${JSON.stringify(ALLIANCE_EVOLUTION_PLAYERS)};
-    const setAllianceSelect = (selector, value) => {
-      const select = document.querySelector(selector);
-      select.value = value;
-      select.dispatchEvent(new Event('change', { bubbles: true }));
-      if (select.value !== value) throw new Error('Could not configure ' + selector + ' as ' + value);
-    };
-    for (const configured of alliancePlayers) {
-      document.querySelector('[data-player-tab="' + configured.slot + '"]').click();
-      setAllianceSelect('#awt-player-race', configured.race);
-      setAllianceSelect('#awt-player-faction', configured.faction);
-      setAllianceSelect('#awt-player-subfaction', configured.subfaction);
-      setAllianceSelect('#awt-player-team', configured.team);
-      setAllianceSelect('#awt-player-battle-objective', 'annihilation');
+    for (const configured of ${JSON.stringify(ALLIANCE_EVOLUTION_PLAYERS)}) {
+      armies[configured.slot] = { race: configured.race, faction: configured.faction, subfaction: configured.subfaction, team: configured.team, battleObjective: 'annihilation' };
     }
     ` : ""}
     ${spaceMarineGrowthAuditEnabled ? `
-    const setGrowthSelect = (selector, value) => {
-      const select = document.querySelector(selector);
-      select.value = value;
-      select.dispatchEvent(new Event('change', { bubbles: true }));
-    };
-    document.querySelector('[data-player-tab="0"]').click();
-    setGrowthSelect('#awt-player-race', 'Imperium');
-    setGrowthSelect('#awt-player-faction', 'Space Marines');
-    setGrowthSelect('#awt-player-subfaction', ${JSON.stringify(spaceMarineGrowthChapter)});
-    setGrowthSelect('#awt-player-team', '1');
-    setGrowthSelect('#awt-player-battle-objective', 'annihilation');
-    document.querySelector('[data-player-tab="1"]').click();
-    setGrowthSelect('#awt-player-race', 'Orks');
-    setGrowthSelect('#awt-player-faction', 'Orks');
-    setGrowthSelect('#awt-player-subfaction', 'Goffs');
-    setGrowthSelect('#awt-player-team', '2');
-    setGrowthSelect('#awt-player-battle-objective', 'annihilation');
+    armies[0] = { race: 'Imperium', faction: 'Space Marines', subfaction: ${JSON.stringify(spaceMarineGrowthChapter)}, team: '1', battleObjective: 'annihilation' };
+    armies[1] = { race: 'Orks', faction: 'Orks', subfaction: 'Goffs', team: '2', battleObjective: 'annihilation' };
     ` : ""}
     ${allSpaceMarines ? `
     const chapters = ['Ultramarines', 'Blood Angels', 'Imperial Fists', 'Salamanders', 'Emerald Suns', 'White Scars', 'Raven Guard', 'Iron Hands', 'Space Wolves', 'Black Templars'];
-    const setSelect = (selector, value) => {
-      const select = document.querySelector(selector);
-      select.value = value;
-      select.dispatchEvent(new Event('change', { bubbles: true }));
-    };
     for (let index = 0; index < ${playerCount}; index += 1) {
-      document.querySelector('[data-player-tab="' + index + '"]').click();
-      setSelect('#awt-player-race', 'Imperium');
-      setSelect('#awt-player-faction', 'Space Marines');
-      setSelect('#awt-player-subfaction', chapters[index % chapters.length]);
-      setSelect('#awt-player-team', String(index % 4 + 1));
-      setSelect('#awt-player-battle-objective', index % 2 ? 'territorial_domination' : 'annihilation');
+      armies[index] = { race: 'Imperium', faction: 'Space Marines', subfaction: chapters[index % chapters.length], team: String(index % 4 + 1), battleObjective: index % 2 ? 'territorial_domination' : 'annihilation' };
     }
     ` : ""}
-    document.querySelector('#awt-shape-map').click();
+    root.awtDebugControls.stageClassicBattle({ players: ${playerCount}, armies: Array.from(armies, entry => entry || {}), width: 1920, height: 1080, scale: '${performancePreset}' });
     ${twoVsTwo ? `
     for (let index = 0; index < root.awtDebugState.players.length; index += 1) {
       root.awtDebugState.players[index].team = index < 2 ? '1' : '2';
@@ -305,7 +259,7 @@ try {
     globalThis.awtStressInitialFactionBuildings = Object.fromEntries(root.awtDebugState.players.map(player => [player.id,
       root.awtDebugState.structures.filter(structure => structure.faction === player.id).length]));
     globalThis.awtStressConstructionLifecycle = { firstCompletionAt: null, maxConcurrentProjects: 0 };
-    document.querySelector('#awt-deploy-map').click();
+    root.awtDebugControls.deployStaged();
     if (${allianceEvolution}) root.awtDebugState.paused = true;
     if (${spaceMarineGrowthAuditEnabled}) {
       const marine = root.awtDebugState.players.find(player => player.faction === 'Space Marines');

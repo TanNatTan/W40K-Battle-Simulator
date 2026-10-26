@@ -6,14 +6,24 @@
 // directly. Every edit is undoable (see WorkshopHistory).
 
 import { HeightField, SAMPLE_SPACING, CHUNK_SPAN } from "../terrain/HeightField.js";
-import { WorldLayers, DEPOSIT, EARTHWORK, NO_WATER, SURFACE, VEGETATION } from "../world/WorldLayers.js";
+import { WorldLayers, DEPOSIT, EARTHWORK, NO_WATER, SURFACE, VEGETATION, BYTE_LAYERS as LAYER_NAMES } from "../world/WorldLayers.js";
 import { generateRegion, pickSettlementSites } from "../world/RegionGenerator.js";
 import { levelSite } from "../world/Deformation.js";
-import { DEFAULT_REGION_CONFIG, REGION_CULTURES, REGION_WORLD, normalizeRegionConfig } from "../region/RegionRuntime.js";
+import { DEFAULT_REGION_CONFIG, MAX_REGION_SETTLEMENTS, REGION_CULTURES, REGION_WORLD, REGION_WORLD_LIMITS, normalizeRegionConfig, sanitizeRegionWorld } from "../region/RegionRuntime.js";
 import { WorkshopHistory } from "./WorkshopHistory.js";
 
 export const WATER_LEVEL = -2;
-export const MAX_SETTLEMENTS = 8;
+export const MAX_SETTLEMENTS = MAX_REGION_SETTLEMENTS;
+export const MIN_PLAYERS = 2;
+export const MAX_PLAYERS = 12;
+export const PLAYER_IDS = Object.freeze(["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l"]);
+export const WORLD_PRESETS = Object.freeze([
+  { id: "small", label: "Small · 1920 × 1080", width: 1920, height: 1080 },
+  { id: "standard", label: "Standard · 2560 × 1440", width: 2560, height: 1440 },
+  { id: "large", label: "Large · 3840 × 2160", width: 3840, height: 2160 },
+  { id: "huge", label: "Huge · 5120 × 2880", width: 5120, height: 2880 }
+]);
+export { REGION_WORLD_LIMITS };
 export const BASE_RADIUS = 150;
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const smooth = t => { const c = clamp(t, 0, 1); return c * c * (3 - 2 * c); };
@@ -25,16 +35,18 @@ function cellHash(i, j, k = 0) {
 }
 
 // Same ring formula the battle uses for army bases (two armies: top and bottom of the map).
-export function defaultBases(world = REGION_WORLD) {
-  return [0, 1].map(index => {
-    const angle = -Math.PI / 2 + index * Math.PI;
-    const radiusX = Math.max(120, Math.min(world.width * 0.32, world.width / 2 - 180));
-    const radiusY = Math.max(120, Math.min(world.height * 0.32, world.height / 2 - 180));
-    return {
-      x: clamp(world.width / 2 + Math.cos(angle) * radiusX, 160, world.width - 160),
-      y: clamp(world.height / 2 + Math.sin(angle) * radiusY, 160, world.height - 160)
-    };
-  });
+export function defaultBases(world = REGION_WORLD, count = 2) {
+  return Array.from({ length: count }, (_, index) => baseOnRing(world, index, count));
+}
+
+export function baseOnRing(world, index, count) {
+  const angle = -Math.PI / 2 + index * Math.PI * 2 / Math.max(1, count);
+  const radiusX = Math.max(120, Math.min(world.width * 0.32, world.width / 2 - 180));
+  const radiusY = Math.max(120, Math.min(world.height * 0.32, world.height / 2 - 180));
+  return {
+    x: Math.round(clamp(world.width / 2 + Math.cos(angle) * radiusX, 160, world.width - 160)),
+    y: Math.round(clamp(world.height / 2 + Math.sin(angle) * radiusY, 160, world.height - 160))
+  };
 }
 
 // ---- tool catalogue (data-driven so the panel and the tests agree) ---------------------------
@@ -101,8 +113,9 @@ const DEPOSIT_KINDS = {
 export const DEFAULT_BRUSH = Object.freeze({ radius: 70, strength: 0.5 });
 
 export class RegionWorkshop {
-  constructor({ world = REGION_WORLD } = {}) {
+  constructor({ world = REGION_WORLD, armyFactory = null } = {}) {
     this.world = { ...world };
+    this.armyFactory = armyFactory || (index => ({ name: `Player ${index + 1}` }));
     this.field = new HeightField({ width: world.width, height: world.height });
     this.layers = new WorldLayers({ width: world.width, height: world.height });
     this.history = new WorkshopHistory({ field: this.field, layers: this.layers });
@@ -111,6 +124,7 @@ export class RegionWorkshop {
     this.config = normalizeRegionConfig({ ...DEFAULT_REGION_CONFIG, settlements: [] });
     this.settlements = [];
     this.bases = defaultBases(world);
+    this.armies = this.bases.map((_, index) => this.armyFactory(index));
     this.nextSettlementId = 1;
     this.stroke = null;
     this.revision = 0;
@@ -129,7 +143,7 @@ export class RegionWorkshop {
       const count = clamp(Math.round(Number(partial.settlementCount) || 0), 0, MAX_SETTLEMENTS);
       entries = Array.from({ length: count }, (_, index) => ({ ...(entries[index] || entries[entries.length - 1] || {}) }));
     }
-    const config = normalizeRegionConfig({ ...this.config, ...partial, settlements: entries });
+    const config = normalizeRegionConfig({ ...this.config, ...partial, world: this.world, settlements: entries });
     this.config = config;
     const info = generateRegion({
       field: this.field, layers: this.layers, seed: config.seed, width: this.world.width, height: this.world.height,
@@ -181,7 +195,7 @@ export class RegionWorkshop {
     this.layers.bulk += 1;
     this.settlements = [];
     this.nextSettlementId = 1;
-    this.bases = defaultBases(this.world);
+    this.bases = defaultBases(this.world, this.bases.length);
     this.history.recordSnapshot("New blank region", before, this.snapshot());
     this.emit("blank");
   }
@@ -202,7 +216,7 @@ export class RegionWorkshop {
   // ---- snapshots (whole-world undo) ---------------------------------------------------------
   snapshot() {
     return {
-      name: this.name, palette: this.palette, config: structuredClone(this.config),
+      name: this.name, palette: this.palette, config: structuredClone(this.config), world: { ...this.world }, armies: structuredClone(this.armies),
       field: this.field.serialize(), layers: this.layers.serialize(),
       settlements: structuredClone(this.settlements), bases: structuredClone(this.bases), nextSettlementId: this.nextSettlementId
     };
@@ -212,20 +226,26 @@ export class RegionWorkshop {
     this.name = snap.name ?? this.name;
     this.palette = snap.palette || "temperate";
     this.config = normalizeRegionConfig(snap.config);
+    this.world = sanitizeRegionWorld(snap.world || this.world);
     const field = HeightField.deserialize(snap.field, this.world);
     this.field.adopt(field);
     this.field.resize(this.world.width, this.world.height);
     this.layers.chunks = WorldLayers.deserialize(snap.layers, this.world).chunks;
+    this.layers.width = this.world.width;
+    this.layers.height = this.world.height;
     this.layers.bulk += 1;
+    if (Array.isArray(snap.armies) && snap.armies.length) this.armies = structuredClone(snap.armies);
     this.settlements = structuredClone(snap.settlements || []);
     this.bases = structuredClone(snap.bases || defaultBases(this.world));
+    while (this.armies.length < this.bases.length) this.armies.push(this.armyFactory(this.armies.length));
+    this.armies.length = this.bases.length;
     this.nextSettlementId = snap.nextSettlementId || this.settlements.length + 1;
   }
 
   applyHistory(step) {
     if (!step) return;
     if (step.type === "snapshot") this.restoreSnapshot(step.snapshot);
-    else if (step.type === "meta") { this.settlements = structuredClone(step.meta.settlements); this.bases = structuredClone(step.meta.bases); }
+    else if (step.type === "meta") { this.settlements = structuredClone(step.meta.settlements); this.bases = structuredClone(step.meta.bases); if (step.meta.armies) this.armies = structuredClone(step.meta.armies); }
     this.emit("history");
   }
 
@@ -234,7 +254,7 @@ export class RegionWorkshop {
   get canUndo() { return this.history.canUndo; }
   get canRedo() { return this.history.canRedo; }
 
-  metaState() { return { settlements: structuredClone(this.settlements), bases: structuredClone(this.bases) }; }
+  metaState() { return { settlements: structuredClone(this.settlements), bases: structuredClone(this.bases), armies: structuredClone(this.armies) }; }
 
   // ---- brush strokes ------------------------------------------------------------------------
   beginStroke(tool, params = {}) {
@@ -611,13 +631,18 @@ export class RegionWorkshop {
       return max - min;
     };
     this.bases.forEach((base, index) => {
-      const label = index === 0 ? "Army A" : "Army B";
+      const label = this.armyLabel(index);
       if (this.isUnderwater(Math.round(base.x / SAMPLE_SPACING), Math.round(base.y / SAMPLE_SPACING))) notes.push({ level: "error", text: `${label}'s base is underwater.`, at: base });
       else if (unevenness(base.x, base.y, 110) > 7) notes.push({ level: "warn", text: `${label}'s base is on uneven ground. Use "Level base".`, at: base, fix: `level:${index}` });
     });
-    if (this.bases.length === 2 && Math.hypot(this.bases[0].x - this.bases[1].x, this.bases[0].y - this.bases[1].y) < 700) {
-      notes.push({ level: "warn", text: "The armies start very close together.", at: this.bases[0] });
+    let closest = null;
+    for (let a = 0; a < this.bases.length; a += 1) {
+      for (let b = a + 1; b < this.bases.length; b += 1) {
+        const gap = Math.hypot(this.bases[a].x - this.bases[b].x, this.bases[a].y - this.bases[b].y);
+        if (gap < Math.min(700, Math.min(this.world.width, this.world.height) * 0.35) && (!closest || gap < closest.gap)) closest = { a, b, gap };
+      }
     }
+    if (closest) notes.push({ level: "warn", text: `${this.armyLabel(closest.a)} and ${this.armyLabel(closest.b)} start very close together.`, at: this.bases[closest.a] });
     for (const item of this.settlements) {
       const label = item.name || item.id.toUpperCase();
       if (this.isUnderwater(Math.round(item.x / SAMPLE_SPACING), Math.round(item.y / SAMPLE_SPACING))) { notes.push({ level: "error", text: `${label} is underwater.`, at: { x: item.x, y: item.y } }); continue; }
@@ -635,8 +660,132 @@ export class RegionWorkshop {
       });
       if (cells && open / cells < 0.25) notes.push({ level: "warn", text: `${label} has little open, flat land to farm.`, at: { x: item.x, y: item.y } });
     }
-    if (!this.settlements.length) notes.push({ level: "info", text: "No settlements: the battle will be two armies on empty ground." });
+    if (!this.settlements.length) notes.push({ level: "info", text: `No settlements: the battle will be ${this.bases.length} armies on empty ground.` });
     return notes;
+  }
+
+  // ---- armies (players) -----------------------------------------------------------------------
+  armyLabel(index) { return this.armies[index]?.name || `Army ${String.fromCharCode(65 + index)}`; }
+  playerId(index) { return PLAYER_IDS[index]; }
+
+  /** Change how many armies take part. New bases go on the usual ring; the rest keep their places. */
+  setPlayerCount(count) {
+    const next = clamp(Math.round(Number(count) || MIN_PLAYERS), MIN_PLAYERS, MAX_PLAYERS);
+    if (next === this.bases.length) return false;
+    const before = this.metaState();
+    const beforeLength = this.bases.length;
+    if (next > beforeLength) {
+      const spare = defaultBases(this.world, next);
+      for (let index = beforeLength; index < next; index += 1) {
+        // Prefer the ring spot that is not under water and not already close to another base.
+        let spot = spare[index];
+        if (this.bases.some(base => Math.hypot(base.x - spot.x, base.y - spot.y) < 260) || this.isUnderwater(Math.round(spot.x / SAMPLE_SPACING), Math.round(spot.y / SAMPLE_SPACING))) {
+          spot = this.findOpenGround(spot) || spot;
+        }
+        this.bases.push(spot);
+        this.armies.push(this.armyFactory(index));
+      }
+    } else {
+      this.bases.length = next;
+      this.armies.length = next;
+      const valid = new Set(PLAYER_IDS.slice(0, next));
+      for (const item of this.settlements) if (item.owner && !valid.has(item.owner)) item.owner = "";
+    }
+    this.history.recordMeta(next > beforeLength ? "Add army" : "Remove army", before, this.metaState());
+    this.emit("base");
+    return true;
+  }
+
+  findOpenGround(near) {
+    for (let ring = 1; ring < 30; ring += 1) {
+      for (let k = 0; k < 12; k += 1) {
+        const angle = k / 12 * Math.PI * 2 + ring;
+        const x = clamp(near.x + Math.cos(angle) * ring * 90, 200, this.world.width - 200);
+        const y = clamp(near.y + Math.sin(angle) * ring * 90, 200, this.world.height - 200);
+        if (this.isUnderwater(Math.round(x / SAMPLE_SPACING), Math.round(y / SAMPLE_SPACING))) continue;
+        if (this.bases.some(base => Math.hypot(base.x - x, base.y - y) < 320)) continue;
+        if (this.settlements.some(item => Math.hypot(item.x - x, item.y - y) < 220)) continue;
+        return { x: Math.round(x), y: Math.round(y) };
+      }
+    }
+    return null;
+  }
+
+  updateArmy(index, patch) {
+    if (!this.armies[index]) return null;
+    const before = this.metaState();
+    Object.assign(this.armies[index], patch);
+    this.history.recordMeta("Edit army", before, this.metaState());
+    this.emit("army");
+    return this.armies[index];
+  }
+
+  // ---- canvas (world) size ----------------------------------------------------------------------
+  /**
+   * Resize the map around its centre. Ground, cover and everything on it keep their places;
+   * new ground is meadow, and anything that would fall outside is clipped.
+   */
+  resize(width, height) {
+    const next = sanitizeRegionWorld({ width, height });
+    if (next.width === this.world.width && next.height === this.world.height) return false;
+    const before = this.snapshot();
+    const di = Math.round((next.width - this.world.width) / 2 / SAMPLE_SPACING);
+    const dj = Math.round((next.height - this.world.height) / 2 / SAMPLE_SPACING);
+    const shiftX = di * SAMPLE_SPACING;
+    const shiftY = dj * SAMPLE_SPACING;
+    const oldCols = Math.ceil(this.world.width / SAMPLE_SPACING) + 1;
+    const oldRows = Math.ceil(this.world.height / SAMPLE_SPACING) + 1;
+    const cols = Math.ceil(next.width / SAMPLE_SPACING) + 1;
+    const rows = Math.ceil(next.height / SAMPLE_SPACING) + 1;
+
+    const field = new HeightField({ width: next.width, height: next.height, baseHeight: this.field.baseHeight });
+    field.seed = this.field.seed;
+    field.waterLevel = this.field.waterLevel;
+    for (let j = 0; j < rows; j += 1) {
+      for (let i = 0; i < cols; i += 1) {
+        const oi = i - di;
+        const oj = j - dj;
+        if (oi < 0 || oj < 0 || oi >= oldCols || oj >= oldRows) continue;
+        const value = this.field.getSculptSample(oi, oj);
+        if (Math.abs(value) > 0.005) field.setSculptSample(i, j, value);
+      }
+    }
+    const layers = new WorldLayers({ width: next.width, height: next.height, defaults: this.layers.defaults });
+    const names = [...LAYER_NAMES, "depositAmount", "waterSurface"];
+    for (let j = 0; j < rows; j += 1) {
+      for (let i = 0; i < cols; i += 1) {
+        const oi = i - di;
+        const oj = j - dj;
+        const inside = oi >= 0 && oj >= 0 && oi < oldCols && oj < oldRows;
+        if (!inside) {
+          layers.set("vegKind", i, j, VEGETATION.GRASS);
+          layers.set("vegetation", i, j, 110 + cellHash(i, j, 5) * 60);
+          layers.set("fertility", i, j, 150 + cellHash(i, j, 3) * 40);
+          layers.set("moisture", i, j, 90);
+          continue;
+        }
+        for (const name of names) {
+          const value = this.layers.get(name, oi, oj);
+          if (value !== (name === "waterSurface" ? NO_WATER : this.layers.defaults[name] || 0)) layers.set(name, i, j, value);
+        }
+      }
+    }
+    this.field.adopt(field);
+    this.field.resize(next.width, next.height);
+    this.layers.chunks = layers.chunks;
+    this.layers.width = next.width;
+    this.layers.height = next.height;
+    this.layers.bulk += 1;
+    this.world = next;
+    const keep = point => ({ x: clamp(Math.round(point.x + shiftX), 160, next.width - 160), y: clamp(Math.round(point.y + shiftY), 160, next.height - 160) });
+    this.bases = this.bases.map(keep);
+    this.settlements = this.settlements
+      .map(item => ({ ...item, x: item.x + shiftX, y: item.y + shiftY }))
+      .filter(item => item.x >= 150 && item.y >= 150 && item.x <= next.width - 150 && item.y <= next.height - 150);
+    this.config = normalizeRegionConfig({ ...this.config, world: next, settlements: this.config.settlements });
+    this.history.recordSnapshot("Resize map", before, this.snapshot());
+    this.emit("resize");
+    return true;
   }
 
   // ---- persistence --------------------------------------------------------------------------
@@ -647,9 +796,11 @@ export class RegionWorkshop {
       name: this.name,
       palette: this.palette,
       config: { ...this.config, settlements: this.settlements.map(item => ({ ...this.specToConfig(item), x: item.x, y: item.y, name: item.name || "" })) },
+      world: { ...this.world },
       field: this.field.serialize(),
       layers: this.layers.serialize(),
       bases: structuredClone(this.bases),
+      armies: structuredClone(this.armies),
       savedAt: Date.now()
     };
   }
@@ -659,6 +810,7 @@ export class RegionWorkshop {
     const before = this.snapshot();
     this.restoreSnapshot({
       name: payload.name || "Imported region", palette: payload.palette, config: payload.config,
+      world: payload.world || payload.config?.world, armies: payload.armies,
       field: payload.field, layers: payload.layers, bases: payload.bases,
       settlements: (payload.config?.settlements || []).filter(item => Number.isFinite(item.x) && Number.isFinite(item.y)).map((item, index) => ({ id: `s${index + 1}`, x: item.x, y: item.y, name: item.name || "", ...normalizeRegionConfig({ settlements: [item] }).settlements[0] })),
       nextSettlementId: (payload.config?.settlements?.length || 0) + 1

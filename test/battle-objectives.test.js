@@ -16,7 +16,10 @@ const factions = JSON.parse(await readFile(new URL("../data/ai/faction-branches.
 test("battle objectives replace setup-authored doctrine and temperament controls", async () => {
   const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
   const app = await readFile(new URL("../js/app.js", import.meta.url), "utf8");
-  assert.match(html, /id="awt-player-battle-objective"/);
+  // Armies are edited in the Map workshop now; the objective picker lives there, fed by the game catalogue.
+  const workshopUI = await readFile(new URL("../src/workshop/WorkshopUI.js", import.meta.url), "utf8");
+  assert.match(workshopUI, /data-af="battleObjective"/);
+  assert.match(app, /objectives: army => objectiveOptionsFor\(army\)/);
   assert.doesNotMatch(html, /id="awt-player-doctrine"|id="awt-player-ai-preset"|id="awt-ai-(aggression|caution|expansion|economy)"/);
   assert.doesNotMatch(app, /playerDoctrine|playerAiPreset|player\.doctrine\s*=/);
 });

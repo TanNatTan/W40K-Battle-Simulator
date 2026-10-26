@@ -205,3 +205,16 @@
   .ws-minimap { width: 150px; height: 84px; }
   .ws-header .ws-group:nth-of-type(2) { display: none; }
 }
+
+/* armies and map size */
+.ws-army { display: grid; gap: 6px; }
+.ws-army-head { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; border: 1px solid var(--ws-line); border-radius: 6px; background: var(--ws-bg); cursor: pointer; text-align: left; }
+.ws-army-head:hover, .ws-army-head.is-selected { border-color: var(--ws-accent); }
+.ws-army-head i { width: 14px; height: 14px; border-radius: 4px; flex: none; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5); }
+.ws-army-head span { display: grid; min-width: 0; }
+.ws-army-head small { color: var(--ws-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws-army-body { display: grid; gap: 8px; padding: 6px 2px 8px; }
+.ws-swatches { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.ws-swatches label { display: grid; gap: 2px; font-size: 11px; color: var(--ws-dim); }
+.ws-swatches input[type="color"] { width: 100%; height: 26px; padding: 0; border: 1px solid var(--ws-line); border-radius: 5px; background: none; }
+.ws-size summary { cursor: pointer; font-weight: 650; }

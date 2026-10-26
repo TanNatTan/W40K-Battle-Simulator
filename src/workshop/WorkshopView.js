@@ -283,7 +283,7 @@ export class WorkshopView {
     const inv = 1 / camera.zoom;
     ctx.textAlign = "center";
     shop.bases.forEach((base, index) => {
-      const color = BASE_COLORS[index % BASE_COLORS.length];
+      const color = shop.armies[index]?.color || BASE_COLORS[index % BASE_COLORS.length];
       const selected = this.selection?.type === "base" && this.selection.index === index;
       ctx.strokeStyle = color;
       ctx.fillStyle = color;
@@ -303,7 +303,7 @@ export class WorkshopView {
       ctx.fillStyle = "#fff";
       ctx.strokeStyle = "rgba(0,0,0,.7)";
       ctx.lineWidth = 3 * inv;
-      const label = index === 0 ? "ARMY A" : "ARMY B";
+      const label = shop.armyLabel(index).toUpperCase();
       ctx.strokeText(label, base.x, base.y + 38 * inv);
       ctx.fillText(label, base.x, base.y + 38 * inv);
     });
@@ -383,7 +383,7 @@ export class WorkshopView {
       const [cx, cy] = key.split(",").map(Number);
       g.drawImage(entry.canvas, ox + cx * CHUNK_SPAN * scale, oy + cy * CHUNK_SPAN * scale, CHUNK_SPAN * scale + 0.6, CHUNK_SPAN * scale + 0.6);
     }
-    this.shop.bases.forEach((base, index) => { g.fillStyle = BASE_COLORS[index % BASE_COLORS.length]; g.fillRect(ox + base.x * scale - 3, oy + base.y * scale - 3, 6, 6); });
+    this.shop.bases.forEach((base, index) => { g.fillStyle = this.shop.armies[index]?.color || BASE_COLORS[index % BASE_COLORS.length]; g.fillRect(ox + base.x * scale - 3, oy + base.y * scale - 3, 6, 6); });
     g.fillStyle = "#fff";
     for (const item of this.shop.settlements) g.fillRect(ox + item.x * scale - 2, oy + item.y * scale - 2, 4, 4);
     const a = this.toWorld(0, 0);

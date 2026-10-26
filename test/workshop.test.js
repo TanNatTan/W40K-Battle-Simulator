@@ -139,7 +139,7 @@ test("diagnose reports a base in a lake and a settlement that cannot farm", () =
   const shop = blankShop();
   const base = shop.bases[0];
   stroke(shop, "dig", [[base.x, base.y]], { radius: 120, strength: 1, depth: 6 });
-  assert.ok(shop.diagnose().some(note => note.level === "error" && /Army A/.test(note.text)));
+  assert.ok(shop.diagnose().some(note => note.level === "error" && /Player 1/.test(note.text)));
 });
 
 test("payload round trip preserves ground, cover, settlements and bases", () => {
@@ -193,4 +193,66 @@ test("the battle runtime plays a workshop map exactly as authored", async () => 
   assert.equal(runtime.info.authored, true);
   for (let step = 0; step < 40; step += 1) { state.time += 0.25; runtime.step(0.25); }
   assert.equal(runtime.overview().length, 2);
+});
+
+test("the map can be resized around its centre without losing what was built", () => {
+  const shop = blankShop();
+  stroke(shop, "raise", [[1280, 720]], { radius: 120, strength: 1 });
+  stroke(shop, "forest", [[1500, 400]], { radius: 90, strength: 1 });
+  shop.addSettlement(1600, 700, { name: "Keep" });
+  const hill = shop.field.heightAt(1280, 720);
+  const forestBefore = shop.stats().forest * shop.world.width * shop.world.height;
+  assert.equal(shop.resize(3840, 2160), true);
+  assert.deepEqual(shop.world, { width: 3840, height: 2160 });
+  // The centre moved by +640, +368 (whole 16-unit samples).
+  assert.ok(Math.abs(shop.field.heightAt(1920, 1088) - hill) < 0.05, "hill kept at the new centre");
+  assert.equal(shop.settlements[0].x, 2240);
+  assert.equal(shop.settlements[0].y, 1068);
+  const forestAfter = shop.stats().forest * 3840 * 2160;
+  assert.ok(forestAfter >= forestBefore * 0.9, "forest survives (new ground is meadow)");
+  assert.equal(shop.resize(3840, 2160), false, "no change when the size is the same");
+  assert.equal(shop.resize(100000, 100000), true, "oversized requests are clamped");
+  assert.ok(shop.world.width <= 8192 && shop.world.height <= 4608);
+  shop.undo();
+  shop.undo();
+  assert.deepEqual(shop.world, { width: 2560, height: 1440 });
+  assert.ok(Math.abs(shop.field.heightAt(1280, 720) - hill) < 0.05, "undo restores the old ground");
+  assert.equal(shop.settlements[0].x, 1600);
+});
+
+test("any number of armies from 2 to 12, each with a base, a name and a place on dry land", () => {
+  const shop = blankShop();
+  assert.equal(shop.setPlayerCount(6), true);
+  assert.equal(shop.bases.length, 6);
+  assert.equal(shop.armies.length, 6);
+  const keys = new Set(shop.bases.map(base => `${base.x},${base.y}`));
+  assert.equal(keys.size, 6, "bases are all in different places");
+  shop.updateArmy(3, { name: "Blackstone", race: "Orks" });
+  assert.equal(shop.armyLabel(3), "Blackstone");
+  const settlement = shop.addSettlement(1200, 700, { owner: "f" }).settlement;
+  assert.equal(settlement.owner, "f");
+  assert.equal(shop.setPlayerCount(3), true);
+  assert.equal(shop.settlements[0].owner, "", "a settlement ruled by a removed army becomes independent");
+  assert.equal(shop.setPlayerCount(99), true);
+  assert.equal(shop.bases.length, 12);
+  assert.equal(shop.setPlayerCount(1), true);
+  assert.equal(shop.bases.length, 2, "never fewer than two armies");
+  shop.undo();
+  assert.equal(shop.bases.length, 12);
+});
+
+test("armies, world size and extra settlements survive save/load and deploy", () => {
+  const shop = blankShop();
+  shop.resize(1920, 1080);
+  shop.setPlayerCount(4);
+  shop.updateArmy(2, { name: "Tide", color: "#123456" });
+  for (let n = 0; n < 12; n += 1) shop.addSettlement(260 + (n % 6) * 260, 300 + Math.floor(n / 6) * 480);
+  assert.ok(shop.settlements.length >= 8, `placed ${shop.settlements.length}`);
+  const copy = JSON.parse(JSON.stringify(shop.toDeploy()));
+  const other = new RegionWorkshop();
+  assert.equal(other.loadPayload(copy), true);
+  assert.deepEqual(other.world, { width: 1920, height: 1080 });
+  assert.equal(other.bases.length, 4);
+  assert.equal(other.armies[2].name, "Tide");
+  assert.equal(other.settlements.length, shop.settlements.length);
 });

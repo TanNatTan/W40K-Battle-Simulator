@@ -13,6 +13,17 @@ import { CHUNK_SPAN } from "../terrain/HeightField.js";
 import { BUILDING_TYPES, DAY } from "../settlements/Settlement.js";
 
 export const REGION_WORLD = Object.freeze({ width: 2560, height: 1440 });
+export const REGION_WORLD_LIMITS = Object.freeze({ minWidth: 960, minHeight: 540, maxWidth: 8192, maxHeight: 4608, step: 8 });
+
+/** A usable region size: a multiple of 8, inside the supported range. */
+export function sanitizeRegionWorld(input) {
+  const { minWidth, minHeight, maxWidth, maxHeight, step } = REGION_WORLD_LIMITS;
+  const snap = (value, min, max, fallback) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? Math.min(max, Math.max(min, Math.round(n / step) * step)) : fallback;
+  };
+  return { width: snap(input?.width, minWidth, maxWidth, REGION_WORLD.width), height: snap(input?.height, minHeight, maxHeight, REGION_WORLD.height) };
+}
 
 export const REGION_CULTURES = Object.freeze(["frontier", "devout", "mining", "martial", "free"]);
 
@@ -31,13 +42,15 @@ export const DEFAULT_REGION_CONFIG = Object.freeze({
   ])
 });
 
+export const MAX_REGION_SETTLEMENTS = 16;
+
 export function normalizeRegionConfig(input = {}) {
   const base = DEFAULT_REGION_CONFIG;
   const num = (value, fallback, min, max) => {
     const n = Number(value);
     return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
   };
-  const settlements = (Array.isArray(input.settlements) ? input.settlements : base.settlements).slice(0, 8).map(entry => ({
+  const settlements = (Array.isArray(input.settlements) ? input.settlements : base.settlements).slice(0, MAX_REGION_SETTLEMENTS).map(entry => ({
     population: Math.round(num(entry?.population, 32, 8, 120)),
     farmland: num(entry?.farmland, 1, 0.3, 2),
     mine: entry?.mine !== false,
@@ -49,6 +62,7 @@ export function normalizeRegionConfig(input = {}) {
     ...(typeof entry?.name === "string" && entry.name ? { name: entry.name.slice(0, 28) } : {})
   }));
   return {
+    ...(input.world ? { world: sanitizeRegionWorld(input.world) } : {}),
     seed: String(input.seed || base.seed).slice(0, 40),
     biome: ["temperate", "forest", "desert", "frozen", "volcanic", "wetland"].includes(input.biome) ? input.biome : base.biome,
     mountains: input.mountains == null || input.mountains === "" ? null : num(input.mountains, 0.5, 0, 1),
@@ -78,6 +92,7 @@ const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 export function createRegionRuntime(api) {
   const rt = {
     active: false,
+    world: { ...REGION_WORLD },
     config: null,
     info: null,
     layers: null,
@@ -100,13 +115,14 @@ export function createRegionRuntime(api) {
   // ---- creating the region ------------------------------------------------------------------
   rt.begin = (rawConfig, bases = [], saved = null, authored = null) => {
     const s = state();
+    rt.world = sanitizeRegionWorld(authored?.world || saved?.world || rawConfig?.world || REGION_WORLD);
     if (authored?.field && authored?.layers) {
       // A map made in the workshop: adopt its ground as it is instead of generating one.
       rt.restored = false;
       rt.authored = true;
       rt.config = normalizeRegionConfig(rawConfig);
       s.heightField.adopt(api.deserializeField(authored.field));
-      rt.layers = WorldLayers.deserialize(authored.layers, REGION_WORLD);
+      rt.layers = WorldLayers.deserialize(authored.layers, rt.world);
       s.worldLayers = rt.layers;
       rt.info = { seed: rt.config.seed, palette: authored.palette || "temperate", sites: [], rivers: [], lakes: [], authored: true };
       s.terrainPalette = rt.info.palette;
@@ -135,7 +151,7 @@ export function createRegionRuntime(api) {
     }
     rt.restored = false;
     const config = normalizeRegionConfig(rawConfig);
-    const { width, height } = REGION_WORLD;
+    const { width, height } = rt.world;
     rt.config = config;
     rt.layers = new WorldLayers({ width, height });
     rt.info = generateRegion({
@@ -173,8 +189,8 @@ export function createRegionRuntime(api) {
     }
     rt.living = new LivingSettlements({
       field: s.heightField, layers: rt.layers, eco: rt.eco, random: api.random,
-      width: REGION_WORLD.width, height: REGION_WORLD.height,
-      limits: { maxSettlements: 16 },
+      width: rt.world.width, height: rt.world.height,
+      limits: { maxSettlements: 24 },
       host: buildHost()
     });
     const avoid = rt.bases.map(base => ({ x: base.x, y: base.y, radius: 190 }));
@@ -220,8 +236,8 @@ export function createRegionRuntime(api) {
     for (let ring = 0; ring < 12 && !spot; ring += 1) {
       for (let k = 0; k < (ring ? 10 : 1) && !spot; k += 1) {
         const angle = k / 10 * Math.PI * 2 + ring;
-        const px = clamp(x + Math.cos(angle) * ring * 40, 150, REGION_WORLD.width - 150);
-        const py = clamp(y + Math.sin(angle) * ring * 40, 150, REGION_WORLD.height - 150);
+        const px = clamp(x + Math.cos(angle) * ring * 40, 150, rt.world.width - 150);
+        const py = clamp(y + Math.sin(angle) * ring * 40, 150, rt.world.height - 150);
         const ground = rt.groundFor({ x: px, y: py });
         const tooClose = [...rt.living.settlements.values()].some(other => Math.hypot(other.x - px, other.y - py) < 220);
         if (ground.depth < 0.15 && s.heightField.slopeAt(px, py) < 0.2 && !tooClose) spot = { x: px, y: py };
@@ -394,9 +410,9 @@ export function createRegionRuntime(api) {
     const s = state();
     const span = CHUNK_SPAN;
     const minX = Math.max(0, Math.floor(bounds.left / span));
-    const maxX = Math.min(Math.ceil(REGION_WORLD.width / span) - 1, Math.floor(bounds.right / span));
+    const maxX = Math.min(Math.ceil(rt.world.width / span) - 1, Math.floor(bounds.right / span));
     const minY = Math.max(0, Math.floor(bounds.top / span));
-    const maxY = Math.min(Math.ceil(REGION_WORLD.height / span) - 1, Math.floor(bounds.bottom / span));
+    const maxY = Math.min(Math.ceil(rt.world.height / span) - 1, Math.floor(bounds.bottom / span));
     if ((maxX - minX + 1) * (maxY - minY + 1) > 400) return;
     let baked = 0;
     let pending = false;
@@ -592,6 +608,7 @@ export function createRegionRuntime(api) {
     if (!rt.active || !rt.living) return null;
     return {
       version: 1,
+      world: { ...rt.world },
       palette: rt.info?.palette || "temperate",
       config: rt.config,
       layers: rt.layers.serialize(),
@@ -608,12 +625,12 @@ export function createRegionRuntime(api) {
     const s = state();
     rt.config = normalizeRegionConfig(payload.config);
     if (payload.field) field.adopt(api.deserializeField(payload.field));
-    rt.layers = WorldLayers.deserialize(payload.layers, REGION_WORLD);
+    rt.layers = WorldLayers.deserialize(payload.layers, rt.world);
     s.worldLayers = rt.layers;
     rt.eco = new EcosystemSimulator({ layers: rt.layers, field, random: api.random });
     if (payload.eco) { rt.eco.time = payload.eco.time || 0; Object.assign(rt.eco.weather, payload.eco.weather || {}); Object.assign(rt.eco.stats, payload.eco.stats || {}); }
     rt.living = LivingSettlements.deserialize(payload.living, {
-      field, layers: rt.layers, eco: rt.eco, random: api.random, width: REGION_WORLD.width, height: REGION_WORLD.height, host: buildHost(), limits: { maxSettlements: 16 }
+      field, layers: rt.layers, eco: rt.eco, random: api.random, width: rt.world.width, height: rt.world.height, host: buildHost(), limits: { maxSettlements: 24 }
     });
     rt.bindings = new Map();
     rt.vegetation.clear();

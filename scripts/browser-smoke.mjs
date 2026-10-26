@@ -14,7 +14,7 @@ const chromeCandidates = [
   "/usr/bin/google-chrome",
   "/usr/bin/chromium"
 ];
-const browserPath = chromeCandidates.find(existsSync);
+const browserPath = process.env.AWT_BROWSER || chromeCandidates.find(existsSync);
 if (!browserPath) throw new Error("Chrome or Edge is required for the browser smoke test.");
 
 const mime = {
@@ -61,7 +61,7 @@ try {
   const serverPort = server.address().port;
   const debugPort = await freePort();
   browser = spawn(browserPath, [
-    "--headless=new", "--disable-gpu", "--disable-extensions", "--no-first-run",
+    "--headless=new", "--disable-gpu", "--disable-extensions", "--no-first-run", ...(process.getuid?.() === 0 ? ["--no-sandbox"] : []),
     `--user-data-dir=${profile}`, `--remote-debugging-port=${debugPort}`, "--window-size=1440,900", "about:blank"
   ], { stdio: "ignore" });
 
@@ -114,133 +114,68 @@ try {
   })()`);
   if (startup.ready !== "true" || startup.economicMapDataVersion !== 1 || startup.resourceCatalogVersion !== 2 || startup.error) throw new Error(`Startup failed: ${JSON.stringify(startup)}`);
 
+  // The classic tile editor is gone: maps are made in the Map workshop and armies are edited there.
+  const menu = await evaluate(`(() => ({
+    classicEditorButton: Boolean(document.querySelector('#awt-create-map')),
+    classicEditorBar: Boolean(document.querySelector('#awt-editor-bar')),
+    workshopButton: Boolean(document.querySelector('#awt-workshop-open')),
+    scenarioButtons: document.querySelectorAll('[data-scenario]').length
+  }))()`);
+  if (menu.classicEditorButton || menu.classicEditorBar || !menu.workshopButton || menu.scenarioButtons !== 3) {
+    throw new Error(`Menu check failed: ${JSON.stringify(menu)}`);
+  }
   const playerSetup = await evaluate(`(() => {
-    document.querySelector('#awt-create-map').click();
-    document.querySelector('#awt-configure-players').click();
-    const objective = document.querySelector('#awt-player-battle-objective');
-    const race = document.querySelector('#awt-player-race');
-    const subfaction = document.querySelector('#awt-player-subfaction');
-    const result = {
-      raceCount: race?.options?.length || 0,
-      selectedRace: race?.value || null,
-      subfactionCount: subfaction?.options?.length || 0,
-      objectiveCount: objective?.options?.length || 0,
-      selectedObjective: objective?.value || null,
-      objectiveName: document.querySelector('#awt-objective-name')?.textContent || null,
-      objectiveMethod: document.querySelector('#awt-objective-method')?.textContent || null,
+    const kit = document.querySelector('#autonomous-war-theater').awtArmyKit;
+    const army = kit.factory(1);
+    const chaos = { ...army, race: 'Chaos', faction: kit.factions('Chaos')[0] };
+    chaos.subfaction = kit.subfactions('Chaos', chaos.faction)[0];
+    return {
+      raceCount: kit.races().length,
+      selectedRace: kit.factory(0).race,
+      subfactionCount: kit.subfactions('Imperium', 'Space Marines').length,
+      objectiveCount: kit.objectives(army).length,
+      secondPlayer: { name: army.name, race: army.race },
+      chaosFaction: chaos.faction,
+      chaosSubfactionCount: kit.subfactions('Chaos', chaos.faction).length,
+      hasNightLords: kit.subfactions('Chaos', chaos.faction).includes('Night Lords'),
+      chaosObjectiveCount: kit.objectives(chaos).length,
       doctrineControl: Boolean(document.querySelector('#awt-player-doctrine')),
       presetControl: Boolean(document.querySelector('#awt-player-ai-preset')),
       temperamentControls: document.querySelectorAll('[id^="awt-ai-aggression"], [id^="awt-ai-caution"], [id^="awt-ai-expansion"], [id^="awt-ai-economy"]').length
     };
-    document.querySelector('[data-player-tab="1"]').click();
-    result.secondPlayer = {
-      title: document.querySelector('#awt-player-panel-title')?.textContent || null,
-      race: race.value,
-      faction: document.querySelector('#awt-player-faction').value,
-      subfaction: subfaction.value,
-      objective: objective.value
-    };
-    race.value = 'Chaos';
-    race.dispatchEvent(new Event('change', { bubbles: true }));
-    result.changedRace = {
-      race: race.value,
-      faction: document.querySelector('#awt-player-faction').value,
-      subfactionCount: subfaction.options.length,
-      hasNightLords: [...subfaction.options].some(option => option.value === 'Night Lords'),
-      objectiveCount: objective.options.length,
-      objectiveName: document.querySelector('#awt-objective-name')?.textContent || null
-    };
-    document.querySelector('[data-player-tab="0"]').click();
-    return result;
   })()`);
   if (playerSetup.raceCount !== 6 || playerSetup.selectedRace !== 'Imperium' || playerSetup.subfactionCount < 9
-    || playerSetup.objectiveCount !== 18 || !playerSetup.selectedObjective || !playerSetup.objectiveName || !playerSetup.objectiveMethod
-    || playerSetup.secondPlayer?.title !== 'Player 2 configuration' || playerSetup.secondPlayer?.race !== 'Orks'
-    || playerSetup.changedRace?.race !== 'Chaos' || playerSetup.changedRace?.faction !== 'Chaos Space Marines'
-    || playerSetup.changedRace?.subfactionCount < 9 || !playerSetup.changedRace?.hasNightLords
-    || playerSetup.changedRace?.objectiveCount !== 18 || playerSetup.changedRace?.objectiveName !== "Slaughter in the Gods' Name"
-    || playerSetup.doctrineControl || playerSetup.presetControl || playerSetup.temperamentControls) {
-    throw new Error(`Battle objective setup failed: ${JSON.stringify(playerSetup)}`);
+    || playerSetup.objectiveCount !== 18 || playerSetup.secondPlayer?.name !== 'Player 2' || playerSetup.secondPlayer?.race !== 'Orks'
+    || playerSetup.chaosFaction !== 'Chaos Space Marines' || playerSetup.chaosSubfactionCount < 9 || !playerSetup.hasNightLords
+    || playerSetup.chaosObjectiveCount !== 18 || playerSetup.doctrineControl || playerSetup.presetControl || playerSetup.temperamentControls) {
+    throw new Error(`Army catalogue check failed: ${JSON.stringify(playerSetup)}`);
   }
   if (process.env.AWT_SMOKE_SETUP_SCREENSHOT) {
     const screenshot = await command("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
     await writeFile(process.env.AWT_SMOKE_SETUP_SCREENSHOT, Buffer.from(screenshot.data, "base64"));
   }
   await evaluate(`(() => {
-    document.querySelector('#awt-shape-map').click();
+    const root = document.querySelector('#autonomous-war-theater');
+    root.awtDebugControls.stageClassicBattle({ players: 2, armies: [{}, { race: 'Chaos', faction: 'Chaos Space Marines', subfaction: 'Night Lords', battleObjective: 'annihilation' }] });
     document.querySelector('#awt-zoom-in').click();
     document.querySelector('#awt-minimap').scrollIntoView({ block: 'center' });
   })()`);
   await new Promise(resolve => setTimeout(resolve, 250));
-
-  await evaluate(`(() => {
-    document.querySelector('[data-editor-tool-target="economic-node"]').click();
-    document.querySelector('#awt-new-economic-node').click();
-    const firstName = document.querySelector('#awt-economic-node-name');
-    firstName.value = 'Hive City Alpha';
-    firstName.dispatchEvent(new Event('change', { bubbles: true }));
-    const firstType = document.querySelector('#awt-economic-node-type');
-    firstType.value = 'fuel-refinery';
-    firstType.dispatchEvent(new Event('change', { bubbles: true }));
-    document.querySelector('#awt-new-economic-node').click();
-    const secondName = document.querySelector('#awt-economic-node-name');
-    secondName.value = 'Manufactorum Delta';
-    secondName.dispatchEvent(new Event('change', { bubbles: true }));
-    document.querySelector('[data-editor-tool-target="trade-route"]').click();
-    document.querySelector('#awt-new-trade-route').click();
-    const state = document.querySelector('#autonomous-war-theater').awtDebugState;
-    const from = document.querySelector('#awt-trade-route-from');
-    const to = document.querySelector('#awt-trade-route-to');
-    from.value = state.economicNodes[0].id;
-    from.dispatchEvent(new Event('change', { bubbles: true }));
-    to.value = state.economicNodes[1].id;
-    to.dispatchEvent(new Event('change', { bubbles: true }));
-    document.querySelector('#awt-randomize-map').click();
-  })()`);
-
-  if (process.env.AWT_SMOKE_EDITOR_SCREENSHOT) {
-    await evaluate(`(() => {
-      document.querySelector('[data-editor-tool-target="economic-node"]').click();
-      document.querySelector('#awt-economic-node-controls').scrollIntoView({ block: 'center' });
-    })()`);
-    await new Promise(resolve => setTimeout(resolve, 150));
-    const screenshot = await command("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
-    await writeFile(process.env.AWT_SMOKE_EDITOR_SCREENSHOT, Buffer.from(screenshot.data, "base64"));
-    await evaluate("document.querySelector('#awt-minimap').scrollIntoView({ block: 'center' })");
-    await new Promise(resolve => setTimeout(resolve, 100));
-  }
 
   const editor = await evaluate(`(() => {
     const root = document.querySelector('#autonomous-war-theater');
     const minimap = document.querySelector('#awt-minimap');
     const rect = minimap.getBoundingClientRect();
     return {
-      editing: root.classList.contains('is-editing'),
-      editorVisible: !document.querySelector('#awt-editor-bar').hidden,
-      inspectorVisible: !document.querySelector('#awt-editor-inspector').hidden,
-      tabs: document.querySelectorAll('.awt-editor-tab').length,
-      resourcePanelVisible: !document.querySelector('#awt-resource-controls').hidden,
-      resourceZones: root.awtDebugState?.resourceZones?.length || 0,
-      resourceType: root.awtDebugState?.resourceZones?.[0]?.resourceType || null,
-      resourceCollectorModes: [...document.querySelectorAll('#awt-resource-collectors option')].map(option => option.value),
-      economicNodes: root.awtDebugState?.economicNodes?.length || 0,
-      landmarkFlowRows: document.querySelectorAll('#awt-economic-node-flows .awt-landmark-flow-row').length,
-      landmarkFlowControls: document.querySelectorAll('#awt-economic-node-flows select[data-flow-field], #awt-economic-node-flows input[data-flow-field]').length,
-      legacyLandmarkTextInputs: document.querySelectorAll('#awt-economic-node-exports, #awt-economic-node-imports').length,
-      refineryFuelRate: root.awtDebugState?.economicNodes?.find(node => node.type === 'fuel-refinery')?.exports?.fuel || 0,
-      landmarkValidation: document.querySelector('#awt-economic-node-validation')?.dataset.valid || null,
-      tradeRoutes: root.awtDebugState?.tradeRoutes?.length || 0,
-      generatedTradeRoutes: Number(root.dataset.generatedTradeRoutes || 0),
+      staged: root.awtDebugState.mode === 'stage',
+      players: root.awtDebugState.players.length,
       minimap: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
       cameraBefore: root.dataset.camera,
       error: root.dataset.runtimeError || null
     };
   })()`);
-  if (!editor.editing || !editor.editorVisible || !editor.inspectorVisible || editor.tabs !== 8 || editor.resourceZones !== 0
-    || editor.resourceType !== null || editor.economicNodes !== 2 || editor.tradeRoutes !== 1 || editor.generatedTradeRoutes !== 0
-    || editor.landmarkFlowRows < 4 || editor.landmarkFlowControls < 12 || editor.legacyLandmarkTextInputs !== 0
-    || editor.refineryFuelRate < 30 || editor.landmarkValidation !== "true" || editor.error) {
-    throw new Error(`Editor smoke check failed: ${JSON.stringify(editor)}`);
+  if (!editor.staged || editor.players !== 2 || editor.error) {
+    throw new Error(`Staged battle check failed: ${JSON.stringify(editor)}`);
   }
 
   const x = editor.minimap.x + editor.minimap.width * 0.2;
@@ -270,7 +205,7 @@ try {
     await writeFile(process.env.AWT_SMOKE_SCREENSHOT, Buffer.from(screenshot.data, "base64"));
   }
 
-  await evaluate("document.querySelector('#awt-deploy-map').click()");
+  await evaluate("document.querySelector('#autonomous-war-theater').awtDebugControls.deployStaged()");
   await new Promise(resolve => setTimeout(resolve, 3600));
   const simulation = await evaluate(`(() => {
     const root = document.querySelector('#autonomous-war-theater');
@@ -530,8 +465,6 @@ try {
       forceCommitment: root.dataset.forceCommitment,
       chaosOperations: root.dataset.chaosOperations,
       economyProfiles: root.dataset.economyProfiles,
-      resourceZoneOptions: [...document.querySelectorAll('#awt-resource-type option')].map(option => option.value),
-      lightingLabels: [...document.querySelectorAll('#awt-lighting-controls .form-check-label')].map(item => item.textContent.trim()),
       aiGoal: document.querySelector('#awt-ai-goal')?.textContent,
       replayButtons: document.querySelectorAll('.awt-replay-controls button').length,
       snapshots: root.awtDebugState.snapshots.length,
@@ -546,8 +479,7 @@ try {
     || phase20to23.simulationStepsThisFrame > 3 || phase20to23.dayNightModel !== "global-tint-and-visibility"
     || phase20to23.dynamicLighting !== "false" || !phase20to23.forceCommitment?.includes(":") || !phase20to23.chaosOperations?.includes(":")
     || !phase20to23.economyProfiles?.includes("space-marines") || !phase20to23.economyProfiles?.includes("chaos")
-    || phase20to23.resourceZoneOptions.some(resource => ["requisition", "influence", "ammunition", "medical", "faith", "parts"].includes(resource))
-    || !phase20to23.lightingLabels.includes("Visual night tint") || !phase20to23.lightingLabels.includes("Night affects detection")) {
+) {
     throw new Error(`Phase 20-23 integration failed: ${JSON.stringify(phase20to23)}`);
   }
   const replayBefore = await evaluate(`(() => {

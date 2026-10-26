@@ -70,7 +70,7 @@ test("Phase 21 replays, seeks event markers, and explains AI decisions", () => {
 
 test("Phase 21 and 22 browser UI exposes replay, AI inspector, and scale controls", async () => {
   const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
-  for (const id of ["awt-replay-rewind", "awt-replay-play", "awt-replay-forward", "awt-replay-live", "awt-ai-goal", "awt-ai-utilities", "awt-ai-confidence", "awt-scale-preset"]) {
+  for (const id of ["awt-replay-rewind", "awt-replay-play", "awt-replay-forward", "awt-replay-live", "awt-ai-goal", "awt-ai-utilities", "awt-ai-confidence"]) {
     assert.match(html, new RegExp(`id=["']${id}["']`));
   }
 });

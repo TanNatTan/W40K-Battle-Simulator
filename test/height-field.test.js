@@ -97,8 +97,5 @@ test("browser runtime wires the height field into movement, combat, vision, scul
   assert.match(source, /unitSlopeFactor\(unit, dx, dy\)/);
   assert.match(source, /elevationCombatFor\(unit, target\)/);
   assert.match(source, /state\.heightField\.lineOfSight\(a\.x, a\.y, b\.x, b\.y/);
-  assert.match(source, /SCULPT_BRUSHES\.has\(type\)/);
-  assert.match(source, /generateReliefFor\(biome, seedText\)/);
-  assert.match(source, /heightField: state\.heightField\.resampledSculpt/);
   assert.match(source, /drawHeightShading\(bounds\)/);
 });

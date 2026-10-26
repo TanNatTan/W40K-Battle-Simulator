@@ -2,8 +2,8 @@
 
 **Menu → Map workshop · build a region** opens a full-screen editor for the same ground the
 *Single region · living world* scenario plays on. Whatever you build there is deployed as the battle:
-the terrain, forests, fields, water, ore, settlements and both armies' starting positions are used exactly as authored.
-(The older tile editor is still on the menu as **Classic tile editor**.)
+the terrain, forests, fields, water, ore, settlements and every army's starting position are used exactly as authored.
+The workshop is the only map editor: the old tile editor has been removed. The menu's **Preset scenarios** (Iron Pass, Verdant Delta, Ash Meridian) are fixed, ready-made battles.
 
 ## Making a map
 
@@ -27,6 +27,16 @@ settlement; number keys 1–9 pick common tools.
 The **Checks** panel lists problems: a base underwater or on uneven ground (with a *Fix* button that levels it),
 armies starting too close, settlements underwater, with no flat farmland, or with a mine and no ore nearby.
 Errors block *Play this map*; warnings do not.
+
+## Armies and map size
+
+The **Armies** panel sets how many players there are (2 to 12) and edits each one: name, race, army/faction, subfaction, team,
+battle objective, four colours and the identification pattern. Changing race, faction or subfaction cascades the way the old setup screen did
+(valid factions, chapter colours, objectives). Each army has a banner on the map; drag it, or use *Level ground* / *Centre view*.
+Settlements can be owned by any army or left neutral.
+
+**Map size** (collapsed under the side panel) accepts presets or a custom width and height from 960 × 540 up to 8192 × 4608. Resizing keeps the middle of the map,
+fills new ground with meadow and clips anything outside; undo restores it. Saved regions store the size and the armies, so *Continue saved region* resumes the same battle.
 
 ## Saving
 

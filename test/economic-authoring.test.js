@@ -73,8 +73,7 @@ test("runtime contains no procedural resource seeder or trade-route establishmen
   assert.doesNotMatch(app, /seedStrategicResourceNodes|createTradePartners|established a physical trade route/);
   assert.match(app, /trade routes are authored by the map designer/);
   const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
-  assert.match(html, /data-editor-tool-target="trade-route"/);
-  assert.match(html, /data-editor-tool-target="economic-node"/);
+  assert.doesNotMatch(html, /data-editor-tool-target|awt-editor-bar|awt-create-map/, "the classic tile editor is gone; maps are made in the Map workshop");
   const sql = await readFile(new URL("../sql/migrations/006_authored_economic_map.sql", import.meta.url), "utf8");
   assert.match(sql, /CREATE TABLE IF NOT EXISTS map_resource_zones/);
   assert.match(sql, /CREATE TABLE IF NOT EXISTS economic_nodes/);

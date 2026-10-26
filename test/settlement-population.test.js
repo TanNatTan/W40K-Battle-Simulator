@@ -122,5 +122,4 @@ test("browser runtime wires settlements, captives, rebels and militia into the s
   assert.match(source, /ensureRebelFaction\(node, pop\)/);
   assert.match(source, /unit\.militiaNodeId/);
   assert.match(source, /node\.population\?\.unrest === "independent"/);
-  assert.match(source, /seedSettlements\(random\)/);
 });

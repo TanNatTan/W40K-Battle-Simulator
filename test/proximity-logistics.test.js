@@ -84,7 +84,5 @@ test("browser runtime connects headquarters production, physical hauling, and st
   assert.match(app, /resourceCaptureNudge/);
   assert.match(app, /Capturing resource frontier/);
   assert.match(app, /if \(decision\.friendlyPower < 1\) continue/);
-  assert.match(html, /id="awt-economic-node-flows"/);
-  assert.match(html, /id="awt-add-economic-flow"/);
   assert.doesNotMatch(html, /placeholder="food:12, requisition:8"/);
 });

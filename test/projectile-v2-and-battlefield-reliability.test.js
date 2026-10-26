@@ -50,8 +50,8 @@ test("MarineInfantrySet V1 exposes all thirteen directional models and reads car
   assert.equal(hasMarineInfantryModel({ name: "Guardsman 12" }), false);
   assert.equal(marineFacingAngle({ movementVelocity: { x: 0, y: -1 } }), -Math.PI / 2);
   assert.equal(marineFacingAngle({ movementVelocity: { x: 1, y: 1 } }), Math.PI / 4);
-  const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
-  for (const id of ["awt-player-color", "awt-player-secondary-color", "awt-player-tertiary-color", "awt-player-body-color"]) assert.match(html, new RegExp(`id="${id}"`));
+  const workshopUI = readFileSync(new URL("../src/workshop/WorkshopUI.js", import.meta.url), "utf8");
+  for (const key of ["color", "secondaryColor", "tertiaryColor", "bodyColor"]) assert.match(workshopUI, new RegExp(`"${key}"`));
 });
 
 test("formation slots deform around blocked terrain and release an impossible line", () => {
