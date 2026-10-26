@@ -11,6 +11,8 @@ import { LivingSettlements } from "../settlements/LivingSettlements.js";
 import { groundEffects, unitClassFor, weatherEffects } from "../world/GroundEffects.js";
 import { CHUNK_SPAN } from "../terrain/HeightField.js";
 import { BUILDING_TYPES, DAY } from "../settlements/Settlement.js";
+import { DEFAULT_PALETTE, STRUCTURE_TYPES, drawParts, humanoidParts, HUMANOID_BUILDS, structureParts } from "../rendering/PartRigs.js";
+import { RigAnimator } from "../rendering/RigAnimator.js";
 
 export const REGION_WORLD = Object.freeze({ width: 2560, height: 1440 });
 export const REGION_WORLD_LIMITS = Object.freeze({ minWidth: 960, minHeight: 540, maxWidth: 8192, maxHeight: 4608, step: 8 });
@@ -544,6 +546,30 @@ export function createRegionRuntime(api) {
   };
 
 
+  // Part rigs for buildings and citizens appear once the camera is close (quality profile sets this).
+  rt.rigZoom = 1.1;
+  const citizenRigs = new RigAnimator();
+  const WORKER_ROLES = new Set(["farmer", "miner", "builder"]);
+
+  function drawCitizenRig(ctx, agent, zoom) {
+    const pose = citizenRigs.pose(agent, agent.x, agent.y, { facing: agent.facing ?? 0, engaged: agent.role === "militia" && agent.activity === "advance", seed: agent.age || 0 });
+    const role = agent.role === "militia" ? "trooper" : WORKER_ROLES.has(agent.role) ? "worker" : agent.role === "refugee" ? "refugee" : "civilian";
+    const child = (agent.age || 30) < 14;
+    const elder = (agent.age || 30) > 62;
+    const parts = humanoidParts(HUMANOID_BUILDS.average, { phase: pose.phase, stride: pose.stride, aim: pose.aim, role, crouch: elder ? 0.12 : 0 });
+    const tint = ROLE_COLORS[agent.role] || "#dddddd";
+    const scale = child ? 0.85 : 1.35;
+    ctx.save();
+    ctx.globalAlpha = 0.4; ctx.fillStyle = tint;
+    ctx.beginPath(); ctx.ellipse(agent.x, agent.y + scale * 3.6, scale * 2.4, scale * 1.0, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    drawParts(ctx, parts, agent.x, agent.y + scale * 3.6, {
+      unit: scale, flip: pose.flip, lineWidth: Math.min(1.2, 0.9 / zoom),
+      palette: { ...DEFAULT_PALETTE, cloth: tint, armor: tint, trim: "#d9cfae", dark: "#2c2a26" }
+    });
+    if (agent.role === "captive") { ctx.save(); ctx.strokeStyle = "#d44"; ctx.lineWidth = 0.8; ctx.strokeRect(agent.x - 2.2, agent.y - 5, 4.4, 10.6); ctx.restore(); }
+  }
+
   rt.drawSettlements = (ctx, bounds, zoom, now = 0) => {
     if (!rt.active || !rt.living) return;
     const s = state();
@@ -563,7 +589,7 @@ export function createRegionRuntime(api) {
       ctx.restore();
       if (farEnough(zoom, 0.16)) drawBuildings(ctx, settlement, zoom, now);
       if (farEnough(zoom, 0.3)) drawMine(ctx, settlement, zoom);
-      if (farEnough(zoom, 0.42)) drawPeople(ctx, settlement, zoom);
+      if (farEnough(zoom, 0.42)) drawPeople(ctx, settlement, zoom, bounds);
       drawLabel(ctx, settlement, zoom, ownerPlayer);
     }
     if (farEnough(zoom, 0.3)) drawRefugees(ctx, bounds, zoom);
@@ -588,7 +614,13 @@ export function createRegionRuntime(api) {
       }
       ctx.globalAlpha = complete ? 1 : 0.55;
       const damaged = clamp(1 - building.hp / building.maxHp, 0, 1);
-      if (building.type === "barricade" || building.type === "palisade") {
+      const damage = damaged;
+      const wall = building.type === "barricade" || building.type === "palisade";
+      const rigged = zoom >= rt.rigZoom - 0.3 && STRUCTURE_TYPES.includes(building.type) && !(wall && Math.abs(Math.sin(building.angle || 0)) > 0.6);
+      if (rigged) {
+        const parts = structureParts(building.type, { progress: complete ? 1 : clamp(building.progress ?? 1, 0, 1), damage });
+        drawParts(ctx, parts, 0, size * 0.32, { unit: size * 1.15, lineWidth: Math.min(1.3, 1 / zoom), palette: { ...DEFAULT_PALETTE, wood: fill, roof: edge } });
+      } else if (wall) {
         ctx.rotate(building.angle || 0);
         ctx.fillStyle = fill; ctx.strokeStyle = edge; ctx.lineWidth = 1;
         ctx.fillRect(-size * 0.7, -size * 0.14, size * 1.4, size * 0.28);
@@ -606,7 +638,7 @@ export function createRegionRuntime(api) {
         ctx.fillStyle = edge; ctx.globalAlpha *= 0.55;
         ctx.beginPath(); ctx.moveTo(-w / 2, -h / 2); ctx.lineTo(0, -h / 2 - h * 0.22); ctx.lineTo(w / 2, -h / 2); ctx.closePath(); ctx.fill();
       }
-      if (damaged > 0.05) {
+      if (damaged > 0.05 && !rigged) {
         ctx.globalAlpha = 0.25 + damaged * 0.5; ctx.fillStyle = "#1a1210";
         ctx.fillRect(-size / 2, -size / 2, size * damaged, size * 0.5);
       }
@@ -652,11 +684,13 @@ export function createRegionRuntime(api) {
     ctx.restore();
   }
 
-  function drawPeople(ctx, settlement, zoom) {
+  function drawPeople(ctx, settlement, zoom, bounds) {
     const radius = clamp(1.5 / Math.sqrt(zoom) * 0.9, 1.5, 4);
+    const rigs = zoom >= rt.rigZoom + 0.3;
     for (const agentId of settlement.agentIds) {
       const agent = rt.living.agents.get(agentId);
       if (!agent || !agent.alive) continue;
+      if (rigs && bounds && agent.x > bounds.left - 12 && agent.x < bounds.right + 12 && agent.y > bounds.top - 12 && agent.y < bounds.bottom + 12) { drawCitizenRig(ctx, agent, zoom); continue; }
       ctx.fillStyle = ROLE_COLORS[agent.role] || "#ddd";
       if (agent.role === "captive") ctx.fillRect(agent.x - radius, agent.y - radius, radius * 2, radius * 2);
       else { ctx.beginPath(); ctx.arc(agent.x, agent.y, radius, 0, Math.PI * 2); ctx.fill(); }

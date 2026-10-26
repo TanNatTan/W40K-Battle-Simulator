@@ -36,3 +36,36 @@ Headless software rendering cannot show the WebGL gain; the main-thread cost of 
 Units are drawn as simple role shapes (`src/rendering/UnitGlyphs.js`): circle infantry, dart scout, hexagon squad leader, square standard bearer,
 cross medic, diamond engineer/builder, crate supply carrier, hull-and-barrel vehicle. The **Unit shapes** toolbar button switches back to the detailed sprites.
 Hover a unit for a tooltip and click it to pin a stat card (health, morale, fatigue, weapon, armour, squad, current action); *Full report* opens the long inspector.
+
+## Low-end PCs: quality profiles
+
+The toolbar has a **Quality** selector (Low / Balanced / High). The first run picks one from the machine
+(`navigator.hardwareConcurrency`, `deviceMemory`, data-saver, or a software WebGL renderer means Low); the choice is remembered in
+`localStorage`, and `?quality=low|balanced|high` overrides it for a session. The profiles live in `src/performance/QualityProfile.js`:
+
+| | Low | Balanced | High |
+| --- | --- | --- | --- |
+| Canvas back-buffer | 50% (960 × 540) | 75% | 100% (1920 × 1080) |
+| Draw cap | 20 fps | 30 fps | 60 fps |
+| Vegetation bake detail | up to 0.75 px/unit | up to 1.0 | up to 1.5 |
+| Simulation slice per frame | 5 ms | 8 ms | 10 ms |
+| Part rigs appear at zoom | 1.6 | 1.1 | 0.9 |
+
+Two further savings apply to every profile: vegetation chunks are baked at a resolution that follows the zoom (0.5 / 0.75 / 1 / 1.5 px per world unit,
+rebaked a few per frame when the zoom bucket changes), and when the camera rests the visible chunks are merged into one screen-sized canvas so
+vegetation is a single blit per frame.
+
+Measured in headless Chromium with software rendering (the worst case; a real GPU is faster), five players, workshop map, camera at rest:
+`render.region` 31.8 ms to 2.8 ms per frame and about 10.7 to 22.6 loop frames per second at High; Balanced 25 fps; Low 39 loop frames per second with the draw cap at 20.
+With the camera panning (the composite cache cannot help) High ran at 14.8 and Low at 33.4 loop frames per second. With the CPU throttled 4x, High ran at 6 and Low at 9.6.
+Simulation stays on the main thread (only distant-unit hints use a worker), so a very large army still costs simulation time on a slow CPU; that is what the per-frame slice and the scale presets bound.
+
+## Part rigs
+
+At close zoom units, vehicles, aircraft and buildings are drawn from named parts (`src/rendering/PartRigs.js`) instead of a flat shape.
+Humanoids are built in head heights (about 7.5 heads tall; legs about half of that; arms reaching mid-thigh) and have a head, neck,
+shoulders, torso (body), back, upper arms, elbows, forearms, hands, groin, thighs, knees, calves and feet, each in a near and a far side. Body builds
+(average, heavy marine, brute ork, lean) change widths and lengths but keep the same parts. The humanoid part list applies to humanoids only; vehicles have tracks,
+road wheels, hull, skirt, turret, mantlet, barrel, hatch, exhaust and antenna; aircraft a fuselage, cockpit, wings, tailfin, tailplane and engine; buildings a foundation, walls, roof, door, windows
+and so on per type, rising in construction stages and losing roofs when wrecked. `RigAnimator` derives the walk cycle from movement. Open the **Sprite lab** and pick *Part rigs* to see every rig and its part list.
+The ork sprite set and the old pixel "Unit sprites" style are unchanged; rigs replace only the simple shape markers.

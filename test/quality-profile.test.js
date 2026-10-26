@@ -9,6 +9,7 @@ test("profiles get cheaper from high to low", () => {
   assert.ok(low.maxFps < balanced.maxFps && balanced.maxFps < high.maxFps);
   assert.ok(low.vegetationPpu < balanced.vegetationPpu && balanced.vegetationPpu < high.vegetationPpu);
   assert.ok(low.simBudgetMs <= balanced.simBudgetMs);
+  assert.ok(low.rigZoom > balanced.rigZoom && balanced.rigZoom > high.rigZoom, "weaker profiles switch to part rigs later");
   assert.equal(qualityProfile("nonsense").id, "balanced");
 });
 

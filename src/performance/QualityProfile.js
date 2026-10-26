@@ -5,15 +5,15 @@
 export const QUALITY_PROFILES = Object.freeze({
   low: Object.freeze({
     id: "low", label: "Low (old PC)", renderScale: 0.5, maxFps: 20, vegetationPpu: 0.75,
-    simBudgetMs: 5, uiInterval: 0.5
+    simBudgetMs: 5, uiInterval: 0.5, rigZoom: 1.6
   }),
   balanced: Object.freeze({
     id: "balanced", label: "Balanced", renderScale: 0.75, maxFps: 30, vegetationPpu: 1,
-    simBudgetMs: 8, uiInterval: 0.25
+    simBudgetMs: 8, uiInterval: 0.25, rigZoom: 1.1
   }),
   high: Object.freeze({
     id: "high", label: "High", renderScale: 1, maxFps: 60, vegetationPpu: 1.5,
-    simBudgetMs: 10, uiInterval: 0.25
+    simBudgetMs: 10, uiInterval: 0.25, rigZoom: 0.9
   })
 });
 

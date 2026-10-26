@@ -18,7 +18,8 @@ Pick **Single region · living world** on the menu for one persistent region wit
 ore, destructible autonomous settlements and two competing armies. See [docs/living-world.md](docs/living-world.md).
 
 Build your own region in the **Map workshop** (sculpt, water, forests, fields, ore, settlements, army bases; undo/redo, save/export) and play it directly:
-see [docs/map-workshop.md](docs/map-workshop.md). Performance tooling, the terrain worker pool and the WebGL ground layer are described in [docs/performance.md](docs/performance.md).
+see [docs/map-workshop.md](docs/map-workshop.md). The workshop is the only map editor (the classic tile editor was removed); it also sets the canvas size, 2–12 players/settlements and each army's composition.
+Settlements grow, found daughter settlements, and every citizen can be clicked for a stat card. A **Quality** selector (Low/Balanced/High) keeps older PCs smooth, and units, vehicles and buildings are drawn from named parts when zoomed in. Performance tooling, the terrain worker pool and the WebGL ground layer are described in [docs/performance.md](docs/performance.md).
 
 ## Project layout
 

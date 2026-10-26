@@ -149,6 +149,8 @@ import {
   adaptiveThinkingBudgets,
   largeBattleLoadActive
 } from "../src/performance/AdaptiveLoadSystem.js";
+import { DEFAULT_PALETTE, HUMANOID_BUILDS, drawParts, humanoidBuildFor, humanoidParts, aircraftParts, vehicleParts, structureParts, rigKindForRole } from "../src/rendering/PartRigs.js";
+import { RigAnimator } from "../src/rendering/RigAnimator.js";
 import { QUALITY_IDS, QUALITY_PROFILES, QUALITY_STORAGE_KEY, detectQuality, qualityProfile as profileForQuality, qualityRenderInterval, vegetationPpuFor } from "../src/performance/QualityProfile.js";
 import { DISTANT_HINT_NEIGHBORS, packDistantUnits } from "../src/performance/DistantSimulation.js";
 import { createFactionGameplayState, updateFactionGameplay } from "../src/factions/DistinctiveGameplaySystem.js";
@@ -1027,6 +1029,7 @@ import {
       }
 
       const spriteCatalog = {
+        "Part rigs": ["Humanoid - Guardsman", "Humanoid - Space Marine", "Humanoid - Ork", "Humanoid - Scout", "Vehicle", "Aircraft", "House", "Granary", "Watchtower", "Barricade", "Palisade", "Mine works", "Town hall", "Bunker"],
         "Terrain sheet": ["Grass", "Dark grass", "Tall grass", "Dirt", "Mud", "Sand", "Rock", "Snow", "Ice", "Swamp", "Pavement", "Ash", "Lava", "Water", "Deep water", "River", "Beach", "Cliff edge", "Hill", "Mountain", "Forest floor", "All terrain transitions"],
         "Vegetation": ["Small bush", "Large bush", "Dead bush", "Young tree", "Medium tree", "Large tree", "Dead tree", "Pine tree", "Palm tree", "Jungle tree", "Flowers", "Crop field", "Tall grass clusters", "Stumps", "Logs", "Rocks", "Multiple variations"],
         "Natural objects": ["Boulder", "Crystal", "Cave entrance", "Pond", "Dead tree", "Stump", "Volcanic rock", "Mineral deposit"],
@@ -1148,6 +1151,46 @@ import {
         drawSpritePreview();
       }
 
+      // Part rigs: the same named-part models the battlefield uses at close zoom, shown in four poses.
+      function drawRigPreview(preview) {
+        const player = setupPlayers[Number(els.spritePlayer.value) || 0] || setupPlayers[0];
+        const variant = els.spriteVariant.value;
+        preview.imageSmoothingEnabled = true;
+        preview.fillStyle = colors.muted;
+        preview.fillRect(0, 0, 320, 180);
+        const palette = {
+          ...DEFAULT_PALETTE, armor: player.color, trim: player.secondaryColor, accent: player.tertiaryColor || player.secondaryColor,
+          cloth: player.bodyColor || shadeHex(player.color, -40), skin: /Ork/.test(variant) ? "#6f9a3c" : DEFAULT_PALETTE.skin
+        };
+        const style = { palette, outline: "rgba(8,10,8,0.9)", lineWidth: 1 };
+        let names = [];
+        if (variant.startsWith("Humanoid")) {
+          const build = /Marine/.test(variant) ? "heavy" : /Ork/.test(variant) ? "brute" : /Scout/.test(variant) ? "lean" : "average";
+          const poses = [{ stride: 0, aim: 0 }, { stride: 1, phase: 1.2, aim: 0 }, { stride: 1, phase: 4.2, aim: 0 }, { stride: 0.2, aim: 1 }];
+          poses.forEach((pose, index) => {
+            const parts = humanoidParts(HUMANOID_BUILDS[build], { ...pose, role: "trooper" });
+            names = parts.filter(part => !part.gear).map(part => part.id);
+            drawParts(preview, parts, 42 + index * 78, 164, { unit: 18, ...style });
+          });
+        } else if (variant === "Vehicle" || variant === "Aircraft") {
+          const maker = variant === "Vehicle" ? vehicleParts : aircraftParts;
+          [0, 1].forEach(index => {
+            const parts = maker({ aim: index, bank: index * 2 });
+            names = parts.map(part => part.id);
+            drawParts(preview, parts, 85 + index * 150, variant === "Vehicle" ? 120 : 110, { unit: 130, ...style });
+          });
+        } else {
+          const type = { "House": "house", "Granary": "granary", "Watchtower": "watchtower", "Barricade": "barricade", "Palisade": "palisade", "Mine works": "mineworks", "Town hall": "hall", "Bunker": "bunker" }[variant] || "house";
+          [0.3, 0.6, 1, 1].forEach((progress, index) => {
+            const parts = structureParts(type, { progress, damage: index === 3 ? 0.8 : 0 });
+            if (index === 2) names = parts.map(part => part.id);
+            drawParts(preview, parts, 42 + index * 78, 130, { unit: 66, ...style });
+          });
+        }
+        els.spritePlayer.disabled = false;
+        els.spriteMaskLine.textContent = `${variant} · ${names.filter(name => name !== "shadow").length} named parts: ${[...new Set(names.map(name => name.split(".")[0]))].filter(name => name !== "shadow").join(", ")}`;
+      }
+
       function drawSpritePreview() {
         if (!els.spriteCanvas) return;
         const preview = els.spriteCanvas.getContext("2d");
@@ -1193,6 +1236,10 @@ import {
           }
           els.spritePlayer.disabled = true;
           els.spriteMaskLine.textContent = `${selectedFamily} · cropped source art · optimized atlas`;
+          return;
+        }
+        if (selectedFamily === "Part rigs") {
+          drawRigPreview(preview);
           return;
         }
         const player = setupPlayers[Number(els.spritePlayer.value) || 0] || setupPlayers[0];
@@ -15819,7 +15866,7 @@ import {
         const detailed = [];
         for (const unit of visibleUnits) {
           if (unit.embarkedInId || !pointVisible(unit, 36)) continue;
-          if (!unit.alive || unit.id === state.selectedId) {
+          if (!unit.alive || unit.id === state.selectedId || (lightweight && rigsActive())) {
             detailed.push(unit);
             continue;
           }
@@ -15925,6 +15972,56 @@ import {
         }
       }
 
+      // ---- part-based rigs (head, shoulders, arms, thighs, calves ... / hull, turret ...) -------------
+      const rigAnimator = new RigAnimator();
+      const rigBuildCache = new Map();
+      const RIG_SKIN = { Orks: "#6f9a3c", Necrons: "#a9b8b2", "T'au": "#8fa6b4" };
+      function rigsActive() {
+        return state.unitStyle !== "sprites" && state.camera.zoom >= state.qualityProfile.rigZoom;
+      }
+      function rigPalette(faction, race) {
+        return {
+          ...DEFAULT_PALETTE,
+          armor: playerColor(faction), trim: playerSecondaryColor(faction), accent: playerAccentColor(faction),
+          cloth: playerBodyColor(faction), skin: RIG_SKIN[race] || DEFAULT_PALETTE.skin
+        };
+      }
+      function drawUnitRig(unit, x = unit.x, y = unit.y, { trackX = x, trackY = y, scaled = false } = {}) {
+        const kind = rigKindForRole(unit.role);
+        const player = playerFor(unit.faction);
+        const pose = rigAnimator.pose(unit, trackX, trackY, { facing: unit.facing || 0, engaged: Boolean(unit.targetId), seed: unit.index || 0 });
+        const scale = scaled ? 1 : (unit.spriteScale || 1);
+        let parts; let unitSize; let footOffset;
+        if (kind === "vehicle") {
+          parts = vehicleParts({ aim: pose.aim, recoil: 0, wheelPhase: pose.phase });
+          unitSize = 26 * scale; footOffset = 6 * scale;
+        } else if (kind === "aircraft") {
+          parts = aircraftParts({});
+          unitSize = 22 * scale; footOffset = 4 * scale;
+        } else {
+          const cacheKey = `${player.race}|${player.faction}|${unit.role}|${unit.name}`;
+          let build = rigBuildCache.get(cacheKey);
+          if (!build) { build = humanoidBuildFor({ race: player.race, faction: player.faction, role: unit.role, name: unit.name }); rigBuildCache.set(cacheKey, build); }
+          parts = humanoidParts(build, { phase: pose.phase, stride: pose.stride, aim: pose.aim, role: unit.role });
+          unitSize = 2 * scale; footOffset = 7.5 * scale;
+        }
+        ctx.save();
+        ctx.globalAlpha = 0.5;
+        ctx.fillStyle = playerColor(unit.faction);
+        ctx.beginPath();
+        ctx.ellipse(x, y + footOffset, 5.5 * scale, 2.2 * scale, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        drawParts(ctx, parts, x, y + footOffset, { unit: unitSize, flip: pose.flip, palette: rigPalette(unit.faction, player.race), lineWidth: Math.min(1.4, 1.1 / state.camera.zoom), outline: GLYPH_OUTLINE });
+      }
+      function drawStructureRig(structure) {
+        const width = Math.max(14, (structure.hitbox?.w || 28) * 0.9);
+        const condition = typeof structure.condition === "number" ? clamp(structure.condition, 0, 1) : 1;
+        const parts = structureParts(structure.type, { progress: clamp(structure.progress ?? 1, 0, 1), damage: 1 - condition });
+        const base = { ...DEFAULT_PALETTE, accent: playerColor(structure.faction), roof: playerSecondaryColor(structure.faction), armor: playerColor(structure.faction), trim: playerSecondaryColor(structure.faction) };
+        drawParts(ctx, parts, structure.x, structure.y + (structure.hitbox?.h || 24) * 0.3, { unit: width, palette: base, lineWidth: Math.min(1.4, 1.1 / state.camera.zoom), outline: GLYPH_OUTLINE });
+      }
+
       function drawLightweightUnitDetails(units) {
         ctx.save();
         ctx.lineWidth = 1 / state.camera.zoom;
@@ -15934,7 +16031,9 @@ import {
           ctx.strokeStyle = unit.alive ? playerSecondaryColor(unit.faction) : colors.mutedForeground;
           ctx.fillStyle = unit.alive ? color : colors.mutedForeground;
           ctx.globalAlpha = unit.alive ? 0.96 : 0.42;
-          if (unit.alive && state.unitStyle !== "sprites") {
+          if (unit.alive && rigsActive()) {
+            drawUnitRig(unit);
+          } else if (unit.alive && state.unitStyle !== "sprites") {
             const kind = glyphKind(unit.role);
             ctx.beginPath();
             traceGlyph(ctx, kind, unit.x, unit.y, unit.facing || 0, glyphScale(kind, unit.spriteScale || 1, state.camera.zoom));
@@ -15992,6 +16091,15 @@ import {
           const width = Math.max(12, (structure.hitbox?.w || 28) * 0.72);
           const height = Math.max(10, (structure.hitbox?.h || 24) * 0.72);
           const progress = clamp(structure.progress, 0, 1);
+          if (structure.alive !== false && rigsActive()) {
+            drawStructureRig(structure);
+            if (structure.id === state.selectedStructureId) {
+              ctx.strokeStyle = colors.foreground;
+              ctx.globalAlpha = 0.94;
+              ctx.strokeRect(structure.x - width / 2 - 4, structure.y - height / 2 - 4, width + 8, height + 8);
+            }
+            continue;
+          }
           ctx.fillStyle = structure.alive === false ? colors.mutedForeground : playerColor(structure.faction);
           ctx.strokeStyle = structure.alive === false ? colors.danger : playerSecondaryColor(structure.faction);
           ctx.globalAlpha = structure.alive === false ? 0.36 : 0.78;
@@ -16142,7 +16250,8 @@ import {
         let forgedSprite = false;
         if (state.unitStyle !== "sprites") {
           const kind = glyphKind(unit.role);
-          drawGlyph(ctx, unit.role, 0, 0, { fill: color, stroke: GLYPH_OUTLINE, angle: view.facing ?? unit.facing ?? 0, scale: glyphScale(kind, 1, state.camera.zoom), lineWidth: Math.min(3, 1.3 / state.camera.zoom) / (unit.spriteScale || 1), alpha: 1 });
+          if (rigsActive()) drawUnitRig(unit, 0, 0, { trackX: view.x, trackY: view.y, scaled: true });
+          else drawGlyph(ctx, unit.role, 0, 0, { fill: color, stroke: GLYPH_OUTLINE, angle: view.facing ?? unit.facing ?? 0, scale: glyphScale(kind, 1, state.camera.zoom), lineWidth: Math.min(3, 1.3 / state.camera.zoom) / (unit.spriteScale || 1), alpha: 1 });
           forgedSprite = true;
         } else {
           forgedSprite = unitSpriteForge?.draw(ctx, unit, { primary: color, secondary, tertiary: playerAccentColor(unit.faction), body: playerBodyColor(unit.faction) }, currentSnapshot()?.t ?? state.time);
@@ -18681,6 +18790,7 @@ import {
         const height = Math.round(VH * profile.renderScale);
         if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; }
         root.dataset.quality = profile.id;
+        regionRuntime.rigZoom = profile.rigZoom;
         const select = root.querySelector("#awt-quality");
         if (select) select.value = profile.id;
         if (persist) { try { localStorage.setItem(QUALITY_STORAGE_KEY, profile.id); } catch { /* storage may be blocked */ } }
