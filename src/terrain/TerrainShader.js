@@ -6,6 +6,7 @@
 // three-dimensional from the top-down camera.
 
 import { CHUNK_SAMPLES, CHUNK_SPAN, SAMPLE_SPACING, fractalNoise, valueNoise } from "./HeightField.js";
+import { rasterizePadded } from "../world/WorldLayers.js";
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const smoothstep = (a, b, x) => {
@@ -95,16 +96,7 @@ const DEFAULT_SUN = Object.freeze({ x: -0.55, y: -0.5, z: 0.62 });
  * @param {number} options.chunkY
  * @returns {{ pixels: Uint8ClampedArray, size: number }}
  */
-export function shadeTerrainChunk({ field, layers = null, chunkX, chunkY, size = SHADER_PIXELS, textures = {}, palette = TERRAIN_PALETTES.temperate, sun = DEFAULT_SUN, seed = 1, timeOfDay = null }) {
-  const step = CHUNK_SPAN / size;
-  const margin = 40; // pixels of height context for slopes and cast shadows
-  const grid = size + margin * 2;
-  const originX = chunkX * CHUNK_SPAN - margin * step;
-  const originY = chunkY * CHUNK_SPAN - margin * step;
-  const heights = new Float32Array(grid * grid);
-  // Lattice patch with a margin; the pixel heights are a clamped Catmull-Rom
-  // surface through the lattice so steep faces stay smooth instead of
-  // showing the 16 unit sample grid as facets.
+export function gatherTerrainChunkInput({ field, layers = null, chunkX, chunkY, size = SHADER_PIXELS, palette = "temperate", seed = 1, sun = DEFAULT_SUN }) {
   const latticeMargin = 5;
   const latticeSide = CHUNK_SAMPLES + latticeMargin * 2 + 1;
   const lattice = new Float32Array(latticeSide * latticeSide);
@@ -116,6 +108,34 @@ export function shadeTerrainChunk({ field, layers = null, chunkX, chunkY, size =
     const j = clamp(baseJ + lj, 0, maxJ);
     for (let li = 0; li < latticeSide; li += 1) lattice[lj * latticeSide + li] = field.sample(clamp(baseI + li, 0, maxI), j);
   }
+  return {
+    chunkX, chunkY, size, palette, seed, sun,
+    lattice, latticeSide, latticeMargin,
+    waterLevel: field.waterLevel,
+    padded: layers?.gatherPadded ? layers.gatherPadded(chunkX, chunkY) : null
+  };
+}
+
+export function shadeTerrainChunk({ field, layers = null, chunkX, chunkY, size = SHADER_PIXELS, textures = {}, palette = TERRAIN_PALETTES.temperate, sun = DEFAULT_SUN, seed = 1 }) {
+  const input = gatherTerrainChunkInput({ field, layers, chunkX, chunkY, size, seed, sun });
+  return shadeTerrainChunkFromInput(input, textures, palette);
+}
+
+/**
+ * Pure: runs entirely on typed arrays, so it can execute in a Web Worker.
+ * `input` comes from gatherTerrainChunkInput; `palette` is a palette object
+ * (not its name) so a worker can resolve it from TERRAIN_PALETTES itself.
+ */
+export function shadeTerrainChunkFromInput(input, textures = {}, palette = TERRAIN_PALETTES.temperate) {
+  const { chunkX, chunkY, size, seed, sun, lattice, latticeSide, latticeMargin, waterLevel, padded } = input;
+  const step = CHUNK_SPAN / size;
+  const margin = 40; // pixels of height context for slopes and cast shadows
+  const grid = size + margin * 2;
+  const originX = chunkX * CHUNK_SPAN - margin * step;
+  const originY = chunkY * CHUNK_SPAN - margin * step;
+  const heights = new Float32Array(grid * grid);
+  const baseI = chunkX * CHUNK_SAMPLES - latticeMargin;
+  const baseJ = chunkY * CHUNK_SAMPLES - latticeMargin;
   const cr = (t, a, b, c, d) => 0.5 * ((2 * b) + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t * t + (-a + 3 * b - 3 * c + d) * t * t * t);
   const row = [0, 0, 0, 0];
   for (let gy = 0; gy < grid; gy += 1) {
@@ -141,8 +161,7 @@ export function shadeTerrainChunk({ field, layers = null, chunkX, chunkY, size =
       heights[gy * grid + gx] = value;
     }
   }
-  const raster = layers?.rasterize ? layers.rasterize(chunkX, chunkY, size) : null;
-  const waterLevel = field.waterLevel;
+  const raster = padded ? rasterizePadded(padded, size) : null;
   const pixels = new Uint8ClampedArray(size * size * 4);
   const weights = new Float32Array(MATERIAL_ORDER.length);
   const rgb = [0, 0, 0];

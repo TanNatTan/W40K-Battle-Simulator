@@ -50,11 +50,83 @@ export function buildCombinedArmsGroups(units) {
   return groups;
 }
 
-function nearest(origin, candidates) {
-  return candidates.reduce((best, candidate) => {
-    const range = Math.hypot((candidate.x || 0) - (origin.x || 0), (candidate.y || 0) - (origin.y || 0));
-    return !best || range < best.range ? { candidate, range } : best;
-  }, null)?.candidate || null;
+// Nearest-candidate lookup. Brute force for short lists; otherwise a uniform grid searched in
+// growing rings, so assigning support across a 1,000-unit army is not an all-pairs scan.
+// Ties resolve to the earliest candidate, exactly like the original linear reduce.
+const NEAREST_CELL = 160;
+const BRUTE_FORCE_LIMIT = 24;
+
+function nearestLinear(origin, candidates) {
+  let best = null;
+  let bestSquared = Infinity;
+  const ox = origin.x || 0;
+  const oy = origin.y || 0;
+  for (let index = 0; index < candidates.length; index += 1) {
+    const candidate = candidates[index];
+    const dx = (candidate.x || 0) - ox;
+    const dy = (candidate.y || 0) - oy;
+    const squared = dx * dx + dy * dy;
+    if (squared < bestSquared) { bestSquared = squared; best = candidate; }
+  }
+  return best;
+}
+
+function buildNearestIndex(candidates) {
+  const cells = new Map();
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (let order = 0; order < candidates.length; order += 1) {
+    const candidate = candidates[order];
+    const cx = Math.floor((candidate.x || 0) / NEAREST_CELL);
+    const cy = Math.floor((candidate.y || 0) / NEAREST_CELL);
+    const key = cx * 100003 + cy;
+    let bucket = cells.get(key);
+    if (!bucket) cells.set(key, bucket = []);
+    bucket.push(order);
+    if (cx < minX) minX = cx;
+    if (cx > maxX) maxX = cx;
+    if (cy < minY) minY = cy;
+    if (cy > maxY) maxY = cy;
+  }
+  return { candidates, cells, minX, maxX, minY, maxY };
+}
+
+function nearestIndexed(index, origin) {
+  const { candidates, cells, minX, maxX, minY, maxY } = index;
+  const ox = origin.x || 0;
+  const oy = origin.y || 0;
+  const cx = Math.floor(ox / NEAREST_CELL);
+  const cy = Math.floor(oy / NEAREST_CELL);
+  const lastRing = Math.max(Math.abs(cx - minX), Math.abs(cx - maxX), Math.abs(cy - minY), Math.abs(cy - maxY));
+  let bestOrder = -1;
+  let bestSquared = Infinity;
+  for (let ring = 0; ring <= lastRing; ring += 1) {
+    for (let gx = cx - ring; gx <= cx + ring; gx += 1) {
+      const edgeRow = gx === cx - ring || gx === cx + ring;
+      for (let gy = cy - ring; gy <= cy + ring; gy += edgeRow ? 1 : ring * 2 || 1) {
+        const bucket = cells.get(gx * 100003 + gy);
+        if (!bucket) continue;
+        for (const order of bucket) {
+          const candidate = candidates[order];
+          const dx = (candidate.x || 0) - ox;
+          const dy = (candidate.y || 0) - oy;
+          const squared = dx * dx + dy * dy;
+          if (squared < bestSquared || (squared === bestSquared && order < bestOrder)) { bestSquared = squared; bestOrder = order; }
+        }
+      }
+    }
+    // Everything in ring + 1 or beyond is at least ring * cell away.
+    if (bestOrder >= 0 && Math.sqrt(bestSquared) <= ring * NEAREST_CELL) break;
+  }
+  return bestOrder >= 0 ? candidates[bestOrder] : null;
+}
+
+function nearest(origin, candidates, index = null) {
+  if (!candidates.length) return null;
+  if (index) return nearestIndexed(index, origin);
+  return nearestLinear(origin, candidates);
 }
 
 export function vehicleBattlefieldPurpose(unit = {}) {
@@ -82,24 +154,32 @@ export function assignCombinedArmsSupport(units) {
   const groups = buildCombinedArmsGroups(units);
   const assignments = new Map();
   const lineUnits = [...groups.infantry, ...groups["heavy-infantry"]];
+  const indexFor = list => (list.length > BRUTE_FORCE_LIMIT ? buildNearestIndex(list) : null);
+  const lineIndex = indexFor(lineUnits);
+  const vehicleIndex = indexFor(groups.vehicles);
   for (const vehicle of groups.vehicles) {
-    const screen = nearest(vehicle, lineUnits);
+    const screen = nearest(vehicle, lineUnits, lineIndex);
     if (screen) assignments.set(vehicle.id, { targetId: screen.id, purpose: vehicleBattlefieldPurpose(vehicle) });
   }
   for (const infantry of lineUnits) {
-    const armor = nearest(infantry, groups.vehicles);
+    const armor = nearest(infantry, groups.vehicles, vehicleIndex);
     if (armor) assignments.set(infantry.id, { targetId: armor.id, purpose: "armor support" });
   }
+  const woundedLine = lineUnits.filter(unit => (unit.hp ?? 1) < (unit.maxHp ?? 1));
+  const woundedIndex = indexFor(woundedLine);
   for (const medic of groups.medical) {
-    const casualty = nearest(medic, lineUnits.filter(unit => (unit.hp ?? 1) < (unit.maxHp ?? 1)));
+    const casualty = nearest(medic, woundedLine, woundedIndex);
     if (casualty) assignments.set(medic.id, { targetId: casualty.id, purpose: "medical support" });
   }
+  const damagedVehicles = groups.vehicles.filter(unit => (unit.hp ?? 1) < (unit.maxHp ?? 1));
   for (const repair of groups.repair) {
-    const damaged = nearest(repair, groups.vehicles.filter(unit => (unit.hp ?? 1) < (unit.maxHp ?? 1)));
+    const damaged = nearest(repair, damagedVehicles, indexFor(damagedVehicles));
     if (damaged) assignments.set(repair.id, { targetId: damaged.id, purpose: "vehicle repair" });
   }
+  const protectors = [...lineUnits, ...groups.vehicles];
+  const protectorIndex = indexFor(protectors);
   for (const support of [...groups.artillery, ...groups["anti-air"], ...groups.logistics]) {
-    const protection = nearest(support, [...lineUnits, ...groups.vehicles]);
+    const protection = nearest(support, protectors, protectorIndex);
     if (protection) assignments.set(support.id, { targetId: protection.id, purpose: vehicleBattlefieldPurpose(support) });
   }
   return { groups, assignments };

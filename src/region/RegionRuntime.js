@@ -359,7 +359,8 @@ export function createRegionRuntime(api) {
     return { stale: true, entry, key, rev };
   }
 
-  rt.drawVegetation = (ctx, bounds, bakeLimit = 3) => {
+  let bakeCounter = 0;
+  rt.drawVegetation = (ctx, bounds, bakeLimit = 3, drawTile = null) => {
     if (!rt.active) return;
     const s = state();
     const span = CHUNK_SPAN;
@@ -378,12 +379,15 @@ export function createRegionRuntime(api) {
           if (baked < bakeLimit) {
             const canvas = probe.entry?.canvas || null;
             const made = api.bakeVegetation(rt.layers, s.heightField, cx, cy, canvas);
-            entry = { canvas: made, rev: probe.rev };
+            entry = { canvas: made, rev: probe.rev, uid: (bakeCounter += 1) };
             rt.vegetation.set(probe.key, entry);
             baked += 1;
           } else pending = true;
         }
-        if (entry?.canvas) ctx.drawImage(entry.canvas, cx * span, cy * span, span, span);
+        if (entry?.canvas) {
+          if (drawTile) drawTile(`${cx},${cy}`, entry.canvas, entry.uid, cx * span, cy * span, span + 0.5, span + 0.5);
+          else ctx.drawImage(entry.canvas, cx * span, cy * span, span, span);
+        }
       }
     }
     return pending;

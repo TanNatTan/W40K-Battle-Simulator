@@ -38,6 +38,51 @@ function createChunk(cx, cy, defaults) {
   return chunk;
 }
 
+// Pure bilinear resampling of the padded layer grids to an n x n pixel raster.
+export function rasterizePadded(grids, n) {
+  const side = CHUNK_SAMPLES + 3;
+  const surfaceGrid = grids.waterSurface;
+  const out = {
+    fertility: new Uint8Array(n * n), moisture: new Uint8Array(n * n), vegetation: new Uint8Array(n * n),
+    scorch: new Uint8Array(n * n), trample: new Uint8Array(n * n), water: new Uint8Array(n * n),
+    waterSurface: new Float32Array(n * n).fill(NO_WATER)
+  };
+  const names = ["fertility", "moisture", "vegetation", "scorch", "trample"];
+  for (let py = 0; py < n; py += 1) {
+    const fy = (py + 0.5) / n * CHUNK_SAMPLES + 1;
+    const j = Math.floor(fy);
+    const ty = fy - j;
+    for (let px = 0; px < n; px += 1) {
+      const fx = (px + 0.5) / n * CHUNK_SAMPLES + 1;
+      const i = Math.floor(fx);
+      const tx = fx - i;
+      const base = j * side + i;
+      const w00 = (1 - tx) * (1 - ty);
+      const w10 = tx * (1 - ty);
+      const w01 = (1 - tx) * ty;
+      const w11 = tx * ty;
+      const o = py * n + px;
+      for (const name of names) {
+        const g = grids[name];
+        out[name][o] = g[base] * w00 + g[base + 1] * w10 + g[base + side] * w01 + g[base + side + 1] * w11;
+      }
+      // Coverage-weighted surface of wet neighbours only.
+      let cover = 0;
+      let surface = 0;
+      const s00 = surfaceGrid[base];
+      const s10 = surfaceGrid[base + 1];
+      const s01 = surfaceGrid[base + side];
+      const s11 = surfaceGrid[base + side + 1];
+      if (s00 > NO_WATER) { cover += w00; surface += s00 * w00; }
+      if (s10 > NO_WATER) { cover += w10; surface += s10 * w10; }
+      if (s01 > NO_WATER) { cover += w01; surface += s01 * w01; }
+      if (s11 > NO_WATER) { cover += w11; surface += s11 * w11; }
+      if (cover > 0.18) out.waterSurface[o] = surface / cover;
+    }
+  }
+  return out;
+}
+
 export class WorldLayers {
   constructor({ width = 1920, height = 1080, defaults = {} } = {}) {
     this.width = width;
@@ -167,57 +212,23 @@ export class WorldLayers {
     return grid;
   }
 
-  // Pixel rasters (n x n) for the terrain shader. Standing water is resolved
-  // as a coverage-weighted surface height so shorelines follow the terrain.
-  rasterize(cx, cy, n) {
-    const side = CHUNK_SAMPLES + 3;
-    const grids = {
+  // Plain typed-array snapshot of everything rasterize() needs for one chunk,
+  // so the interpolation can run off the main thread (see TerrainBakeCore).
+  gatherPadded(cx, cy) {
+    return {
       fertility: this._padded("fertility", cx, cy, this.defaults.fertility),
       moisture: this._padded("moisture", cx, cy, 0),
       vegetation: this._padded("vegetation", cx, cy, 0),
       scorch: this._padded("scorch", cx, cy, 0),
-      trample: this._padded("trample", cx, cy, 0)
+      trample: this._padded("trample", cx, cy, 0),
+      waterSurface: this._padded("waterSurface", cx, cy, NO_WATER)
     };
-    const surfaceGrid = this._padded("waterSurface", cx, cy, NO_WATER);
-    const out = {
-      fertility: new Uint8Array(n * n), moisture: new Uint8Array(n * n), vegetation: new Uint8Array(n * n),
-      scorch: new Uint8Array(n * n), trample: new Uint8Array(n * n), water: new Uint8Array(n * n),
-      waterSurface: new Float32Array(n * n).fill(NO_WATER)
-    };
-    const names = ["fertility", "moisture", "vegetation", "scorch", "trample"];
-    for (let py = 0; py < n; py += 1) {
-      const fy = (py + 0.5) / n * CHUNK_SAMPLES + 1;
-      const j = Math.floor(fy);
-      const ty = fy - j;
-      for (let px = 0; px < n; px += 1) {
-        const fx = (px + 0.5) / n * CHUNK_SAMPLES + 1;
-        const i = Math.floor(fx);
-        const tx = fx - i;
-        const base = j * side + i;
-        const w00 = (1 - tx) * (1 - ty);
-        const w10 = tx * (1 - ty);
-        const w01 = (1 - tx) * ty;
-        const w11 = tx * ty;
-        const o = py * n + px;
-        for (const name of names) {
-          const g = grids[name];
-          out[name][o] = g[base] * w00 + g[base + 1] * w10 + g[base + side] * w01 + g[base + side + 1] * w11;
-        }
-        // Coverage-weighted surface of wet neighbours only.
-        let cover = 0;
-        let surface = 0;
-        const s00 = surfaceGrid[base];
-        const s10 = surfaceGrid[base + 1];
-        const s01 = surfaceGrid[base + side];
-        const s11 = surfaceGrid[base + side + 1];
-        if (s00 > NO_WATER) { cover += w00; surface += s00 * w00; }
-        if (s10 > NO_WATER) { cover += w10; surface += s10 * w10; }
-        if (s01 > NO_WATER) { cover += w01; surface += s01 * w01; }
-        if (s11 > NO_WATER) { cover += w11; surface += s11 * w11; }
-        if (cover > 0.18) out.waterSurface[o] = surface / cover;
-      }
-    }
-    return out;
+  }
+
+  // Pixel rasters (n x n) for the terrain shader. Standing water is resolved
+  // as a coverage-weighted surface height so shorelines follow the terrain.
+  rasterize(cx, cy, n) {
+    return rasterizePadded(this.gatherPadded(cx, cy), n);
   }
 
   // ---- persistence -------------------------------------------------------

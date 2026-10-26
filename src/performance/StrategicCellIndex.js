@@ -1,5 +1,12 @@
+// Numeric keys: building "x,y" strings for every cell of every query dominated the cost of
+// proximity lookups in dense battles.
+const KEY_OFFSET = 32768;
+const KEY_SPAN = 65536;
+function cellKey(cellX, cellY) {
+  return (cellX + KEY_OFFSET) * KEY_SPAN + (cellY + KEY_OFFSET);
+}
 function bucketKey(x, y, cellSize) {
-  return `${Math.floor(x / cellSize)},${Math.floor(y / cellSize)}`;
+  return cellKey(Math.floor(x / cellSize), Math.floor(y / cellSize));
 }
 
 function addToBucket(map, key, value) {
@@ -66,7 +73,7 @@ export class StrategicCellIndex {
     const radiusSquared = radius * radius;
     for (let y = minY; y <= maxY; y += 1) {
       for (let x = minX; x <= maxX; x += 1) {
-        const bucket = map.get(`${x},${y}`);
+        const bucket = map.get(cellKey(x, y));
         if (!bucket) continue;
         for (const item of bucket) {
           const dx = item.x - point.x;
@@ -78,6 +85,31 @@ export class StrategicCellIndex {
     return result;
   }
 
+  // Counts matches without building an array, stopping as soon as `limit` is reached.
+  countWhere(map, point, radius, predicate, limit = Infinity) {
+    const minX = Math.floor((point.x - radius) / this.cellSize);
+    const maxX = Math.floor((point.x + radius) / this.cellSize);
+    const minY = Math.floor((point.y - radius) / this.cellSize);
+    const maxY = Math.floor((point.y + radius) / this.cellSize);
+    const radiusSquared = radius * radius;
+    let count = 0;
+    for (let y = minY; y <= maxY; y += 1) {
+      for (let x = minX; x <= maxX; x += 1) {
+        const bucket = map.get(cellKey(x, y));
+        if (!bucket) continue;
+        for (const item of bucket) {
+          const dx = item.x - point.x;
+          const dy = item.y - point.y;
+          if (dx * dx + dy * dy > radiusSquared || !predicate(item)) continue;
+          count += 1;
+          if (count >= limit) return count;
+        }
+      }
+    }
+    return count;
+  }
+
+  countUnitsNear(point, radius, predicate, limit) { return this.countWhere(this.unitsByCell, point, radius, predicate, limit); }
   unitsNear(point, radius) { return this.query(this.unitsByCell, point, radius); }
   structuresNear(point, radius) { return this.query(this.structuresByCell, point, radius); }
   resourcesNear(point, radius) { return this.query(this.resourcesByCell, point, radius); }

@@ -26,16 +26,18 @@ import {
   storageAdapter,
   unitSpriteForge
 } from "../src/config/runtime-config.js";
-import { clamp, distance } from "../src/utilities/math.js";
+import { hypot2, clamp, distance } from "../src/utilities/math.js";
 import { formatElapsed, pad2 } from "../src/utilities/format.js";
 import { seededRandom } from "../src/utilities/random.js";
 import { NavigationPlanner } from "../src/map/NavigationPlanner.js";
-import { ignoresGroundObstacles, shouldSeparateUnits } from "../src/physics/CollisionLayers.js";
+import { COLLISION_LAYERS, collisionLayerFor, ignoresGroundObstacles } from "../src/physics/CollisionLayers.js";
 import { HeightField, SAMPLE_SPACING as HEIGHT_SAMPLE_SPACING, CHUNK_SAMPLES as HEIGHT_CHUNK_SAMPLES, CHUNK_SPAN as HEIGHT_CHUNK_SPAN } from "../src/terrain/HeightField.js";
 import { buildProceduralTextures } from "../src/terrain/ProceduralTextures.js";
 import { WorldLayers } from "../src/world/WorldLayers.js";
 import { generateRegion } from "../src/world/RegionGenerator.js";
-import { SHADER_PIXELS, TERRAIN_PALETTES, shadeTerrainChunk } from "../src/terrain/TerrainShader.js";
+import { SHADER_PIXELS, TERRAIN_PALETTES, gatherTerrainChunkInput, shadeTerrainChunkFromInput } from "../src/terrain/TerrainShader.js";
+import { TerrainBakeClient } from "../src/terrain/TerrainBakeClient.js";
+import { GLGroundLayer, viewTransform } from "../src/rendering/GLGroundLayer.js";
 import { createRegionRuntime, REGION_WORLD, DEFAULT_REGION_CONFIG } from "../src/region/RegionRuntime.js";
 import { createRegionUI } from "../src/region/RegionUI.js";
 import { bakeVegetationChunk } from "../src/rendering/VegetationRenderer.js";
@@ -437,6 +439,22 @@ import {
 
       const canvas = root.querySelector("#awt-canvas");
       const ctx = canvas.getContext("2d");
+      // Ground (terrain + vegetation) is composited by WebGL on a canvas under the 2D one.
+      const groundCanvas = document.createElement("canvas");
+      groundCanvas.className = "awt-ground-canvas";
+      groundCanvas.setAttribute("aria-hidden", "true");
+      groundCanvas.style.visibility = "hidden";
+      canvas.parentNode.insertBefore(groundCanvas, canvas);
+      const glGround = !new URLSearchParams(location.search).has("nogl") && GLGroundLayer.supported() ? new GLGroundLayer(groundCanvas) : null;
+      // A software rasteriser (SwiftShader, llvmpipe) is slower at full-screen WebGL than the 2D canvas
+      // path, so WebGL ground is used on real GPUs only. `?gl` forces it for testing.
+      if (glGround?.software && !new URLSearchParams(location.search).has("gl")) glGround.ready = false;
+      if (glGround) glGround.onLost = () => { state.glGroundFrame = false; groundCanvas.style.visibility = "hidden"; canvas.parentNode.classList.remove("has-gl-ground"); };
+      const terrainBakeClient = new TerrainBakeClient({
+        createWorker: () => new Worker(new URL("../src/terrain/terrain-bake-worker.js", import.meta.url), { type: "module" }),
+        poolSize: Math.max(1, Math.min(3, (navigator.hardwareConcurrency || 4) - 2)),
+        perWorker: 2
+      });
       const runtimeTelemetry = new RuntimeTelemetry({ intervalMs: 1000 });
       const constructionTelemetry = new ConstructionTelemetry(800);
       const profiler = new Profiler({ enabled: new URLSearchParams(location.search).has("profile") });
@@ -1699,7 +1717,7 @@ import {
         },
         incident: (text, id, level) => incident(text, id, level === "alert" ? "warning" : level),
         createNode: (point, overrides) => createEconomicNode(`economic-node-${state.nextEconomicNodeId++}`, point, { type: "civilian-settlement", ...overrides }),
-        bakeVegetation: (layers, field, cx, cy, canvas) => bakeVegetationChunk(layers, field, cx, cy, canvas) || canvas,
+        bakeVegetation: (layers, field, cx, cy, canvas) => profiler.profile("render.vegetationBake", () => bakeVegetationChunk(layers, field, cx, cy, canvas) || canvas),
         deserializeField: payload => HeightField.deserialize(payload, { width: REGION_WORLD.width, height: REGION_WORLD.height })
       });
       const regionUI = createRegionUI({
@@ -1750,6 +1768,23 @@ import {
           return state.time;
         },
         drawFrame() { draw(); },
+        groundStats() { return { gl: Boolean(glGround?.ready), software: Boolean(glGround?.software), renderer: glGround?.renderer || null, frame: Boolean(state.glGroundFrame), ...(glGround?.stats || {}), textures: glGround?.textures.size || 0, worker: { ...terrainBakeClient.stats, failed: terrainBakeClient.failed } }; },
+        // Stress hook: fill a faction up to `count` extra fighters around a point.
+        spawnArmy(faction, count = 100, x = worldWidth() / 2, y = worldHeight() / 2, spread = 260) {
+          const roles = ["trooper", "trooper", "trooper", "scout", "medic", "vehicle"];
+          let made = 0;
+          for (let index = 0; index < count; index += 1) {
+            const unit = makeUnit(faction, roles[index % roles.length], "Debug stress spawn");
+            const angle = index * 2.399963;
+            const radius = spread * Math.sqrt((index + 1) / count);
+            unit.x = clamp(x + Math.cos(angle) * radius, 24, worldWidth() - 24);
+            unit.y = clamp(y + Math.sin(angle) * radius, 24, worldHeight() - 24);
+            state.units.push(unit);
+            made += 1;
+          }
+          rebuildSpatialGrid();
+          return made;
+        },
         // Test hook: put a faction's fighting units on top of a point (an instant invasion).
         deployArmy(faction, x, y, spread = 70) {
           let moved = 0;
@@ -1772,7 +1807,7 @@ import {
           state.terrainChunks = new Map();
           state.features = [];
           markFeatureIndexDirty();
-          reliefChunkCache.clear();
+          invalidateReliefTextures();
           setZoom("fit");
           draw();
           return { sites: info.sites.length, rivers: info.rivers.length };
@@ -2274,7 +2309,7 @@ import {
       function paintTerrainTiles(point, type, mode) {
         const radius = Math.max(TILE_SIZE * 0.55, state.brushRadius);
         const previous = state.lastBrushPoint;
-        const segmentLength = previous ? Math.hypot(point.x - previous.x, point.y - previous.y) : 0;
+        const segmentLength = previous ? hypot2(point.x - previous.x, point.y - previous.y) : 0;
         const steps = previous ? Math.max(1, Math.ceil(segmentLength / (TILE_SIZE * 0.45))) : 0;
         const changed = new Set();
         for (let step = 0; step <= steps; step += 1) {
@@ -2292,7 +2327,7 @@ import {
               const center = { x: (tileX + 0.5) * TILE_SIZE, y: (tileY + 0.5) * TILE_SIZE };
               const edgeDistance = state.brushShape === "square"
                 ? Math.max(Math.abs(center.x - stamp.x), Math.abs(center.y - stamp.y)) / radius
-                : Math.hypot(center.x - stamp.x, center.y - stamp.y) / (radius + TILE_SIZE * 0.45);
+                : hypot2(center.x - stamp.x, center.y - stamp.y) / (radius + TILE_SIZE * 0.45);
               if (edgeDistance > 1) continue;
               const hardness = clamp(state.brushHardness, 0, 1);
               const edgeStrength = edgeDistance <= hardness
@@ -2337,7 +2372,7 @@ import {
             const centerX = (tileX + 0.5) * TILE_SIZE;
             const centerY = (tileY + 0.5) * TILE_SIZE;
             const edgeNoise = 0.82 + random() * 0.28;
-            if (Math.hypot(centerX - point.x, centerY - point.y) <= radius * edgeNoise) {
+            if (hypot2(centerX - point.x, centerY - point.y) <= radius * edgeNoise) {
               setTerrainTile(tileX, tileY, { type, opacity: 0.88 + random() * 0.12 });
             }
           }
@@ -2488,7 +2523,7 @@ import {
         if (feature.shape === "square") {
           return Math.max(Math.abs(point.x - feature.x), Math.abs(point.y - feature.y));
         }
-        return Math.hypot(point.x - feature.x, point.y - feature.y);
+        return hypot2(point.x - feature.x, point.y - feature.y);
       }
 
       function pointInsideFeature(point, feature, padding = 0) {
@@ -3173,7 +3208,7 @@ import {
         const dy = b.y - a.y;
         const denominator = dx * dx + dy * dy || 1;
         const t = clamp(((point.x - a.x) * dx + (point.y - a.y) * dy) / denominator, 0, 1);
-        return Math.hypot(point.x - (a.x + dx * t), point.y - (a.y + dy * t));
+        return hypot2(point.x - (a.x + dx * t), point.y - (a.y + dy * t));
       }
 
       let shadowCacheBucket = "";
@@ -3228,7 +3263,7 @@ import {
         if (!source.searchlight) return 0;
         const dx = point.x - source.x;
         const dy = point.y - source.y;
-        const distanceToSource = Math.hypot(dx, dy);
+        const distanceToSource = hypot2(dx, dy);
         if (distanceToSource > source.radius) return 0;
         const angle = Math.atan2(dy, dx);
         const delta = Math.atan2(Math.sin(angle - source.direction), Math.cos(angle - source.direction));
@@ -4255,7 +4290,7 @@ import {
           state.dayNight.weather = presetKey === "iron" ? "rain" : presetKey === "verdant" ? "fog" : presetKey === "region" ? "clear" : "dust";
         }
         if (!state.players.length) state.players = setupPlayers.slice(0, 2).map((player, index) => ({ ...player, base: deploymentPosition(index, 2, state.world) }));
-        reliefChunkCache.clear();
+        invalidateReliefTextures();
         if (presetKey === "region") {
           const regionBases = state.players.map((_, index) => deploymentPosition(index, state.players.length, state.world));
           regionRuntime.begin(state.regionConfig || DEFAULT_REGION_CONFIG, regionBases, state.regionSave || null);
@@ -5188,7 +5223,7 @@ import {
           const defensibility = (territory?.defensibility || 40) / 100 + terrain.cover;
           const supplyConnectivity = insideSupplyRadius(candidate, faction) ? 1 : type === "outpost" ? 0.8 : 0.25;
           const constructionSuitability = clamp(1 - Math.abs(terrain.elevation || 0) * 0.08, 0, 1);
-          const expansionValue = clamp(distance(base, candidate) / Math.max(220, Math.hypot(worldWidth(), worldHeight()) * 0.35), 0, 1);
+          const expansionValue = clamp(distance(base, candidate) / Math.max(220, hypot2(worldWidth(), worldHeight()) * 0.35), 0, 1);
           const terrainRisk = ["water", "river", "swamp", "mud"].includes(terrain.type) ? 0.65 : 0;
           const cellKey = territoryCellKey(candidate.x, candidate.y);
           const localStructures = state.structures.filter(structure => structure.alive !== false && structure.faction === faction && territoryCellKey(structure.x, structure.y) === cellKey);
@@ -6105,7 +6140,7 @@ import {
           unit.slopeProbe = { x: unit.x, y: unit.y, gx: gradient.gx, gy: gradient.gy, version: field.version };
         }
         const probe = unit.slopeProbe;
-        const length = Math.hypot(dx, dy) || 1;
+        const length = hypot2(dx, dy) || 1;
         const slope = (probe.gx * dx + probe.gy * dy) / length;
         return slopeMovementFactor(slope, { vehicle: unit.role === "vehicle" });
       }
@@ -6133,7 +6168,7 @@ import {
         const movementTarget = unit.navigationPath?.[0] || unit.detour || point;
         const dx = movementTarget.x - unit.x;
         const dy = movementTarget.y - unit.y;
-        const d = Math.hypot(dx, dy) || 1;
+        const d = hypot2(dx, dy) || 1;
         unit.facing = Math.atan2(dy, dx);
         const terrain = terrainAt(unit, unit);
         if ((unit.nextRoadProbeAt || 0) <= state.time) {
@@ -6245,7 +6280,7 @@ import {
               : { x: shape.x, y: shape.y };
             const normalX = unit.x - center.x;
             const normalY = unit.y - center.y;
-            const normalLength = Math.hypot(normalX, normalY) || 1;
+            const normalLength = hypot2(normalX, normalY) || 1;
             const clearance = radius + Math.max(shape.r || 0, shape.rx || 0, shape.ry || 0, shape.halfW || 0, shape.halfH || 0) + 8;
             unit.detour = {
               x: clamp(center.x + normalX / normalLength * clearance - dy / d * clearance * 0.55 * side, 24, worldWidth() - 24),
@@ -6262,7 +6297,7 @@ import {
             const base = baseFor(unit.faction);
             const inwardX = base.x - unit.x;
             const inwardY = base.y - unit.y;
-            const inwardLength = Math.hypot(inwardX, inwardY) || 1;
+            const inwardLength = hypot2(inwardX, inwardY) || 1;
             const inward = {
               x: clamp(unit.x + inwardX / inwardLength * Math.max(12, step * 2), 24, worldWidth() - 24),
               y: clamp(unit.y + inwardY / inwardLength * Math.max(12, step * 2), 24, worldHeight() - 24)
@@ -6377,7 +6412,7 @@ import {
         if (behavior.aggression >= 72 && behavior.caution <= 55) return direct;
         const dx = hostileAnchor.x - start.x;
         const dy = hostileAnchor.y - start.y;
-        const length = Math.hypot(dx, dy) || 1;
+        const length = hypot2(dx, dy) || 1;
         const perpendicular = { x: -dy / length, y: dx / length };
         const candidates = [-72, -36, 0, 36, 72].map(offset => ({
           x: clamp(direct.x + perpendicular.x * offset, 24, worldWidth() - 24),
@@ -6419,8 +6454,15 @@ import {
         return clamp((1 - age / 120) * personalityScale, 0, 1);
       }
 
-      function updateSocialAI() {
-        for (const unit of state.units) {
+      // Sliced: each call visits `limit` units starting at a rotating cursor, so the whole roster is
+      // still covered once per social period (2 s) but no single frame pays for all of it.
+      function updateSocialAI(limit = Infinity) {
+        const roster = state.units;
+        const total = roster.length;
+        const visits = Math.min(total, limit);
+        const startCursor = (state.socialCursor || 0) % Math.max(1, total);
+        for (let visit = 0; visit < visits; visit += 1) {
+          const unit = roster[(startCursor + visit) % total];
           if (!unit.alive) continue;
           if (playerFor(unit.faction).race === "Tyranids") {
             unit.relationships = {};
@@ -6483,8 +6525,12 @@ import {
             }
           }
         }
-        state.aiDiagnostics.relationshipEdges = Math.floor(state.units.reduce((sum, unit) => sum + Object.keys(unit.relationships || {}).length, 0) / 2);
-        state.aiDiagnostics.killPursuits = state.units.filter(unit => unit.alive && unit.combatIntent === "Eliminate").length;
+        const wrapped = total > 0 && startCursor + visits >= total;
+        state.socialCursor = total ? (startCursor + visits) % total : 0;
+        if (wrapped || limit === Infinity) {
+          state.aiDiagnostics.relationshipEdges = Math.floor(state.units.reduce((sum, unit) => sum + Object.keys(unit.relationships || {}).length, 0) / 2);
+          state.aiDiagnostics.killPursuits = state.units.filter(unit => unit.alive && unit.combatIntent === "Eliminate").length;
+        }
       }
 
       function combatPowerScore(actor) {
@@ -6718,7 +6764,7 @@ import {
         if (!segment) {
           const enemy = squad ? enemyPlayerFor(squad.faction) : null;
           const hostileAnchor = squad && enemy ? knownHostileAnchor(squad.faction, enemy.id) : null;
-          const worldDiagonal = Math.hypot(worldWidth(), worldHeight()) || 1;
+          const worldDiagonal = hypot2(worldWidth(), worldHeight()) || 1;
           const score = item => {
             const midpoint = { x: (item.start.x + item.end.x) / 2, y: (item.start.y + item.end.y) / 2 };
             const flags = item.operationalFlags || [];
@@ -6754,7 +6800,7 @@ import {
         }
         const dx = segment.end.x - segment.start.x;
         const dy = segment.end.y - segment.start.y;
-        const length = Math.hypot(dx, dy) || 1;
+        const length = hypot2(dx, dy) || 1;
         const side = ((squad?.id || "").length + playerFor(squad?.faction || road.faction).index) % 2 ? 1 : -1;
         const offset = orderType === "Ambush Route" ? 30 : 20;
         const anchor = {
@@ -7856,39 +7902,48 @@ import {
         for (const structure of state.structures) sync("structures", structure);
       }
 
+      // Single pass over the grid cells in range: no intermediate arrays and no sqrt per candidate.
       function nearbyCombatObjects(point, radius) {
-        const withinRadius = (item, padding = 0) => distance(point, item) <= radius + padding;
+        const result = { units: [], structures: [] };
+        const px = point.x;
+        const py = point.y;
+        const collectUnit = unit => {
+          if (!unit.alive || unit.embarkedInId) return;
+          const reach = radius + (unit.role === "vehicle" ? 8 : 4);
+          const dx = px - unit.x;
+          const dy = py - unit.y;
+          if (dx * dx + dy * dy <= reach * reach) result.units.push(unit);
+        };
+        const collectStructure = item => {
+          if (item.alive === false) return;
+          const reach = radius + Math.max(item.hitbox?.w || 0, item.hitbox?.h || 0) / 2;
+          const dx = px - item.x;
+          const dy = py - item.y;
+          if (dx * dx + dy * dy <= reach * reach) result.structures.push(item);
+        };
         if (!state.spatialGrid?.size) {
-          return {
-            units: state.units.filter(unit => unit.alive && !unit.embarkedInId && withinRadius(unit, unit.role === "vehicle" ? 8 : 4)),
-            structures: state.structures.filter(item => item.alive !== false && withinRadius(item, Math.max(item.hitbox?.w || 0, item.hitbox?.h || 0) / 2))
-          };
+          for (const unit of state.units) collectUnit(unit);
+          for (const item of state.structures) collectStructure(item);
+          return result;
         }
         const range = Math.ceil(radius / spatialCellSize);
-        const cx = Math.floor(point.x / spatialCellSize);
-        const cy = Math.floor(point.y / spatialCellSize);
+        const cx = Math.floor(px / spatialCellSize);
+        const cy = Math.floor(py / spatialCellSize);
         const columns = Math.max(1, Math.ceil(worldWidth() / spatialCellSize));
         const rows = Math.max(1, Math.ceil(worldHeight() / spatialCellSize));
-        const result = { units: [], structures: [] };
         for (let ox = -range; ox <= range; ox += 1) {
+          const cellX = cx + ox;
+          if (cellX < 0 || cellX >= columns) continue;
           for (let oy = -range; oy <= range; oy += 1) {
-            const cellX = cx + ox;
             const cellY = cy + oy;
-            if (cellX < 0 || cellY < 0 || cellX >= columns || cellY >= rows) continue;
+            if (cellY < 0 || cellY >= rows) continue;
             const bucket = state.spatialGrid.get(spatialGridKey(cellX, cellY));
             if (!bucket) continue;
-            for (const unit of bucket.units) {
-              if (unit.alive && !unit.embarkedInId) result.units.push(unit);
-            }
-            for (const structure of bucket.structures) {
-              if (structure.alive !== false) result.structures.push(structure);
-            }
+            for (const unit of bucket.units) collectUnit(unit);
+            for (const structure of bucket.structures) collectStructure(structure);
           }
         }
-        return {
-          units: result.units.filter(unit => withinRadius(unit, unit.role === "vehicle" ? 8 : 4)),
-          structures: result.structures.filter(item => withinRadius(item, Math.max(item.hitbox?.w || 0, item.hitbox?.h || 0) / 2))
-        };
+        return result;
       }
 
       function spatialObjectsInBounds(bounds) {
@@ -8359,14 +8414,14 @@ import {
         const targetPoint = visual.guided ? target : intercept;
         const dx = targetPoint.x - unit.x;
         const dy = targetPoint.y - unit.y;
-        const directDistance = Math.hypot(dx, dy) || 1;
+        const directDistance = hypot2(dx, dy) || 1;
         const perpendicular = { x: -dy / directDistance, y: dx / directDistance };
         const targetRadius = buildingCatalog[target.type] ? Math.max(target.hitbox?.w || 18, target.hitbox?.h || 18) * 0.22 : target.role === "vehicle" ? 7 : 4;
         const deviation = intendedHit ? rand(-targetRadius * 0.45, targetRadius * 0.45) : rand(targetRadius + 7, targetRadius + 28) * (battleRandom() < 0.5 ? -1 : 1);
         const aimPoint = { x: targetPoint.x + perpendicular.x * deviation, y: targetPoint.y + perpendicular.y * deviation };
         const aimDx = aimPoint.x - unit.x;
         const aimDy = aimPoint.y - unit.y;
-        const aimDistance = Math.hypot(aimDx, aimDy) || 1;
+        const aimDistance = hypot2(aimDx, aimDy) || 1;
         const projectileSpeed = visual.beam ? Math.max(1800, weapon.projectileSpeed) : weapon.projectileSpeed;
         acquireProjectile({
           id: `projectile-${state.time.toFixed(2)}-${unit.id}-${unit.ammo}`,
@@ -8460,7 +8515,7 @@ import {
         const midpoint = projectile.collisionProbe ||= { x: 0, y: 0 };
         midpoint.x = (previous.x + current.x) / 2;
         midpoint.y = (previous.y + current.y) / 2;
-        const candidates = nearbyCombatObjects(midpoint, Math.hypot(current.x - previous.x, current.y - previous.y) / 2 + 24);
+        const candidates = nearbyCombatObjects(midpoint, hypot2(current.x - previous.x, current.y - previous.y) / 2 + 24);
         for (const structure of candidates.structures) {
           if (structure.progress < 0.2 || areAllies(structure.faction, projectile.faction)
             || factionMobilizing(structure.faction, projectile.faction) || !segmentIntersectsStructure(previous, current, structure)) continue;
@@ -8770,7 +8825,7 @@ import {
           projectile.previousY = projectile.y;
           projectile.x += projectile.vx * dt;
           projectile.y += projectile.vy * dt;
-          projectile.traveled += Math.hypot(projectile.x - previous.x, projectile.y - previous.y);
+          projectile.traveled += hypot2(projectile.x - previous.x, projectile.y - previous.y);
           const collision = projectileCollision(projectile, previous, projectile);
           if (collision) {
             projectile.x = collision.x;
@@ -9234,7 +9289,7 @@ import {
           } else if (["JUMP", "TELEPORT"].includes(event.type) && event.target?.alive) {
             const dx = event.target.x - unit.x;
             const dy = event.target.y - unit.y;
-            const length = Math.hypot(dx, dy) || 1;
+            const length = hypot2(dx, dy) || 1;
             const landingDistance = event.type === "TELEPORT" ? 32 : 20;
             const landing = {
               x: clamp(event.target.x - dx / length * landingDistance, 24, worldWidth() - 24),
@@ -9348,10 +9403,56 @@ import {
         const fighters = orks.filter(unit => !["builder", "supply"].includes(unit.role));
         ecology.waaaghMomentum = (state.waaaghFields[player.id]?.momentum || 0) / 100;
         ecology.sporeSaturation = clamp((ecology.sporeSaturation || 0) + orks.length * 0.012, 0, 100);
+        // Followers = squadmates plus fighters whose own relationship record of this ork is >= 18.
+        // Built once from the relationship records (O(total edges)) instead of scanning every fighter per ork.
+        const squadSizes = new Map();
+        const admirers = new Map();
+        const fighterIds = new Set();
+        for (const other of fighters) {
+          fighterIds.add(other.id);
+          if (other.squadId) squadSizes.set(other.squadId, (squadSizes.get(other.squadId) || 0) + 1);
+        }
+        for (const other of fighters) {
+          const records = other.relationships;
+          if (!records) continue;
+          for (const targetId in records) {
+            if ((records[targetId]?.score || 0) < 18 || targetId === other.id || !fighterIds.has(targetId)) continue;
+            let set = admirers.get(targetId);
+            if (!set) admirers.set(targetId, set = []);
+            set.push(other);
+          }
+        }
+        const MOB_CELL = 96;
+        const mobGrid = new Map();
+        for (const other of fighters) {
+          const key = Math.floor(other.x / MOB_CELL) * 100003 + Math.floor(other.y / MOB_CELL);
+          const cell = mobGrid.get(key);
+          if (cell) cell.push(other); else mobGrid.set(key, [other]);
+        }
         for (const ork of fighters) {
-          const followers = fighters.filter(other => other.id !== ork.id && (other.squadId && other.squadId === ork.squadId || relationshipScore(other, ork) >= 18)).length;
+          let followers = ork.squadId ? Math.max(0, (squadSizes.get(ork.squadId) || 1) - 1) : 0;
+          const admiring = admirers.get(ork.id);
+          if (admiring) for (const other of admiring) if (!(other.squadId && other.squadId === ork.squadId)) followers += 1;
           ork.dominance = orkDominanceScore(ork, followers);
-          const nearbyMob = nearbyCombatObjects(ork, 85).units.filter(other => other.alive && other.faction === player.id && !["builder", "supply"].includes(other.role)).length;
+          let nearbyMob = 0;
+          {
+            // Same-faction fighters within 85 (+4, or +8 for vehicles) from the per-call mob grid.
+            const mx = Math.floor(ork.x / MOB_CELL);
+            const my = Math.floor(ork.y / MOB_CELL);
+            for (let gx = mx - 1; gx <= mx + 1; gx += 1) {
+              for (let gy = my - 1; gy <= my + 1; gy += 1) {
+                const cell = mobGrid.get(gx * 100003 + gy);
+                if (!cell) continue;
+                for (const other of cell) {
+                  if (other.embarkedInId) continue;
+                  const reach = 85 + (other.role === "vehicle" ? 8 : 4);
+                  const ox = ork.x - other.x;
+                  const oy = ork.y - other.y;
+                  if (ox * ox + oy * oy <= reach * reach) nearbyMob += 1;
+                }
+              }
+            }
+          }
           ork.morale = clamp(ork.morale + nearbyMob * 0.006 + ecology.waaaghMomentum * 0.018, 0, 1);
           ork.killConfidence = clamp((ork.killConfidence || 0) + nearbyMob * 1.5 + ecology.waaaghMomentum * 6, 0, 100);
           if (!ork.targetId && state.time >= (ork.nextOrkIdleAt || 0)) {
@@ -9541,8 +9642,9 @@ import {
           .filter(structure => structure && structure.alive !== false && !areAllies(structure.faction, player.id));
         let isolatedObservedEnemies = 0;
         for (const enemy of observedEnemies) {
-          const supportingEnemies = strategicCellIndex.unitsNear(enemy, 130)
-            .filter(other => other.id !== enemy.id && areAllies(other.faction, enemy.faction)).length;
+          // Only "at most one supporter" matters, so stop counting at two.
+          const supportingEnemies = strategicCellIndex.countUnitsNear(enemy, 130,
+            other => other.id !== enemy.id && areAllies(other.faction, enemy.faction), 2);
           if (supportingEnemies <= 1) isolatedObservedEnemies += 1;
         }
         const distantOwnUnits = ownUnits.filter(unit => distance(unit, player.base) > 620).length;
@@ -10013,7 +10115,7 @@ import {
         if (strike.knockback > 0) {
           const dx = target.x - attacker.x;
           const dy = target.y - attacker.y;
-          const length = Math.hypot(dx, dy) || 1;
+          const length = hypot2(dx, dy) || 1;
           const candidate = {
             x: clamp(target.x + dx / length * strike.knockback, 24, worldWidth() - 24),
             y: clamp(target.y + dy / length * strike.knockback, 24, worldHeight() - 24)
@@ -10864,7 +10966,7 @@ import {
       function roadPathBetween(start, end, seed = 0) {
         const dx = end.x - start.x;
         const dy = end.y - start.y;
-        const length = Math.hypot(dx, dy) || 1;
+        const length = hypot2(dx, dy) || 1;
         const px = -dy / length;
         const py = dx / length;
         const bend = ((seed * 37) % 31 - 15) * Math.min(1, length / 180);
@@ -13268,7 +13370,7 @@ import {
           }
           const dx = waypoint.x - convoy.x;
           const dy = waypoint.y - convoy.y;
-          const d = Math.hypot(dx, dy) || 1;
+          const d = hypot2(dx, dy) || 1;
           const activeRoad = nearestRoadSegment(convoy, 24);
           convoy.activeSegmentId = activeRoad && activeRoad.distance <= (activeRoad.segment.width || 7) + 5 ? activeRoad.segment.id : null;
           const activeFlags = activeRoad?.segment?.operationalFlags || [];
@@ -14264,7 +14366,10 @@ import {
         if (!state.spatialGrid.size) rebuildSpatialGrid();
         let livingIndex = 0;
         for (const unit of state.units) {
-          if (unit.alive && !unit.embarkedInId) unit.separationIndex = livingIndex++;
+          if (unit.alive && !unit.embarkedInId) {
+            unit.separationIndex = livingIndex++;
+            unit.separationAir = collisionLayerFor(unit) === COLLISION_LAYERS.AIR;
+          }
         }
         for (const a of state.units) {
           if (!a.alive || a.embarkedInId) continue;
@@ -14281,10 +14386,10 @@ import {
                 if (b.separationIndex <= a.separationIndex) continue;
                 if (examined >= SEPARATION_MAX_CANDIDATES_PER_UNIT) break outerNeighborhood;
                 examined += 1;
-                if (!shouldSeparateUnits(a, b)) continue;
+                if (a.separationAir !== b.separationAir) continue;
                 const dx = b.x - a.x;
                 const dy = b.y - a.y;
-                const d = Math.hypot(dx, dy) || 0.01;
+                const d = hypot2(dx, dy) || 0.01;
                 const min = Math.max(5, (a.collisionRadius || (a.role === "vehicle" ? 14 : 3)) + (b.collisionRadius || (b.role === "vehicle" ? 14 : 3)));
                 if (d >= min) continue;
                 const force = (min - d) * 0.14;
@@ -14577,7 +14682,7 @@ import {
 
       function updateBattle(dt) {
         state.time += dt;
-        updateSpaceMarineTerritoryRequisition();
+        profiler.profile("ai.requisition", updateSpaceMarineTerritoryRequisition);
         profiler.profile("simulation.entityIndex", rebuildEntityIdIndex);
         const loadEntityCount = state.units.length + state.structures.length * 0.5;
         const largeBattleLoad = largeBattleLoadActive(loadEntityCount);
@@ -14688,15 +14793,16 @@ import {
           runDoctrineCadenceJob(doctrineJob);
           markHeavySystemRun();
         }
-        state.socialAccumulator += dt;
-        if (state.socialAccumulator >= 2 && heavySystemAvailable()) {
-          updateSocialAI();
-          state.socialAccumulator = 0;
-          markHeavySystemRun();
+        // Social AI is cheap per unit and runs sliced every step (a full pass per 2 s of theatre time).
+        state.socialAccumulator += state.units.length * dt / 2;
+        const socialVisits = Math.floor(state.socialAccumulator);
+        if (socialVisits > 0) {
+          state.socialAccumulator -= socialVisits;
+          profiler.profile("ai.social", () => updateSocialAI(socialVisits));
         }
         state.victoryEvaluationAccumulator += dt;
         if (state.victoryEvaluationAccumulator >= 5 && heavySystemAvailable()) {
-          evaluateStrategicOutcomes();
+          profiler.profile("ai.victoryEvaluation", evaluateStrategicOutcomes);
           state.victoryEvaluationAccumulator = 0;
           markHeavySystemRun();
         }
@@ -14820,12 +14926,12 @@ import {
         profiler.profile("simulation.cleanup", cleanupCompletedDeathAnimations);
         profiler.profile("simulation.exploration", () => updateExploration(dt));
         if (state.time >= state.nextSnapshot && heavySystemAvailable()) {
-          captureSnapshot();
+          profiler.profile("simulation.snapshot", captureSnapshot);
           state.nextSnapshot += Math.max(state.speed >= 8 ? 6 : 1.5, state.performancePreset.snapshotSeconds);
           markHeavySystemRun();
         }
         if (state.time >= state.nextMemoryPersistAt) {
-          persistBattleMemory("interval");
+          profiler.profile("simulation.persistMemory", () => persistBattleMemory("interval"));
           state.nextMemoryPersistAt += 120;
         }
         if (state.time >= state.nextMilestone) {
@@ -15390,83 +15496,142 @@ import {
         const layers = reliefLayers();
         return state.heightField.revisionAround(chunkX, chunkY) + (layers ? layers.revisionAround(chunkX, chunkY) * 7 : 0);
       }
-      function bakeReliefChunk(chunkX, chunkY) {
-        const key = `${chunkX},${chunkY}`;
-        proceduralTerrainTextures ||= buildProceduralTextures(256);
-        const textures = proceduralTerrainTextures;
-        const result = shadeTerrainChunk({
+      function reliefEntryFor(key) {
+        let entry = reliefChunkCache.get(key);
+        if (!entry) {
+          const canvasElement = document.createElement("canvas");
+          canvasElement.width = canvasElement.height = SHADER_PIXELS;
+          entry = { canvas: canvasElement, rev: -1, version: 0 };
+          reliefChunkCache.set(key, entry);
+        }
+        return entry;
+      }
+      function applyReliefPixels(key, rev, pixels) {
+        const entry = reliefEntryFor(key);
+        entry.canvas.getContext("2d").putImageData(new ImageData(pixels, SHADER_PIXELS, SHADER_PIXELS), 0, 0);
+        entry.rev = rev;
+        entry.version += 1;
+        return entry;
+      }
+      function reliefBakeInput(chunkX, chunkY) {
+        return gatherTerrainChunkInput({
           field: state.heightField,
           layers: reliefLayers(),
           chunkX,
           chunkY,
           size: SHADER_PIXELS,
-          textures,
-          palette: TERRAIN_PALETTES[reliefPaletteKey()],
+          palette: reliefPaletteKey(),
           seed: (state.heightField.seed || 1) >>> 0
         });
-        let entry = reliefChunkCache.get(key);
-        if (!entry) {
-          const canvasElement = document.createElement("canvas");
-          canvasElement.width = canvasElement.height = SHADER_PIXELS;
-          entry = { canvas: canvasElement, rev: -1 };
-          reliefChunkCache.set(key, entry);
-        }
-        entry.canvas.getContext("2d").putImageData(new ImageData(result.pixels, SHADER_PIXELS, SHADER_PIXELS), 0, 0);
-        entry.rev = reliefRevision(chunkX, chunkY);
-        return entry;
+      }
+      // Synchronous bake: first paint of a map, tests, and the fallback when no worker exists.
+      function bakeReliefChunk(chunkX, chunkY) {
+        const key = `${chunkX},${chunkY}`;
+        proceduralTerrainTextures ||= buildProceduralTextures(256);
+        const input = reliefBakeInput(chunkX, chunkY);
+        const result = profiler.profile("terrain.bakeSync", () => shadeTerrainChunkFromInput(input, proceduralTerrainTextures, TERRAIN_PALETTES[input.palette]));
+        return applyReliefPixels(key, reliefRevision(chunkX, chunkY), result.pixels);
+      }
+      // Asynchronous bake on the worker. The previous texture keeps drawing until the new one lands.
+      function requestReliefBake(chunkX, chunkY) {
+        const key = `${chunkX},${chunkY}`;
+        const rev = reliefRevision(chunkX, chunkY);
+        if (terrainBakeClient.isPending(key, rev)) return "pending";
+        const input = profiler.profile("terrain.gather", () => reliefBakeInput(chunkX, chunkY));
+        const sent = terrainBakeClient.request(key, rev, input, result => {
+          applyReliefPixels(key, result.rev, result.pixels);
+          queueRedraw();
+        });
+        return sent ? "sent" : "busy";
+      }
+      // The main loop redraws every frame; this only matters when it is idle (menu transitions, tests).
+      let redrawQueued = false;
+      function queueRedraw() {
+        if (redrawQueued) return;
+        redrawQueued = true;
+        requestAnimationFrame(() => {
+          redrawQueued = false;
+          if (state.mode !== "menu") draw();
+        });
+      }
+      function reliefChunkRange(bounds) {
+        const span = HEIGHT_CHUNK_SPAN;
+        return {
+          span,
+          minX: Math.max(0, Math.floor(bounds.left / span)),
+          maxX: Math.min(Math.ceil(worldWidth() / span) - 1, Math.floor(bounds.right / span)),
+          minY: Math.max(0, Math.floor(bounds.top / span)),
+          maxY: Math.min(Math.ceil(worldHeight() / span) - 1, Math.floor(bounds.bottom / span))
+        };
       }
       function drawReliefTerrain(bounds) {
-        const span = HEIGHT_CHUNK_SPAN;
-        const minX = Math.max(0, Math.floor(bounds.left / span));
-        const maxX = Math.min(Math.ceil(worldWidth() / span) - 1, Math.floor(bounds.right / span));
-        const minY = Math.max(0, Math.floor(bounds.top / span));
-        const maxY = Math.min(Math.ceil(worldHeight() / span) - 1, Math.floor(bounds.bottom / span));
+        const { span, minX, maxX, minY, maxY } = reliefChunkRange(bounds);
         if ((maxX - minX + 1) * (maxY - minY + 1) > 600) return false;
         const centerX = (bounds.left + bounds.right) / 2 / span;
         const centerY = (bounds.top + bounds.bottom) / 2 / span;
+        const useGl = Boolean(state.glGroundFrame);
         const stale = [];
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(0, 0, worldWidth(), worldHeight());
-        ctx.clip();
-        ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = "medium";
+        if (!useGl) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(0, 0, worldWidth(), worldHeight());
+          ctx.clip();
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = "medium";
+        }
         for (let chunkY = minY; chunkY <= maxY; chunkY += 1) {
           for (let chunkX = minX; chunkX <= maxX; chunkX += 1) {
             const entry = reliefChunkCache.get(`${chunkX},${chunkY}`);
-            if (entry) ctx.drawImage(entry.canvas, chunkX * span, chunkY * span, span + 0.6, span + 0.6);
-            if (!entry || entry.rev !== reliefRevision(chunkX, chunkY) ) stale.push({ chunkX, chunkY, distance: Math.hypot(chunkX - centerX, chunkY - centerY), missing: !entry });
+            if (entry) {
+              if (useGl) glGround.drawTile(`r${chunkX},${chunkY}`, entry.canvas, entry.version, chunkX * span, chunkY * span, span + 0.6, span + 0.6);
+              else ctx.drawImage(entry.canvas, chunkX * span, chunkY * span, span + 0.6, span + 0.6);
+            }
+            if (!entry || entry.rev !== reliefRevision(chunkX, chunkY)) stale.push({ chunkX, chunkY, distance: hypot2(chunkX - centerX, chunkY - centerY), missing: !entry });
           }
         }
-        ctx.restore();
+        if (!useGl) ctx.restore();
         if (stale.length) {
           stale.sort((a, b) => (b.missing - a.missing) || a.distance - b.distance);
           const started = performance.now();
-          let baked = 0;
+          let handled = 0;
+          let waiting = false;
           for (const item of stale) {
-            if (baked >= 6 || (baked > 0 && performance.now() - started > 14)) break;
-            bakeReliefChunk(item.chunkX, item.chunkY);
-            baked += 1;
+            // Workers shade chunks nearest the camera first; the ground shows flat colour until they land.
+            if (terrainBakeClient.available) {
+              const outcome = requestReliefBake(item.chunkX, item.chunkY);
+              if (outcome === "busy") { waiting = true; break; }
+              if (outcome === "pending") waiting = true;
+            } else if (handled < 6 && (handled === 0 || performance.now() - started < 14)) {
+              bakeReliefChunk(item.chunkX, item.chunkY);
+              handled += 1;
+            } else waiting = true;
           }
-          if (baked < stale.length) requestAnimationFrame(() => { if (state.mode !== "menu") draw(); });
+          // With a worker, each finished bake triggers its own redraw; only the synchronous path polls.
+          if (!terrainBakeClient.available && handled < stale.length) queueRedraw();
+          else if (waiting && !terrainBakeClient.inFlight) queueRedraw();
         }
         return true;
       }
       function reliefTerrainActive() {
         return Boolean(state.showTerrain && state.reliefTerrain !== false && state.heightField.active && (state.heightField.waterLevel != null || state.heightField.chunks.size > 0));
       }
-      function invalidateReliefTextures() { reliefChunkCache.clear(); }
+      function invalidateReliefTextures() { reliefChunkCache.clear(); terrainBakeClient.reset(); glGround?.clearTextures(); }
 
       function drawTerrain(
         bounds = cameraBounds(CHUNK_SIZE),
         terrainFeatures = state.camera.zoom < 0.15 ? visibleFeatureBuckets(bounds) : visibleFeatures(bounds)
       ) {
-        ctx.fillStyle = state.showTerrain ? terrainPaintColor(state.world.baseTerrain) : colors.background;
-        ctx.fillRect(bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top);
-        if (state.showTerrain) {
-          const basePattern = terrainTextures.pattern(ctx, state.world.baseTerrain, TILE_SIZE) || atlasPatterns[atlasTypeMap[state.world.baseTerrain]];
-          ctx.fillStyle = basePattern || terrainPaintColor(state.world.baseTerrain);
+        const glFrame = Boolean(state.glGroundFrame);
+        if (!glFrame) {
+          ctx.fillStyle = state.showTerrain ? terrainPaintColor(state.world.baseTerrain) : colors.background;
           ctx.fillRect(bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top);
+        }
+        if (state.showTerrain) {
+          if (!glFrame) {
+            const basePattern = terrainTextures.pattern(ctx, state.world.baseTerrain, TILE_SIZE) || atlasPatterns[atlasTypeMap[state.world.baseTerrain]];
+            ctx.fillStyle = basePattern || terrainPaintColor(state.world.baseTerrain);
+            ctx.fillRect(bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top);
+          }
           const relief = reliefTerrainActive() && drawReliefTerrain(bounds);
           state.reliefDrawn = Boolean(relief);
           drawSparseTerrainTiles(bounds);
@@ -15591,7 +15756,7 @@ import {
         if (isRoad && feature.shape === "line" && feature.x2 != null) {
           const dx = feature.x2 - feature.x;
           const dy = feature.y2 - feature.y;
-          const length = Math.hypot(dx, dy);
+          const length = hypot2(dx, dy);
           ctx.translate((feature.x + feature.x2) / 2, (feature.y + feature.y2) / 2);
           ctx.rotate(Math.atan2(dy, dx) + Math.PI / 2);
           ctx.drawImage(spriteAtlas, ...cell, -feature.r, -length / 2, feature.r * 2, length);
@@ -16875,23 +17040,30 @@ import {
             top: clamp(source.y - radius, 0, worldHeight()),
             bottom: clamp(source.y + radius, 0, worldHeight())
           }, FOG_CELL_SIZE);
+          const halfArc = (source.horizontalDegrees || 360) * Math.PI / 360;
+          const fullArc = halfArc >= Math.PI;
+          const opticalSquared = opticalRadius * opticalRadius;
+          const auspexSquared = auspexRadius * auspexRadius;
+          const facing = source.facing || 0;
           for (let cellY = range.minY; cellY <= range.maxY; cellY += 1) {
+            const top = cellY * FOG_CELL_SIZE;
             for (let cellX = range.minX; cellX <= range.maxX; cellX += 1) {
+              // Many sources overlap: a cell that is already visible needs no further test.
+              if (visible.cells.hasCell(cellX, cellY)) continue;
               const left = cellX * FOG_CELL_SIZE;
-              const top = cellY * FOG_CELL_SIZE;
               const nearestX = clamp(source.x, left, left + FOG_CELL_SIZE);
               const nearestY = clamp(source.y, top, top + FOG_CELL_SIZE);
               const dx = source.x - nearestX;
               const dy = source.y - nearestY;
               const cellDistanceSquared = dx * dx + dy * dy;
-              const centerX = left + FOG_CELL_SIZE / 2;
-              const centerY = top + FOG_CELL_SIZE / 2;
-              const bearing = Math.atan2(centerY - source.y, centerX - source.x);
-              const angle = Math.abs(Math.atan2(Math.sin(bearing - (source.facing || 0)), Math.cos(bearing - (source.facing || 0))));
-              const insideOpticalArc = cellDistanceSquared <= opticalRadius * opticalRadius
-                && angle <= ((source.horizontalDegrees || 360) * Math.PI / 360);
-              const insideAuspex = auspexRadius > 0 && cellDistanceSquared <= auspexRadius * auspexRadius;
-              if (insideOpticalArc || insideAuspex) visible.cells.addCell(cellX, cellY);
+              const insideOptical = cellDistanceSquared <= opticalSquared;
+              const insideAuspex = auspexRadius > 0 && cellDistanceSquared <= auspexSquared;
+              if (!insideOptical && !insideAuspex) continue;
+              if (insideAuspex || fullArc) { visible.cells.addCell(cellX, cellY); continue; }
+              // Only a limited field of view needs the bearing test (trigonometry per cell).
+              const bearing = Math.atan2(top + FOG_CELL_SIZE / 2 - source.y, left + FOG_CELL_SIZE / 2 - source.x);
+              const angle = Math.abs(Math.atan2(Math.sin(bearing - facing), Math.cos(bearing - facing)));
+              if (angle <= halfArc) visible.cells.addCell(cellX, cellY);
             }
           }
         };
@@ -17410,7 +17582,7 @@ import {
         if (state.showTerrain) minimapCtx.drawImage(minimapTerrainLayer, 0, 0);
         minimapCtx.drawImage(minimapMarkerLayer, 0, 0);
         const sweep = now / 3200 * Math.PI * 2;
-        const radarRadius = Math.hypot(width, height) * 0.58;
+        const radarRadius = hypot2(width, height) * 0.58;
         minimapCtx.save();
         minimapCtx.translate(width / 2, height / 2);
         minimapCtx.strokeStyle = "#6fa8c9";
@@ -17560,6 +17732,30 @@ import {
         set("telemetryIntervalMs", runtimeTelemetry.intervalMs);
       }
 
+      function hexToUnit(hex) {
+        const match = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i.exec(String(hex));
+        return match ? [parseInt(match[1], 16) / 255, parseInt(match[2], 16) / 255, parseInt(match[3], 16) / 255] : [0.1, 0.12, 0.1];
+      }
+      // Decide whether WebGL composites the ground this frame and, if so, start its frame.
+      function prepareGroundFrame(bounds) {
+        const field = canvas.parentNode;
+        let use = Boolean(glGround?.ready && state.showTerrain && reliefTerrainActive());
+        if (use) {
+          const { minX, maxX, minY, maxY } = reliefChunkRange(bounds);
+          if ((maxX - minX + 1) * (maxY - minY + 1) > 600) use = false;
+        }
+        state.glGroundFrame = use;
+        if (!use) {
+          if (groundCanvas.style.visibility !== "hidden") groundCanvas.style.visibility = "hidden";
+          field.classList.remove("has-gl-ground");
+          return;
+        }
+        if (groundCanvas.style.visibility !== "visible") groundCanvas.style.visibility = "visible";
+        field.classList.add("has-gl-ground");
+        glGround.resize(canvas.width, canvas.height);
+        glGround.begin(viewTransform(state.camera, canvas.width, canvas.height, VW, VH), hexToUnit(terrainPaintColor(state.world.baseTerrain)));
+      }
+
       function draw() {
         const bounds = cameraBounds(CHUNK_SIZE);
         const spatialObjects = spatialObjectsInBounds(bounds);
@@ -17589,6 +17785,7 @@ import {
         state.renderedObjectCount = renderedActors + renderedProjectiles + terrainFeatures.length;
         runtimeTelemetry.set(root, "camera", `${state.camera.x.toFixed(2)},${state.camera.y.toFixed(2)},${state.camera.zoom.toFixed(3)}`);
         els.cameraStatus.textContent = `Camera ${Math.round(state.camera.x)}, ${Math.round(state.camera.y)} · ${Math.round(state.camera.zoom * 100)}% · ${state.visibleChunkCount} chunks`;
+        profiler.profile("render.groundSetup", () => prepareGroundFrame(bounds));
         beginCanvasFrame();
         profiler.profile("render.terrain", () => drawTerrain(bounds, terrainFeatures));
         profiler.profile("render.overlays", () => {
@@ -17598,7 +17795,8 @@ import {
         });
         if (regionRuntime.active && state.showTerrain) {
           profiler.profile("render.region", () => {
-            if (regionRuntime.drawVegetation(ctx, bounds)) requestAnimationFrame(() => { if (state.mode !== "menu") draw(); });
+            const glTile = state.glGroundFrame ? (key, source, version, x, y, w, h) => glGround.drawTile(`v${key}`, source, version, x, y, w, h) : null;
+            if (regionRuntime.drawVegetation(ctx, bounds, 3, glTile)) requestAnimationFrame(() => { if (state.mode !== "menu") draw(); });
             regionRuntime.drawSettlements(ctx, bounds, state.camera.zoom, performance.now() / 1000);
           });
         }
@@ -19679,7 +19877,7 @@ import {
         for (const unit of state.units) {
           if (!objectVisibleToFog(unit)) continue;
           const view = unitView(unit);
-          const d = Math.hypot(view.x - point.x, view.y - point.y);
+          const d = hypot2(view.x - point.x, view.y - point.y);
           if (d < bestDistance) {
             best = unit;
             bestDistance = d;

@@ -1067,3 +1067,23 @@
         grid-template-columns: 1fr;
       }
     }
+
+    /* WebGL ground layer: sits under the 2D canvas, which then draws on a transparent background. */
+    #autonomous-war-theater .awt-ground-canvas {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      z-index: -1;
+      display: block;
+      pointer-events: none;
+    }
+
+    #autonomous-war-theater .awt-field.has-gl-ground {
+      isolation: isolate;
+    }
+
+    #autonomous-war-theater .awt-field.has-gl-ground #awt-canvas {
+      background: transparent;
+    }
