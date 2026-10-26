@@ -149,6 +149,7 @@ import {
   adaptiveThinkingBudgets,
   largeBattleLoadActive
 } from "../src/performance/AdaptiveLoadSystem.js";
+import { QUALITY_IDS, QUALITY_PROFILES, QUALITY_STORAGE_KEY, detectQuality, qualityProfile as profileForQuality, qualityRenderInterval, vegetationPpuFor } from "../src/performance/QualityProfile.js";
 import { DISTANT_HINT_NEIGHBORS, packDistantUnits } from "../src/performance/DistantSimulation.js";
 import { createFactionGameplayState, updateFactionGameplay } from "../src/factions/DistinctiveGameplaySystem.js";
 import { expiredDeadUnitIds, scheduleDeathRemoval } from "../src/simulation/DeathLifecycle.js";
@@ -1348,6 +1349,8 @@ import {
         cardCitizenId: null,
         hoverCitizenId: null,
         lightweightRendering: true,
+        quality: "balanced",
+        qualityProfile: QUALITY_PROFILES.balanced,
         squadRoleOverlay: true,
         dayNight: {
           enabled: true,
@@ -1597,7 +1600,7 @@ import {
         },
         incident: (text, id, level) => incident(text, id, level === "alert" ? "warning" : level),
         createNode: (point, overrides) => createEconomicNode(`economic-node-${state.nextEconomicNodeId++}`, point, { type: "civilian-settlement", ...overrides }),
-        bakeVegetation: (layers, field, cx, cy, canvas) => profiler.profile("render.vegetationBake", () => bakeVegetationChunk(layers, field, cx, cy, canvas) || canvas),
+        bakeVegetation: (layers, field, cx, cy, canvas, ppu) => profiler.profile("render.vegetationBake", () => bakeVegetationChunk(layers, field, cx, cy, canvas, ppu) || canvas),
         deserializeField: payload => HeightField.deserialize(payload, { width: regionRuntime.world?.width || REGION_WORLD.width, height: regionRuntime.world?.height || REGION_WORLD.height })
       });
       // ---- Armies: one place that turns a plain army config into a game player ----------------
@@ -2235,8 +2238,8 @@ import {
         state.minimapTerrainUpdatedAt = 0;
         state.minimapMarkerDirty = true;
         state.minimapMarkerUpdatedAt = 0;
-        canvas.width = VW;
-        canvas.height = VH;
+        canvas.width = Math.round(VW * state.qualityProfile.renderScale);
+        canvas.height = Math.round(VH * state.qualityProfile.renderScale);
         canvas.style.aspectRatio = `${VW} / ${VH}`;
         canvas.setAttribute("aria-label", `A ${VW} by ${VH} camera viewport looking into a ${safeWidth} by ${safeHeight} chunked battlefield.`);
       }
@@ -17042,7 +17045,7 @@ import {
         if (regionRuntime.active && state.showTerrain) {
           profiler.profile("render.region", () => {
             const glTile = state.glGroundFrame ? (key, source, version, x, y, w, h) => glGround.drawTile(`v${key}`, source, version, x, y, w, h) : null;
-            if (regionRuntime.drawVegetation(ctx, bounds, 3, glTile)) requestAnimationFrame(() => { if (state.mode !== "menu") draw(); });
+            if (regionRuntime.drawVegetation(ctx, bounds, 3, glTile, { ppu: vegetationPpuFor(state.camera.zoom, state.qualityProfile), composite: true })) requestAnimationFrame(() => { if (state.mode !== "menu") draw(); });
             regionRuntime.drawSettlements(ctx, bounds, state.camera.zoom, performance.now() / 1000);
           });
         }
@@ -18608,7 +18611,7 @@ import {
                 accumulator: state.simulationAccumulator,
                 stepSeconds: simulationStep,
                 maxSteps: state.performancePreset.id === "total" ? 1 : 3,
-                maxWorkMs: 8,
+                maxWorkMs: state.qualityProfile.simBudgetMs,
                 backlogSteps: 4,
                 update: step => profiler.profile("simulation", () => {
                   if (state.debugSimulationFault) {
@@ -18633,11 +18636,11 @@ import {
           }
           state.uiAccumulator += rawDt;
           state.renderAccumulator += rawDt;
-          const renderInterval = adaptiveRenderInterval(
+          const renderInterval = qualityRenderInterval(adaptiveRenderInterval(
             state.performancePreset.id,
             state.speed,
             state.units.length + state.structures.length * 0.5
-          );
+          ), state.qualityProfile);
           const simulationWorkMs = state.lastSimulationFrame?.workMs || 0;
           const deferOverBudgetTotalDraw = state.performancePreset.id === "total"
             && simulationWorkMs > 22;
@@ -18651,7 +18654,7 @@ import {
             }
           }
           const deferOverBudgetTotalUi = state.performancePreset.id === "total" && simulationWorkMs > 18;
-          if (state.uiAccumulator >= (state.performancePreset.id === "total" || state.speed >= 8 ? 0.5 : 0.25)
+          if (state.uiAccumulator >= (state.performancePreset.id === "total" || state.speed >= 8 ? 0.5 : state.qualityProfile.uiInterval)
             && !deferOverBudgetTotalUi) {
             try {
               profiler.profile("ui", updateUI);
@@ -18668,6 +18671,38 @@ import {
           requestAnimationFrame(frame);
         }
       }
+
+      // ---- quality profile: Low / Balanced / High, auto-detected on first run ----------------
+      function applyQuality(id, { persist = true } = {}) {
+        const profile = profileForQuality(id);
+        state.quality = profile.id;
+        state.qualityProfile = profile;
+        const width = Math.round(VW * profile.renderScale);
+        const height = Math.round(VH * profile.renderScale);
+        if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; }
+        root.dataset.quality = profile.id;
+        const select = root.querySelector("#awt-quality");
+        if (select) select.value = profile.id;
+        if (persist) { try { localStorage.setItem(QUALITY_STORAGE_KEY, profile.id); } catch { /* storage may be blocked */ } }
+        if (state.mode !== "menu") draw();
+      }
+      function initialQuality() {
+        const asked = new URLSearchParams(location.search).get("quality");
+        if (QUALITY_IDS.includes(asked)) return { id: asked, persist: false };
+        try { const saved = localStorage.getItem(QUALITY_STORAGE_KEY); if (QUALITY_IDS.includes(saved)) return { id: saved, persist: false }; } catch { /* ignore */ }
+        return {
+          id: detectQuality({
+            cores: navigator.hardwareConcurrency,
+            memoryGb: navigator.deviceMemory,
+            saveData: Boolean(navigator.connection?.saveData),
+            softwareRenderer: Boolean(glGround?.software)
+          }),
+          persist: false
+        };
+      }
+      root.querySelector("#awt-quality")?.addEventListener("change", event => applyQuality(event.target.value));
+      root.awtApplyQuality = applyQuality;
+      { const first = initialQuality(); applyQuality(first.id, { persist: first.persist }); }
 
       resetBattle("iron");
       showMainMenu();

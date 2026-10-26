@@ -110,13 +110,13 @@ function sprites() {
 }
 
 // Bake trees, shrubs and crop rows for one chunk into a transparent canvas.
-export function bakeVegetationChunk(layers, field, chunkX, chunkY, canvas = null) {
-  const size = Math.round(CHUNK_SPAN * VEGETATION_PIXELS_PER_UNIT);
+export function bakeVegetationChunk(layers, field, chunkX, chunkY, canvas = null, ppu = VEGETATION_PIXELS_PER_UNIT) {
+  const size = Math.max(8, Math.round(CHUNK_SPAN * ppu));
   const target = canvas || document.createElement("canvas");
   target.width = target.height = size;
   const g = target.getContext("2d");
   g.clearRect(0, 0, size, size);
-  const scale = VEGETATION_PIXELS_PER_UNIT;
+  const scale = ppu;
   const originX = chunkX * CHUNK_SPAN;
   const originY = chunkY * CHUNK_SPAN;
   const sheet = sprites();

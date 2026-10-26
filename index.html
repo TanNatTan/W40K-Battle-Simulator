@@ -88,6 +88,14 @@
           <i data-lucide="pause" aria-hidden="true"></i>
           Pause
         </button>
+        <label class="viz-row text-small" for="awt-quality" title="Lower quality runs smoother on older PCs">
+          Quality
+          <select id="awt-quality" class="btn">
+            <option value="low">Low (old PC)</option>
+            <option value="balanced" selected>Balanced</option>
+            <option value="high">High</option>
+          </select>
+        </label>
         <div class="viz-row" aria-label="Simulation speed">
           <button type="button" class="btn btn-primary" data-speed="1" aria-pressed="true">1×</button>
           <button type="button" class="btn" data-speed="2" aria-pressed="false">2×</button>

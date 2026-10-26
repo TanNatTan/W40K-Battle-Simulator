@@ -405,10 +405,14 @@ export function createRegionRuntime(api) {
   }
 
   let bakeCounter = 0;
-  rt.drawVegetation = (ctx, bounds, bakeLimit = 3, drawTile = null) => {
+  // Composite cache: when the camera rests, every visible chunk is merged into
+  // one screen-sized canvas so a frame is a single blit instead of dozens.
+  const composite = { canvas: null, key: "", seenKey: "" };
+  rt.drawVegetation = (ctx, bounds, bakeLimit = 3, drawTile = null, options = {}) => {
     if (!rt.active) return;
     const s = state();
     const span = CHUNK_SPAN;
+    const ppu = options.ppu || undefined;
     const minX = Math.max(0, Math.floor(bounds.left / span));
     const maxX = Math.min(Math.ceil(rt.world.width / span) - 1, Math.floor(bounds.right / span));
     const minY = Math.max(0, Math.floor(bounds.top / span));
@@ -416,25 +420,69 @@ export function createRegionRuntime(api) {
     if ((maxX - minX + 1) * (maxY - minY + 1) > 400) return;
     let baked = 0;
     let pending = false;
+    const drawList = [];
+    let signature = 0;
     for (let cy = minY; cy <= maxY; cy += 1) {
       for (let cx = minX; cx <= maxX; cx += 1) {
         const probe = vegetationEntry(cx, cy);
         let entry = probe.stale ? probe.entry : probe;
-        if (probe.stale) {
+        // A chunk baked at another detail level is redrawn at the new one, a few per frame.
+        const wrongDetail = !probe.stale && ppu && entry.ppu !== ppu;
+        if (probe.stale || wrongDetail) {
           if (baked < bakeLimit) {
-            const canvas = probe.entry?.canvas || null;
-            const made = api.bakeVegetation(rt.layers, s.heightField, cx, cy, canvas);
-            entry = { canvas: made, rev: probe.rev, uid: (bakeCounter += 1) };
+            const canvas = (probe.stale ? probe.entry?.canvas : entry.canvas) || null;
+            const made = api.bakeVegetation(rt.layers, s.heightField, cx, cy, canvas, ppu);
+            entry = { canvas: made, rev: probe.rev, ppu, uid: (bakeCounter += 1) };
             rt.vegetation.set(probe.key, entry);
             baked += 1;
           } else pending = true;
         }
         if (entry?.canvas) {
-          if (drawTile) drawTile(`${cx},${cy}`, entry.canvas, entry.uid, cx * span, cy * span, span + 0.5, span + 0.5);
-          else ctx.drawImage(entry.canvas, cx * span, cy * span, span, span);
+          signature = (Math.imul(signature, 31) + entry.uid) | 0;
+          drawList.push(entry, cx, cy);
         }
       }
     }
+    if (drawTile) {
+      for (let n = 0; n < drawList.length; n += 3) {
+        const entry = drawList[n]; const cx = drawList[n + 1]; const cy = drawList[n + 2];
+        drawTile(`${cx},${cy}`, entry.canvas, entry.uid, cx * span, cy * span, span + 0.5, span + 0.5);
+      }
+      return pending;
+    }
+    const target = ctx.canvas;
+    const usable = options.composite && !pending && drawList.length >= 6 && target && target.width * target.height <= 4_200_000;
+    if (usable) {
+      const t = ctx.getTransform();
+      const key = `${target.width}x${target.height}|${t.a.toFixed(5)},${t.d.toFixed(5)},${t.e.toFixed(2)},${t.f.toFixed(2)}|${signature}|${drawList.length}`;
+      if (composite.key === key && composite.canvas) {
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.drawImage(composite.canvas, 0, 0);
+        ctx.restore();
+        return pending;
+      }
+      if (composite.seenKey === key) {
+        // Second identical frame in a row: the camera is resting, so build the cache now.
+        const canvas = composite.canvas || (composite.canvas = document.createElement("canvas"));
+        if (canvas.width !== target.width || canvas.height !== target.height) { canvas.width = target.width; canvas.height = target.height; }
+        const cg = canvas.getContext("2d");
+        cg.setTransform(1, 0, 0, 1, 0, 0);
+        cg.clearRect(0, 0, canvas.width, canvas.height);
+        cg.setTransform(t);
+        for (let n = 0; n < drawList.length; n += 3) cg.drawImage(drawList[n].canvas, drawList[n + 1] * span, drawList[n + 2] * span, span, span);
+        composite.key = key;
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.drawImage(canvas, 0, 0);
+        ctx.restore();
+        return pending;
+      }
+      composite.seenKey = key;
+    } else {
+      composite.key = ""; composite.seenKey = "";
+    }
+    for (let n = 0; n < drawList.length; n += 3) ctx.drawImage(drawList[n].canvas, drawList[n + 1] * span, drawList[n + 2] * span, span, span);
     return pending;
   };
 
