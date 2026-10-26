@@ -12,6 +12,11 @@ From this folder, either open `index.html` directly or start a local server:
 
 Then visit `http://localhost:8080`.
 
+## Living world (single region)
+
+Pick **Single region · living world** on the menu for one persistent region with hills, rivers, woodland,
+ore, destructible autonomous settlements and two competing armies. See [docs/living-world.md](docs/living-world.md).
+
 ## Project layout
 
 ```text
@@ -30,6 +35,10 @@ src/
   main.js                ES-module application entry point
   config/                Application constants and explicit runtime configuration exports
   economy/               Authored polygon zones and economic landmarks
+  terrain/               Height field, procedural textures, lit relief shader
+  world/                 Per-cell layers, region generator, deformation, ecosystem, ground effects
+  settlements/           Citizens, settlement AI, conquest aftermath
+  region/                Single-region runtime and UI
   territory/             Fixed irregular cell pool, objectives, combat, and victory
   logistics/             Road graph, temporary supply routes, convoys, Route AI, and audit history
   diagnostics/           Throttled runtime telemetry and opt-in system profiling

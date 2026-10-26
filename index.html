@@ -55,6 +55,10 @@
           <i data-lucide="sun-medium" aria-hidden="true"></i>
           Lighting map
         </button>
+        <button type="button" class="btn btn-ghost" id="awt-region-button" aria-pressed="false" hidden>
+          <i data-lucide="home" aria-hidden="true"></i>
+          Region
+        </button>
         <button type="button" class="btn btn-ghost" id="awt-logistics-button" aria-pressed="false">
           <i data-lucide="truck" aria-hidden="true"></i>
           Logistics
@@ -452,7 +456,15 @@
               <p class="awt-panel-copy">Armies pursue battle objectives through their own race and subfaction identity, remember losses, and adapt without battlefield orders.</p>
             </div>
             <div class="awt-menu-actions" id="awt-main-actions">
-              <button type="button" class="btn btn-primary btn-block" id="awt-create-map">
+              <button type="button" class="btn btn-primary btn-block" id="awt-region-start">
+                <i data-lucide="trees" aria-hidden="true"></i>
+                Single region · living world
+              </button>
+              <button type="button" class="btn btn-block" id="awt-region-continue" hidden>
+                <i data-lucide="history" aria-hidden="true"></i>
+                <span>Continue saved region</span>
+              </button>
+              <button type="button" class="btn btn-block" id="awt-create-map">
                 <i data-lucide="map" aria-hidden="true"></i>
                 Create map
               </button>

@@ -36,6 +36,10 @@ import { buildProceduralTextures } from "../src/terrain/ProceduralTextures.js";
 import { WorldLayers } from "../src/world/WorldLayers.js";
 import { generateRegion } from "../src/world/RegionGenerator.js";
 import { SHADER_PIXELS, TERRAIN_PALETTES, shadeTerrainChunk } from "../src/terrain/TerrainShader.js";
+import { createRegionRuntime, REGION_WORLD, DEFAULT_REGION_CONFIG } from "../src/region/RegionRuntime.js";
+import { createRegionUI } from "../src/region/RegionUI.js";
+import { bakeVegetationChunk } from "../src/rendering/VegetationRenderer.js";
+import { createWorldStore } from "../src/persistence/WorldStore.js";
 import {
   DOCTRINE_FORMATIONS,
   attackSector,
@@ -1042,6 +1046,12 @@ import {
       const namesB = ["Rakka", "Gorz", "Skarn", "Vek", "Drokk", "Mazza", "Krag", "Thrum", "Zagga", "Brukk", "Morkai", "Grim"];
 
       const presets = {
+        region: {
+          name: "Single Region",
+          startMinute: 480,
+          world: { width: REGION_WORLD.width, height: REGION_WORLD.height },
+          features: []
+        },
         iron: {
           name: "Iron Pass",
           startMinute: 420,
@@ -1649,10 +1659,111 @@ import {
       } catch {
         distantSimulationWorker = null;
       }
+      // ---- Single-region living world -------------------------------------------------
+      const regionSpoilsMap = { food: "food", materials: "materials", fuel: "fuel", tools: "parts" };
+      const regionRuntime = createRegionRuntime({
+        state: () => state,
+        random: () => battleRandom(),
+        areAllies: (a, b) => areAllies(a, b),
+        nameOf: faction => (faction ? factionLabelFor(faction) : "no one"),
+        factionName: faction => playerFor(faction)?.faction || "",
+        colorOf: faction => playerFor(faction)?.color || "#d8c9a0",
+        policyOf: faction => {
+          const policy = captivePolicyFor(playerFor(faction));
+          return { branch: populationBranchFor(playerFor(faction)), recruit: policy.recruit, enslave: policy.enslave, kill: policy.kill, release: policy.release, brutality: policy.brutality };
+        },
+        stressOf: faction => clamp(1 - (economyFor(faction).inventory.food || 0) / Math.max(1, economyCapacity(faction).food || 1), 0, 1) * 0.6,
+        baseOf: faction => baseFor(faction),
+        grant: (faction, resources) => {
+          const mapped = {};
+          for (const [resource, amount] of Object.entries(resources || {})) {
+            const key = regionSpoilsMap[resource];
+            if (key && amount > 0) mapped[key] = (mapped[key] || 0) + amount * (resource === "tools" ? 0.5 : 1);
+          }
+          addSpoils(faction, mapped);
+        },
+        recruit: (faction, count, node) => {
+          for (let n = 0; n < count; n += 1) {
+            if (state.units.filter(unit => unit.alive && unit.faction === faction).length >= 400) break;
+            const where = node?.x != null ? node : baseFor(faction);
+            spawnSettlementUnit(faction, where, { label: `${where.name || "Settlement"} levy`, role: "trooper" });
+          }
+        },
+        attack: (threatId, damage, settlement) => {
+          const target = unitById(threatId);
+          if (!target?.alive) return;
+          applyProjectileImpact({
+            faction: settlement.owner || "militia", shooterId: null, damage, penetration: 5, suppression: 0.12, splashRadius: 0,
+            flagMask: 0, x: settlement.x, y: settlement.y, vx: 1, vy: 0
+          }, target);
+        },
+        incident: (text, id, level) => incident(text, id, level === "alert" ? "warning" : level),
+        createNode: (point, overrides) => createEconomicNode(`economic-node-${state.nextEconomicNodeId++}`, point, { type: "civilian-settlement", ...overrides }),
+        bakeVegetation: (layers, field, cx, cy, canvas) => bakeVegetationChunk(layers, field, cx, cy, canvas) || canvas,
+        deserializeField: payload => HeightField.deserialize(payload, { width: REGION_WORLD.width, height: REGION_WORLD.height })
+      });
+      const regionUI = createRegionUI({
+        root,
+        runtime: regionRuntime,
+        players: () => (state.players.length ? state.players : setupPlayers.slice(0, 2)),
+        onAdd: () => regionRuntime.addSettlementAt({ x: state.camera.x, y: state.camera.y }),
+        onSave: () => saveRegionWorld(),
+        onRemove: id => regionRuntime.removeSettlementById(id),
+        onBegin: config => {
+          state.players = setupPlayers.slice(0, 2).map((player, index) => ({ ...player, id: ids[index], index, base: deploymentPosition(index, 2, presets.region.world) }));
+          state.regionConfig = config;
+          resetBattle("region");
+          regionUI.hideSetup();
+          startSimulation();
+        }
+      });
+      const worldStore = createWorldStore();
+      let worldSaveAt = 0;
+      async function saveRegionWorld(slot = "region-autosave") {
+        const payload = regionRuntime.serialize();
+        if (!payload) return false;
+        worldSaveAt = performance.now();
+        return worldStore.save(slot, payload, regionRuntime.summary());
+      }
+      async function continueRegionWorld(slot = "region-autosave") {
+        const record = await worldStore.load(slot);
+        if (!record?.payload) return false;
+        state.players = setupPlayers.slice(0, 2).map((player, index) => ({ ...player, id: ids[index], index, base: deploymentPosition(index, 2, presets.region.world) }));
+        state.regionConfig = record.payload.config;
+        state.regionSave = record.payload;
+        resetBattle("region");
+        state.regionSave = null;
+        regionUI.hideSetup();
+        startSimulation();
+        return true;
+      }
+      root.awtRegion = regionRuntime;
+      root.awtWorld = { save: saveRegionWorld, load: continueRegionWorld, store: worldStore };
       root.awtDebugState = state;
       window.awtDebugState = state;
       // Test/diagnostic hooks. They call the same functions the simulation does.
       root.awtDebugTools = {
+        // Runs the real simulation step headlessly (no rendering) for tests and tuning.
+        advance(seconds = 10, step = 1 / 30) {
+          const steps = Math.max(1, Math.round(seconds / step));
+          for (let index = 0; index < steps; index += 1) updateBattle(step);
+          return state.time;
+        },
+        drawFrame() { draw(); },
+        // Test hook: put a faction's fighting units on top of a point (an instant invasion).
+        deployArmy(faction, x, y, spread = 70) {
+          let moved = 0;
+          for (const unit of state.units) {
+            if (!unit.alive || unit.faction !== faction || ["builder", "supply"].includes(unit.role)) continue;
+            const angle = moved * 2.399963;
+            const radius = spread * Math.sqrt((moved % 40 + 1) / 40);
+            unit.x = clamp(x + Math.cos(angle) * radius, 24, worldWidth() - 24);
+            unit.y = clamp(y + Math.sin(angle) * radius, 24, worldHeight() - 24);
+            clearNavigationState(unit);
+            moved += 1;
+          }
+          return moved;
+        },
         previewRegion(seed = "REGION-1", w = 2560, h = 1440) {
           setWorldSize(w, h);
           state.worldLayers = new WorldLayers({ width: w, height: h });
@@ -3619,7 +3730,7 @@ import {
         };
       }
 
-      function terrainAt(point) {
+      function terrainAt(point, unit = null) {
         const tile = terrainTileAt(point);
         const baseEffect = terrainEffect(state.world.baseTerrain);
         let info = blendTerrainEffect(baseEffect, terrainEffect(tile.type), tile.opacity, tile.type);
@@ -3635,8 +3746,28 @@ import {
           const visionShape = featureCollisionShapes(feature, "vision")[0];
           if (visionShape && pointOverlapsCollisionShape(point, visionShape)) info.detection *= 1 - (visionShape.opacity || 0) * 0.48;
         }
+        if (state.region?.active) applyRegionGround(info, point, unit);
         info.detection = clamp(info.detection, 0.18, 1.2);
         return info;
+      }
+
+      // Per-cell ground (mud, woodland, trenches, rivers, rubble, fire) folded
+      // into the same terrain record the movement, cover and visibility code reads.
+      function applyRegionGround(info, point, unit) {
+        const ground = state.region.groundFor(point, unit);
+        if (!ground) return;
+        const effect = ground.effect;
+        info.speed *= effect.speed;
+        info.cover = Math.max(info.cover, effect.cover);
+        info.detection *= effect.detection;
+        if (effect.hazard > 0) info.hazard = effect.hazard;
+        if (ground.depth > 0.15) {
+          info.type = effect.impassable ? "deepwater" : "shallowwater";
+          info.name = effect.impassable ? "Deep water" : "Fording";
+        } else if (effect.notes.length) {
+          info.name = `${info.name} · ${effect.notes[0]}`;
+        }
+        info.groundNotes = effect.notes;
       }
 
       function builderSpawnCountFor(player) {
@@ -4121,9 +4252,20 @@ import {
           state.dayNight.mode = "dynamic";
           state.dayNight.startHour = preset.startMinute / 60;
           state.dayNight.fixedHour = preset.startMinute / 60;
-          state.dayNight.weather = presetKey === "iron" ? "rain" : presetKey === "verdant" ? "fog" : "dust";
+          state.dayNight.weather = presetKey === "iron" ? "rain" : presetKey === "verdant" ? "fog" : presetKey === "region" ? "clear" : "dust";
         }
         if (!state.players.length) state.players = setupPlayers.slice(0, 2).map((player, index) => ({ ...player, base: deploymentPosition(index, 2, state.world) }));
+        reliefChunkCache.clear();
+        if (presetKey === "region") {
+          const regionBases = state.players.map((_, index) => deploymentPosition(index, state.players.length, state.world));
+          regionRuntime.begin(state.regionConfig || DEFAULT_REGION_CONFIG, regionBases, state.regionSave || null);
+          state.world.baseTerrain = "grass";
+          battleRandom = seededRandom(`${state.battleSeed}:${regionRuntime.config.seed}`);
+        } else if (presetKey !== "custom" || regionRuntime.active) {
+          if (regionRuntime.active) regionRuntime.dispose();
+          state.worldLayers = null;
+          state.terrainPalette = null;
+        }
         state.players.forEach((player, index) => {
           player.index = index;
           player.id = ids[index];
@@ -4382,6 +4524,10 @@ import {
         state.selectedResourceZoneId = null;
         state.economyZoneManager.adopt(state.resourceZones);
         state.supplyNetwork = new SupplyNetwork();
+        if (presetKey === "region") {
+          regionRuntime.populate();
+          rebuildEconomicNodeSelect();
+        }
         constructionTelemetry.records.length = 0;
         constructionTelemetry.active.clear();
         invalidateLightingCaches();
@@ -5989,7 +6135,7 @@ import {
         const dy = movementTarget.y - unit.y;
         const d = Math.hypot(dx, dy) || 1;
         unit.facing = Math.atan2(dy, dx);
-        const terrain = terrainAt(unit);
+        const terrain = terrainAt(unit, unit);
         if ((unit.nextRoadProbeAt || 0) <= state.time) {
           const localRoad = nearestRoadSegment(unit, 22);
           const flags = localRoad?.segment?.operationalFlags || [];
@@ -8586,6 +8732,7 @@ import {
       function applyExplosion(projectile, directTarget) {
         const radius = Number(projectile.splashRadius) || (projectileHasFlag(projectile, "chain") ? 28 : projectileHasFlag(projectile, "explosive") ? 6 : 0);
         if (radius <= 0) return;
+        if (regionRuntime.active) regionRuntime.onExplosion(projectile.x, projectile.y, radius, projectile.damage, { faction: projectile.faction, incendiary: projectileHasFlag(projectile, "incendiary") });
         const units = nearbyCombatObjects(projectile, radius).units
           .filter(unit => unit.alive && unit.id !== directTarget?.id && !areAllies(unit.faction, projectile.faction)
             && !factionMobilizing(unit.faction, projectile.faction));
@@ -12487,7 +12634,7 @@ import {
 
       function updateSettlements(dt) {
         for (const node of state.economicNodes) {
-          if (!isSettlementNode(node)) continue;
+          if (!isSettlementNode(node) || node.livingId) continue;
           const pop = ensureSettlementPopulation(node);
           const ownerId = node.owner || "";
           const owner = ownerId ? playerFor(ownerId) : null;
@@ -12585,7 +12732,7 @@ import {
           for (const node of state.economicNodes) {
             // A settlement that threw off its rulers is not reclaimed by the
             // territory under it; only force of arms retakes it.
-            if (node.population?.unrest === "independent") continue;
+            if (node.population?.unrest === "independent" || node.livingId) continue;
             const territoryCell = territoryAt(node);
             const resolvedOwner = territoryCell ? territoryCell.owner || "" : node.owner || node.startingOwner || "";
             if (resolvedOwner && resolvedOwner !== node.owner) {
@@ -14524,6 +14671,7 @@ import {
           state.roadAIAccumulator = 0;
           markHeavySystemRun();
         }
+        if (regionRuntime.active) profiler.profile("region.world", () => regionRuntime.step(dt));
         state.settlementAccumulator += dt;
         if (state.settlementAccumulator >= 1 && state.economicNodes.length) {
           profiler.profile("population.settlements", () => updateSettlements(state.settlementAccumulator));
@@ -14955,7 +15103,7 @@ import {
 
       function drawEconomicNodes() {
         for (const node of state.economicNodes) {
-          if (!node.active || !pointVisible(node, 80)) continue;
+          if (!node.active || node.livingId || !pointVisible(node, 80)) continue;
           const visibleExports = Object.keys(node.exports || {}).filter(resource => resourceOverlayVisible(resource));
           if (!visibleExports.length && state.mode === "editor") continue;
           ctx.save();
@@ -17448,6 +17596,12 @@ import {
           drawTerritories();
           drawSupplyRadii();
         });
+        if (regionRuntime.active && state.showTerrain) {
+          profiler.profile("render.region", () => {
+            if (regionRuntime.drawVegetation(ctx, bounds)) requestAnimationFrame(() => { if (state.mode !== "menu") draw(); });
+            regionRuntime.drawSettlements(ctx, bounds, state.camera.zoom, performance.now() / 1000);
+          });
+        }
         profiler.profile("render.units", () => {
           if (overviewMode) {
             drawOverviewClusters(overviewClusters);
@@ -17953,6 +18107,12 @@ import {
       }
 
       function updateUI(force = false) {
+        if (els.regionButton) {
+          els.regionButton.hidden = !regionRuntime.active;
+          els.regionButton.setAttribute("aria-pressed", String(regionUI.isOpen()));
+          if (regionRuntime.active) regionUI.refresh();
+          if (regionRuntime.active && state.mode === "sim" && !state.paused && performance.now() - worldSaveAt > 45000) void saveRegionWorld();
+        }
         if (state.unitSelectDirty) {
           state.unitSelectDirty = false;
           rebuildUnitSelect();
@@ -19763,6 +19923,25 @@ import {
         els.mainActions.hidden = true;
         els.setupPanel.hidden = false;
       });
+      root.querySelector("#awt-region-start").addEventListener("click", () => {
+        root.classList.add("is-configuring");
+        els.mainActions.hidden = true;
+        regionUI.showSetup(state.regionConfig);
+      });
+      const continueButton = root.querySelector("#awt-region-continue");
+      void worldStore.load("region-autosave").then(record => {
+        if (!record) return;
+        continueButton.hidden = false;
+        continueButton.querySelector("span").textContent = `Continue saved region · ${record.summary || new Date(record.savedAt).toLocaleString()}`;
+      });
+      continueButton.addEventListener("click", () => { void continueRegionWorld(); });
+      regionUI.panel.querySelector("#awt-region-back").addEventListener("click", () => {
+        root.classList.remove("is-configuring");
+        regionUI.hideSetup();
+        els.mainActions.hidden = false;
+      });
+      els.regionButton = root.querySelector("#awt-region-button");
+      els.regionButton.addEventListener("click", () => regionUI.toggleOverview());
       root.querySelector("#awt-open-sprite-lab").addEventListener("click", () => {
         root.classList.add("is-configuring");
         els.mainActions.hidden = true;

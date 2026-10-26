@@ -142,6 +142,7 @@ export function generateRegion({ field, layers, seed = "REGION-1", width = field
       for (let attempt = 0; attempt < 60; attempt += 1) {
         const x = width * (0.1 + random() * 0.8);
         const y = height * (0.1 + random() * 0.8);
+        if (flatZones.some(zone => Math.hypot(zone.x - x, zone.y - y) < (zone.radius || 200) * 2.2)) continue;
         const ground = smoothGround(x, y);
         const mask01 = mask[Math.round(y / SAMPLE_SPACING) * cols + Math.round(x / SAMPLE_SPACING)];
         const score = ground + mask01 * 20 + random() * 8;
@@ -163,6 +164,8 @@ export function generateRegion({ field, layers, seed = "REGION-1", width = field
           const ny = current.y + Math.sin(angle) * 40;
           const key = `${Math.round(nx / 28)},${Math.round(ny / 28)}`;
           if (visited.has(key)) continue;
+          // Rivers keep clear of deployment zones so a base is never flooded.
+          if (flatZones.some(zone => Math.hypot(zone.x - nx, zone.y - ny) < (zone.radius || 200) * 1.9)) continue;
           const meander = (valueNoise(nx / 160, ny / 160, numericSeed + 70 + n) - 0.5) * 3.5;
           const outward = Math.hypot(nx - width / 2, ny - height / 2) * 0.006;
             const cost = smoothGround(nx, ny) + meander + Math.abs(angle - heading) * 0.8 - outward;
@@ -269,6 +272,9 @@ export function generateRegion({ field, layers, seed = "REGION-1", width = field
       // Settlement candidates: flat, fertile, near (but not in) water.
       if (!underwater && slope < 0.1 && fertility > 0.45 && water > 1.5 && water < 9 && h > 0 && h < 18 && i % 3 === 0 && j % 3 === 0 && x > 120 && y > 120 && x < width - 120 && y < height - 120) {
         sites.push({ x, y, score: fertility * 1.4 + nearWater * 0.7 - slope * 3 + soilNoise * 0.2 });
+      } else if (!underwater && slope < 0.13 && fertility > 0.3 && water > 1.5 && h > 0 && h < 30 && i % 4 === 0 && j % 4 === 0 && x > 140 && y > 140 && x < width - 140 && y < height - 140) {
+        // Second tier: drier or higher ground, so a region can hold many settlements when asked to.
+        sites.push({ x, y, score: fertility * 1.4 + nearWater * 0.7 - slope * 3 + soilNoise * 0.2 - 1.5, relaxed: true });
       }
     }
   }
