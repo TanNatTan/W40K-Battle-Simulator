@@ -122,4 +122,36 @@ export class TerrainTextureLibrary {
     this.composites.set(type, composite);
     return composite;
   }
+
+  /** Half-resolution RGBA samples of a terrain's 2x2 composite for CPU shading. */
+  textureData(type) {
+    const canonical = terrainTextureType(type);
+    if (!canonical) return null;
+    this.sampleData ||= new Map();
+    if (this.sampleData.has(canonical)) return this.sampleData.get(canonical);
+    const composite = this.composite(canonical);
+    if (!composite || typeof document === "undefined") return null;
+    const width = Math.max(1, composite.width >> 1);
+    const height = Math.max(1, composite.height >> 1);
+    const reduced = document.createElement("canvas");
+    reduced.width = width;
+    reduced.height = height;
+    const reducedContext = reduced.getContext("2d");
+    reducedContext.imageSmoothingEnabled = true;
+    reducedContext.drawImage(composite, 0, 0, width, height);
+    const image = reducedContext.getImageData(0, 0, width, height);
+    const entry = { data: image.data, width, height };
+    this.sampleData.set(canonical, entry);
+    return entry;
+  }
+
+  /** All terrain sample sets keyed by canonical name (only those loaded). */
+  allTextureData() {
+    const result = {};
+    for (const key of Object.keys(TERRAIN_TEXTURE_MANIFEST)) {
+      const entry = this.textureData(key);
+      if (entry) result[key] = entry;
+    }
+    return result;
+  }
 }

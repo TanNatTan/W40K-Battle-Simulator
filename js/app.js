@@ -31,7 +31,11 @@ import { formatElapsed, pad2 } from "../src/utilities/format.js";
 import { seededRandom } from "../src/utilities/random.js";
 import { NavigationPlanner } from "../src/map/NavigationPlanner.js";
 import { ignoresGroundObstacles, shouldSeparateUnits } from "../src/physics/CollisionLayers.js";
-import { HeightField, SAMPLE_SPACING as HEIGHT_SAMPLE_SPACING, CHUNK_SAMPLES as HEIGHT_CHUNK_SAMPLES } from "../src/terrain/HeightField.js";
+import { HeightField, SAMPLE_SPACING as HEIGHT_SAMPLE_SPACING, CHUNK_SAMPLES as HEIGHT_CHUNK_SAMPLES, CHUNK_SPAN as HEIGHT_CHUNK_SPAN } from "../src/terrain/HeightField.js";
+import { buildProceduralTextures } from "../src/terrain/ProceduralTextures.js";
+import { WorldLayers } from "../src/world/WorldLayers.js";
+import { generateRegion } from "../src/world/RegionGenerator.js";
+import { SHADER_PIXELS, TERRAIN_PALETTES, shadeTerrainChunk } from "../src/terrain/TerrainShader.js";
 import {
   DOCTRINE_FORMATIONS,
   attackSector,
@@ -1163,6 +1167,7 @@ import {
       spriteAtlas.src = "assets/terrain/sprite-atlas.webp";
       const terrainTextures = new TerrainTextureLibrary({
         onReady: () => {
+          state.terrainTexturesReady = true;
           for (const chunk of state.terrainChunks.values()) chunk.dirty = true;
           draw();
         },
@@ -1648,6 +1653,19 @@ import {
       window.awtDebugState = state;
       // Test/diagnostic hooks. They call the same functions the simulation does.
       root.awtDebugTools = {
+        previewRegion(seed = "REGION-1", w = 2560, h = 1440) {
+          setWorldSize(w, h);
+          state.worldLayers = new WorldLayers({ width: w, height: h });
+          const info = generateRegion({ field: state.heightField, layers: state.worldLayers, seed, width: w, height: h });
+          state.terrainPalette = info.palette;
+          state.terrainChunks = new Map();
+          state.features = [];
+          markFeatureIndexDirty();
+          reliefChunkCache.clear();
+          setZoom("fit");
+          draw();
+          return { sites: info.sites.length, rivers: info.rivers.length };
+        },
         captureSettlement(nodeId, factionId) {
           const node = state.economicNodes.find(item => item.id === nodeId);
           if (!node) return null;
@@ -15109,7 +15127,7 @@ import {
             const x = tileX * TILE_SIZE;
             const y = tileY * TILE_SIZE;
             if (x + TILE_SIZE < bounds.left || x > bounds.right || y + TILE_SIZE < bounds.top || y > bounds.bottom) continue;
-            ctx.globalAlpha = tile.opacity ?? 1;
+            ctx.globalAlpha = (tile.opacity ?? 1) * (state.reliefDrawn ? 0.42 : 1);
             ctx.fillStyle = terrainPaintColor(tile.type);
             ctx.fillRect(x, y, TILE_SIZE + 0.5, TILE_SIZE + 0.5);
             ctx.fillStyle = terrainTextures.pattern(ctx, tile.type, TILE_SIZE) || atlasPatterns[atlasTypeMap[tile.type]] || terrainPaintColor(tile.type);
@@ -15205,6 +15223,92 @@ import {
         ctx.restore();
       }
 
+
+      // ---- Lit, textured relief (replaces the flat tile base on sculpted maps) ----
+      let proceduralTerrainTextures = null;
+      const reliefChunkCache = new Map();
+      const reliefBakeQueue = new Set();
+      function reliefPaletteKey() {
+        if (state.terrainPalette && TERRAIN_PALETTES[state.terrainPalette]) return state.terrainPalette;
+        const base = state.world.baseTerrain;
+        if (base === "forestfloor") return "forest";
+        if (base === "sand") return "desert";
+        if (base === "snow") return "frozen";
+        if (base === "ash") return "volcanic";
+        return "temperate";
+      }
+      function reliefLayers() { return state.worldLayers || null; }
+      function reliefRevision(chunkX, chunkY) {
+        const layers = reliefLayers();
+        return state.heightField.revisionAround(chunkX, chunkY) + (layers ? layers.revisionAround(chunkX, chunkY) * 7 : 0);
+      }
+      function bakeReliefChunk(chunkX, chunkY) {
+        const key = `${chunkX},${chunkY}`;
+        proceduralTerrainTextures ||= buildProceduralTextures(256);
+        const textures = proceduralTerrainTextures;
+        const result = shadeTerrainChunk({
+          field: state.heightField,
+          layers: reliefLayers(),
+          chunkX,
+          chunkY,
+          size: SHADER_PIXELS,
+          textures,
+          palette: TERRAIN_PALETTES[reliefPaletteKey()],
+          seed: (state.heightField.seed || 1) >>> 0
+        });
+        let entry = reliefChunkCache.get(key);
+        if (!entry) {
+          const canvasElement = document.createElement("canvas");
+          canvasElement.width = canvasElement.height = SHADER_PIXELS;
+          entry = { canvas: canvasElement, rev: -1 };
+          reliefChunkCache.set(key, entry);
+        }
+        entry.canvas.getContext("2d").putImageData(new ImageData(result.pixels, SHADER_PIXELS, SHADER_PIXELS), 0, 0);
+        entry.rev = reliefRevision(chunkX, chunkY);
+        return entry;
+      }
+      function drawReliefTerrain(bounds) {
+        const span = HEIGHT_CHUNK_SPAN;
+        const minX = Math.max(0, Math.floor(bounds.left / span));
+        const maxX = Math.min(Math.ceil(worldWidth() / span) - 1, Math.floor(bounds.right / span));
+        const minY = Math.max(0, Math.floor(bounds.top / span));
+        const maxY = Math.min(Math.ceil(worldHeight() / span) - 1, Math.floor(bounds.bottom / span));
+        if ((maxX - minX + 1) * (maxY - minY + 1) > 600) return false;
+        const centerX = (bounds.left + bounds.right) / 2 / span;
+        const centerY = (bounds.top + bounds.bottom) / 2 / span;
+        const stale = [];
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, 0, worldWidth(), worldHeight());
+        ctx.clip();
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = "medium";
+        for (let chunkY = minY; chunkY <= maxY; chunkY += 1) {
+          for (let chunkX = minX; chunkX <= maxX; chunkX += 1) {
+            const entry = reliefChunkCache.get(`${chunkX},${chunkY}`);
+            if (entry) ctx.drawImage(entry.canvas, chunkX * span, chunkY * span, span + 0.6, span + 0.6);
+            if (!entry || entry.rev !== reliefRevision(chunkX, chunkY) ) stale.push({ chunkX, chunkY, distance: Math.hypot(chunkX - centerX, chunkY - centerY), missing: !entry });
+          }
+        }
+        ctx.restore();
+        if (stale.length) {
+          stale.sort((a, b) => (b.missing - a.missing) || a.distance - b.distance);
+          const started = performance.now();
+          let baked = 0;
+          for (const item of stale) {
+            if (baked >= 6 || (baked > 0 && performance.now() - started > 14)) break;
+            bakeReliefChunk(item.chunkX, item.chunkY);
+            baked += 1;
+          }
+          if (baked < stale.length) requestAnimationFrame(() => { if (state.mode !== "menu") draw(); });
+        }
+        return true;
+      }
+      function reliefTerrainActive() {
+        return Boolean(state.showTerrain && state.reliefTerrain !== false && state.heightField.active && (state.heightField.waterLevel != null || state.heightField.chunks.size > 0));
+      }
+      function invalidateReliefTextures() { reliefChunkCache.clear(); }
+
       function drawTerrain(
         bounds = cameraBounds(CHUNK_SIZE),
         terrainFeatures = state.camera.zoom < 0.15 ? visibleFeatureBuckets(bounds) : visibleFeatures(bounds)
@@ -15215,8 +15319,10 @@ import {
           const basePattern = terrainTextures.pattern(ctx, state.world.baseTerrain, TILE_SIZE) || atlasPatterns[atlasTypeMap[state.world.baseTerrain]];
           ctx.fillStyle = basePattern || terrainPaintColor(state.world.baseTerrain);
           ctx.fillRect(bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top);
+          const relief = reliefTerrainActive() && drawReliefTerrain(bounds);
+          state.reliefDrawn = Boolean(relief);
           drawSparseTerrainTiles(bounds);
-          if (state.heightField.active && state.camera.zoom >= 0.1) drawHeightShading(bounds);
+          if (!relief && state.heightField.active && state.camera.zoom >= 0.1) drawHeightShading(bounds);
         }
         for (const player of state.players) {
           if (circleVisible(player.base, spawnZoneFor(player).size, bounds)) drawSpawnZone(player);

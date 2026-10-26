@@ -6,8 +6,10 @@
 // field's `baseHeight`. Queries are bilinear so slope, normals and line of
 // sight are smooth and stable instead of snapping at tile borders.
 
-export const SAMPLE_SPACING = 32;
-export const CHUNK_SAMPLES = 8;
+export const SAMPLE_SPACING = 16;
+export const CHUNK_SHIFT = 4;
+export const CHUNK_SAMPLES = 1 << CHUNK_SHIFT;
+export const CHUNK_SPAN = SAMPLE_SPACING * CHUNK_SAMPLES;
 export const MAX_HEIGHT = 120;
 export const MIN_HEIGHT = -40;
 
@@ -70,6 +72,8 @@ export class HeightField {
     this.reliefProvider = null;
     this.reliefEnabled = false;
     this.version = 0;
+    this.bulk = 0; // bumps on whole-field changes (generate, clear, adopt, relief)
+    this.waterLevel = null; // null = no standing water (legacy maps)
     this.seed = 0;
   }
 
@@ -82,6 +86,7 @@ export class HeightField {
     this.chunks.clear();
     this.relief.clear();
     this.version += 1;
+    this.bulk += 1;
   }
 
   // True when there is any relief to evaluate. Flat maps skip all height work.
@@ -94,7 +99,7 @@ export class HeightField {
     const key = keyOf(cx, cy);
     let chunk = this.chunks.get(key);
     if (!chunk && create) {
-      chunk = { cx, cy, data: new Float32Array(CHUNK_SAMPLES * CHUNK_SAMPLES), shade: null, shadeVersion: -1 };
+      chunk = { cx, cy, data: new Float32Array(CHUNK_SAMPLES * CHUNK_SAMPLES), shade: null, shadeVersion: -1, rev: 0 };
       this.chunks.set(key, chunk);
     }
     return chunk;
@@ -121,8 +126,8 @@ export class HeightField {
   }
 
   sample(i, j) {
-    const cx = i >> 3;
-    const cy = j >> 3;
+    const cx = i >> CHUNK_SHIFT;
+    const cy = j >> CHUNK_SHIFT;
     const li = i & (CHUNK_SAMPLES - 1);
     const lj = j & (CHUNK_SAMPLES - 1);
     let value = this.baseHeight;
@@ -141,6 +146,7 @@ export class HeightField {
     const chunk = this.chunkAt(cx, cy, true);
     chunk.data[(j - cy * CHUNK_SAMPLES) * CHUNK_SAMPLES + (i - cx * CHUNK_SAMPLES)] = clamp(value, MIN_HEIGHT, MAX_HEIGHT);
     chunk.shadeVersion = -1;
+    chunk.rev += 1;
   }
 
   getSculptSample(i, j) {
@@ -160,6 +166,20 @@ export class HeightField {
   invalidateRelief() {
     this.relief.clear();
     this.version += 1;
+    this.bulk += 1;
+  }
+
+  // Change detector for anything baked from this field around a chunk: shadows
+  // and slopes read neighbouring chunks, so the 3x3 neighbourhood is summed.
+  revisionAround(cx, cy) {
+    let total = this.bulk * 1e6;
+    for (let dy = -1; dy <= 1; dy += 1) {
+      for (let dx = -1; dx <= 1; dx += 1) {
+        const chunk = this.chunks.get(keyOf(cx + dx, cy + dy));
+        if (chunk) total += chunk.rev + 1;
+      }
+    }
+    return total;
   }
 
   // ---- queries -----------------------------------------------------------
@@ -179,8 +199,8 @@ export class HeightField {
     let d;
     if (li < CHUNK_SAMPLES - 1 && lj < CHUNK_SAMPLES - 1) {
       // Common case: the whole cell sits inside one chunk, so fetch it once.
-      const cx = i >> 3;
-      const cy = j >> 3;
+      const cx = i >> CHUNK_SHIFT;
+      const cy = j >> CHUNK_SHIFT;
       const sculpt = this.chunks.get(keyOf(cx, cy));
       const relief = this.reliefEnabled ? this.reliefChunk(cx, cy) : null;
       const k = lj * CHUNK_SAMPLES + li;
@@ -346,7 +366,7 @@ export class HeightField {
       if (h < seaLevel) h = seaLevel + (h - seaLevel) * 0.5;
       grid[n] = h;
     }
-    for (let pass = 0; pass < erosionPasses; pass += 1) this._thermalErode(grid, cols, rows, 4.2);
+    for (let pass = 0; pass < erosionPasses; pass += 1) this._thermalErode(grid, cols, rows, 4.2 * SAMPLE_SPACING / 32);
     for (const zone of flatZones) {
       const level = Number.isFinite(zone.level) ? zone.level : 0;
       const radius = Math.max(SAMPLE_SPACING, zone.radius || 200);
@@ -372,6 +392,7 @@ export class HeightField {
     }
     this.relief.clear();
     this.version += 1;
+    this.bulk += 1;
     return this;
   }
 
@@ -411,17 +432,55 @@ export class HeightField {
       if (!any) continue;
       chunks.push({ cx: chunk.cx, cy: chunk.cy, data: Array.from(chunk.data, value => Math.round(value * 100) / 100) });
     }
-    return { version: 1, spacing: SAMPLE_SPACING, chunkSamples: CHUNK_SAMPLES, baseHeight: this.baseHeight, seed: this.seed, chunks };
+    return { version: 1, spacing: SAMPLE_SPACING, chunkSamples: CHUNK_SAMPLES, baseHeight: this.baseHeight, seed: this.seed, waterLevel: this.waterLevel, chunks };
   }
 
   static deserialize(payload, size = {}) {
     const field = new HeightField({ width: size.width, height: size.height, baseHeight: Number(payload?.baseHeight) || 0 });
-    if (!payload || payload.spacing !== SAMPLE_SPACING || payload.chunkSamples !== CHUNK_SAMPLES) return field;
+    if (!payload) return field;
     field.seed = Number(payload.seed) || 0;
+    if (payload.waterLevel != null) field.waterLevel = Number(payload.waterLevel);
+    if (payload.spacing === SAMPLE_SPACING && payload.chunkSamples === CHUNK_SAMPLES) {
+      for (const entry of payload.chunks || []) {
+        if (!Array.isArray(entry.data) || entry.data.length !== CHUNK_SAMPLES * CHUNK_SAMPLES) continue;
+        const chunk = field.chunkAt(Number(entry.cx) | 0, Number(entry.cy) | 0, true);
+        for (let n = 0; n < entry.data.length; n += 1) chunk.data[n] = clamp(Number(entry.data[n]) || 0, MIN_HEIGHT, MAX_HEIGHT);
+      }
+      return field;
+    }
+    // Older saves used a coarser lattice: resample them bilinearly.
+    const oldSpacing = Number(payload.spacing);
+    const oldSamples = Number(payload.chunkSamples);
+    if (!(oldSpacing > 0) || !(oldSamples > 0)) return field;
+    const grid = new Map();
+    let maxI = 0;
+    let maxJ = 0;
     for (const entry of payload.chunks || []) {
-      if (!Array.isArray(entry.data) || entry.data.length !== CHUNK_SAMPLES * CHUNK_SAMPLES) continue;
-      const chunk = field.chunkAt(Number(entry.cx) | 0, Number(entry.cy) | 0, true);
-      for (let n = 0; n < entry.data.length; n += 1) chunk.data[n] = clamp(Number(entry.data[n]) || 0, MIN_HEIGHT, MAX_HEIGHT);
+      if (!Array.isArray(entry.data) || entry.data.length !== oldSamples * oldSamples) continue;
+      for (let n = 0; n < entry.data.length; n += 1) {
+        const i = (Number(entry.cx) | 0) * oldSamples + (n % oldSamples);
+        const j = (Number(entry.cy) | 0) * oldSamples + Math.floor(n / oldSamples);
+        grid.set(`${i},${j}`, Number(entry.data[n]) || 0);
+        if (i > maxI) maxI = i;
+        if (j > maxJ) maxJ = j;
+      }
+    }
+    const at = (i, j) => grid.get(`${i},${j}`) || 0;
+    const cols = Math.ceil((maxI + 1) * oldSpacing / SAMPLE_SPACING);
+    const rows = Math.ceil((maxJ + 1) * oldSpacing / SAMPLE_SPACING);
+    for (let j = 0; j <= rows; j += 1) {
+      for (let i = 0; i <= cols; i += 1) {
+        const fx = i * SAMPLE_SPACING / oldSpacing;
+        const fy = j * SAMPLE_SPACING / oldSpacing;
+        const i0 = Math.floor(fx);
+        const j0 = Math.floor(fy);
+        const tx = fx - i0;
+        const ty = fy - j0;
+        const top = at(i0, j0) + (at(i0 + 1, j0) - at(i0, j0)) * tx;
+        const bottom = at(i0, j0 + 1) + (at(i0 + 1, j0 + 1) - at(i0, j0 + 1)) * tx;
+        const value = top + (bottom - top) * ty;
+        if (Math.abs(value) > 0.01) field.setSculptSample(i, j, value);
+      }
     }
     return field;
   }
@@ -470,8 +529,10 @@ export class HeightField {
     this.chunks = other.chunks;
     this.baseHeight = other.baseHeight;
     this.seed = other.seed;
+    this.waterLevel = other.waterLevel;
     this.relief.clear();
     this.version += 1;
+    this.bulk += 1;
   }
 
   // Min/max of loaded data -- used for minimap legends and tests.
