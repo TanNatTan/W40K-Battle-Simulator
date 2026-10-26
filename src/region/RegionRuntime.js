@@ -43,7 +43,10 @@ export function normalizeRegionConfig(input = {}) {
     mine: entry?.mine !== false,
     militiaShare: num(entry?.militiaShare, 0.1, 0, 0.5),
     culture: REGION_CULTURES.includes(entry?.culture) ? entry.culture : "frontier",
-    owner: typeof entry?.owner === "string" ? entry.owner : ""
+    owner: typeof entry?.owner === "string" ? entry.owner : "",
+    // Hand-placed settlements (from the map workshop) carry an exact position and name.
+    ...(Number.isFinite(entry?.x) && Number.isFinite(entry?.y) ? { x: entry.x, y: entry.y } : {}),
+    ...(typeof entry?.name === "string" && entry.name ? { name: entry.name.slice(0, 28) } : {})
   }));
   return {
     seed: String(input.seed || base.seed).slice(0, 40),
@@ -95,8 +98,32 @@ export function createRegionRuntime(api) {
   rt.on = listener => { rt.listeners.add(listener); return () => rt.listeners.delete(listener); };
 
   // ---- creating the region ------------------------------------------------------------------
-  rt.begin = (rawConfig, bases = [], saved = null) => {
+  rt.begin = (rawConfig, bases = [], saved = null, authored = null) => {
     const s = state();
+    if (authored?.field && authored?.layers) {
+      // A map made in the workshop: adopt its ground as it is instead of generating one.
+      rt.restored = false;
+      rt.authored = true;
+      rt.config = normalizeRegionConfig(rawConfig);
+      s.heightField.adopt(api.deserializeField(authored.field));
+      rt.layers = WorldLayers.deserialize(authored.layers, REGION_WORLD);
+      s.worldLayers = rt.layers;
+      rt.info = { seed: rt.config.seed, palette: authored.palette || "temperate", sites: [], rivers: [], lakes: [], authored: true };
+      s.terrainPalette = rt.info.palette;
+      rt.eco = new EcosystemSimulator({ layers: rt.layers, field: s.heightField, random: api.random, startSeason: 0 });
+      rt.eco.setWeather("clear");
+      rt.living = null;
+      rt.bindings.clear();
+      rt.vegetation.clear();
+      rt.effectCache.clear();
+      rt.feed = [];
+      rt.unitFeedAt = -1;
+      rt.bases = bases.map(base => ({ ...base }));
+      rt.active = true;
+      s.region = rt;
+      return rt.info;
+    }
+    rt.authored = false;
     if (saved) {
       rt.bases = bases.map(base => ({ ...base }));
       if (rt.deserialize(saved, s.heightField)) {
@@ -152,16 +179,18 @@ export function createRegionRuntime(api) {
     });
     const avoid = rt.bases.map(base => ({ x: base.x, y: base.y, radius: 190 }));
     let sites = [];
+    const unplaced = config.settlements.filter(entry => !Number.isFinite(entry.x));
     for (const separation of [470, 380, 300, 230]) {
-      sites = pickSettlementSites(rt.info.sites, config.settlements.length, separation, avoid);
-      if (sites.length >= config.settlements.length) break;
+      sites = pickSettlementSites(rt.info.sites, unplaced.length, separation, avoid);
+      if (sites.length >= unplaced.length) break;
     }
     const created = [];
-    config.settlements.forEach((entry, index) => {
-      const site = sites[index];
+    let nextSite = 0;
+    config.settlements.forEach(entry => {
+      const site = Number.isFinite(entry.x) ? { x: entry.x, y: entry.y } : sites[nextSite++];
       if (!site) return;
       const settlement = rt.living.addSettlement({
-        x: site.x, y: site.y, population: entry.population, culture: entry.culture, farmland: entry.farmland,
+        x: site.x, y: site.y, name: entry.name || null, population: entry.population, culture: entry.culture, farmland: entry.farmland,
         mine: entry.mine, militiaShare: entry.militiaShare, owner: entry.owner || null
       });
       if (!settlement) return;

@@ -17,6 +17,9 @@ Then visit `http://localhost:8080`.
 Pick **Single region · living world** on the menu for one persistent region with hills, rivers, woodland,
 ore, destructible autonomous settlements and two competing armies. See [docs/living-world.md](docs/living-world.md).
 
+Build your own region in the **Map workshop** (sculpt, water, forests, fields, ore, settlements, army bases; undo/redo, save/export) and play it directly:
+see [docs/map-workshop.md](docs/map-workshop.md). Performance tooling, the terrain worker pool and the WebGL ground layer are described in [docs/performance.md](docs/performance.md).
+
 ## Project layout
 
 ```text

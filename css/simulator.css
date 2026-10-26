@@ -1087,3 +1087,60 @@
     #autonomous-war-theater .awt-field.has-gl-ground #awt-canvas {
       background: transparent;
     }
+
+    /* ---- unit hover tip and pinned stat card ---- */
+    #autonomous-war-theater .awt-unit-tip {
+      position: absolute;
+      left: 0;
+      top: 0;
+      z-index: 4;
+      display: grid;
+      gap: 1px;
+      max-width: 186px;
+      padding: 6px 9px;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      background: color-mix(in srgb, var(--popover) 94%, transparent);
+      font-size: 11px;
+      line-height: 1.3;
+      pointer-events: none;
+      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+    }
+    #autonomous-war-theater .awt-unit-tip strong { font-size: 12px; }
+    #autonomous-war-theater .awt-unit-tip small { color: var(--muted-foreground); }
+    #autonomous-war-theater .awt-unit-tip[hidden],
+    #autonomous-war-theater .awt-unit-pop[hidden] { display: none; }
+
+    #autonomous-war-theater .awt-unit-pop {
+      position: absolute;
+      left: 12px;
+      top: 52px;
+      z-index: 4;
+      width: min(300px, calc(100% - 24px));
+      display: grid;
+      gap: 7px;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-left: 4px solid var(--unit-color, var(--primary));
+      border-radius: 9px;
+      background: color-mix(in srgb, var(--popover) 95%, transparent);
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+      font-size: 12px;
+    }
+    #autonomous-war-theater .awt-unit-pop header { display: grid; grid-template-columns: 44px 1fr auto; gap: 8px; align-items: center; }
+    #autonomous-war-theater .awt-unit-pop header canvas { width: 44px; height: 44px; border-radius: 8px; background: rgba(0, 0, 0, 0.25); }
+    #autonomous-war-theater .awt-unit-pop header strong { display: block; font-size: 14px; }
+    #autonomous-war-theater .awt-unit-pop header small { color: var(--muted-foreground); }
+    #autonomous-war-theater .awt-unit-pop header button { border: 0; background: none; color: var(--muted-foreground); font-size: 20px; line-height: 1; cursor: pointer; padding: 2px 6px; }
+    #autonomous-war-theater .awt-pop-bar { display: grid; grid-template-columns: 52px 1fr 26px; gap: 7px; align-items: center; }
+    #autonomous-war-theater .awt-pop-bar i { height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
+    #autonomous-war-theater .awt-pop-bar b { display: block; height: 100%; border-radius: 3px; background: var(--viz-series-1); }
+    #autonomous-war-theater .awt-pop-bar b[data-tone="morale"] { background: var(--viz-series-2); }
+    #autonomous-war-theater .awt-pop-bar b[data-tone="fatigue"] { background: var(--viz-series-3); }
+    #autonomous-war-theater .awt-pop-bar em { font-style: normal; text-align: right; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+    #autonomous-war-theater .awt-unit-pop dl { display: grid; grid-template-columns: 52px 1fr; gap: 3px 7px; margin: 0; }
+    #autonomous-war-theater .awt-unit-pop dt { color: var(--muted-foreground); }
+    #autonomous-war-theater .awt-unit-pop dd { margin: 0; overflow-wrap: anywhere; }
+    #autonomous-war-theater .awt-unit-pop footer { display: flex; gap: 6px; }
+    #autonomous-war-theater .awt-unit-pop footer button { flex: 1; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--secondary); color: inherit; cursor: pointer; }
+    #autonomous-war-theater .awt-unit-pop footer button:hover { background: var(--accent); }

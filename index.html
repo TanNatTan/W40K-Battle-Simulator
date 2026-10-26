@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="css/tokens.css">
   <link rel="stylesheet" href="css/components.css">
   <link rel="stylesheet" href="css/simulator.css">
+  <link rel="stylesheet" href="css/workshop.css">
 </head>
 <body>
   <main class="app-stage"><div id="autonomous-war-theater">
@@ -50,6 +51,10 @@
         <button type="button" class="btn btn-ghost" id="awt-squad-role-toggle" aria-pressed="true">
           <i data-lucide="shield-half" aria-hidden="true"></i>
           Squad roles on
+        </button>
+        <button type="button" class="btn btn-ghost" id="awt-unit-style-toggle" aria-pressed="true" title="Units as simple role shapes: circle infantry, dart scout, hexagon squad leader, square standard bearer, cross medic, diamond engineer, crate supply, hull and barrel vehicle.">
+          <i data-lucide="shapes" aria-hidden="true"></i>
+          Unit shapes
         </button>
         <button type="button" class="btn btn-ghost" id="awt-lighting-toggle" aria-pressed="false">
           <i data-lucide="sun-medium" aria-hidden="true"></i>
@@ -464,9 +469,13 @@
                 <i data-lucide="history" aria-hidden="true"></i>
                 <span>Continue saved region</span>
               </button>
+              <button type="button" class="btn btn-block" id="awt-workshop-open">
+                <i data-lucide="mountain" aria-hidden="true"></i>
+                Map workshop · build a region
+              </button>
               <button type="button" class="btn btn-block" id="awt-create-map">
                 <i data-lucide="map" aria-hidden="true"></i>
-                Create map
+                Classic tile editor
               </button>
               <button type="button" class="btn btn-block" id="awt-load-map">
                 <i data-lucide="folder-open" aria-hidden="true"></i>

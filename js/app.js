@@ -37,6 +37,8 @@ import { WorldLayers } from "../src/world/WorldLayers.js";
 import { generateRegion } from "../src/world/RegionGenerator.js";
 import { SHADER_PIXELS, TERRAIN_PALETTES, gatherTerrainChunkInput, shadeTerrainChunkFromInput } from "../src/terrain/TerrainShader.js";
 import { TerrainBakeClient } from "../src/terrain/TerrainBakeClient.js";
+import { createWorkshopUI } from "../src/workshop/WorkshopUI.js";
+import { glyphKind, glyphScale, glyphRadius, traceGlyph, drawGlyph, pickGlyph } from "../src/rendering/UnitGlyphs.js";
 import { GLGroundLayer, viewTransform } from "../src/rendering/GLGroundLayer.js";
 import { createRegionRuntime, REGION_WORLD, DEFAULT_REGION_CONFIG } from "../src/region/RegionRuntime.js";
 import { createRegionUI } from "../src/region/RegionUI.js";
@@ -1467,6 +1469,9 @@ import {
         strategicTerritoryVictoryReported: false,
         territoryOverlay: true,
         showTerrain: true,
+        unitStyle: (() => { try { return localStorage.getItem("awt-unit-style") === "sprites" ? "sprites" : "shapes"; } catch { return "shapes"; } })(),
+        hoverUnitId: null,
+        cardUnitId: null,
         lightweightRendering: true,
         squadRoleOverlay: true,
         dayNight: {
@@ -1730,12 +1735,32 @@ import {
         onBegin: config => {
           state.players = setupPlayers.slice(0, 2).map((player, index) => ({ ...player, id: ids[index], index, base: deploymentPosition(index, 2, presets.region.world) }));
           state.regionConfig = config;
+          state.regionAuthored = null;
+          state.regionBasesOverride = null;
           resetBattle("region");
           regionUI.hideSetup();
           startSimulation();
         }
       });
       const worldStore = createWorldStore();
+      // The map workshop: hand-made regions are deployed through the same region scenario.
+      const workshop = createWorkshopUI({
+        root,
+        store: worldStore,
+        players: () => (state.players.length ? state.players : setupPlayers.slice(0, 2)).map((player, index) => ({ id: player.id || ids[index], name: `${player.subfaction || player.faction || "Army"} (${player.name || `Army ${index === 0 ? "A" : "B"}`})` })),
+        createWorker: () => new Worker(new URL("../src/terrain/terrain-bake-worker.js", import.meta.url), { type: "module" }),
+        onClose: () => { root.classList.remove("is-configuring"); els.mainActions.hidden = false; },
+        onPlay: payload => {
+          state.players = setupPlayers.slice(0, 2).map((player, index) => ({ ...player, id: ids[index], index, base: deploymentPosition(index, 2, presets.region.world) }));
+          state.regionConfig = payload.config;
+          state.regionAuthored = payload;
+          state.regionBasesOverride = payload.bases;
+          resetBattle("region");
+          regionUI.hideSetup();
+          startSimulation();
+        }
+      });
+      root.awtWorkshop = workshop;
       let worldSaveAt = 0;
       async function saveRegionWorld(slot = "region-autosave") {
         const payload = regionRuntime.serialize();
@@ -1749,6 +1774,8 @@ import {
         state.players = setupPlayers.slice(0, 2).map((player, index) => ({ ...player, id: ids[index], index, base: deploymentPosition(index, 2, presets.region.world) }));
         state.regionConfig = record.payload.config;
         state.regionSave = record.payload;
+        state.regionAuthored = null;
+        state.regionBasesOverride = null;
         resetBattle("region");
         state.regionSave = null;
         regionUI.hideSetup();
@@ -4292,8 +4319,8 @@ import {
         if (!state.players.length) state.players = setupPlayers.slice(0, 2).map((player, index) => ({ ...player, base: deploymentPosition(index, 2, state.world) }));
         invalidateReliefTextures();
         if (presetKey === "region") {
-          const regionBases = state.players.map((_, index) => deploymentPosition(index, state.players.length, state.world));
-          regionRuntime.begin(state.regionConfig || DEFAULT_REGION_CONFIG, regionBases, state.regionSave || null);
+          const regionBases = state.players.map((_, index) => state.regionBasesOverride?.[index] || deploymentPosition(index, state.players.length, state.world));
+          regionRuntime.begin(state.regionConfig || DEFAULT_REGION_CONFIG, regionBases, state.regionSave || null, state.regionAuthored || null);
           state.world.baseTerrain = "grass";
           battleRandom = seededRandom(`${state.battleSeed}:${regionRuntime.config.seed}`);
         } else if (presetKey !== "custom" || regionRuntime.active) {
@@ -4304,7 +4331,7 @@ import {
         state.players.forEach((player, index) => {
           player.index = index;
           player.id = ids[index];
-          player.base = deploymentPosition(index, state.players.length, state.world);
+          player.base = (presetKey === "region" && state.regionBasesOverride?.[index]) ? { ...state.regionBasesOverride[index] } : deploymentPosition(index, state.players.length, state.world);
           player.spawnZone = { shape: "circle", size: 84, points: [] };
           player.deploymentMethod = factionProfile(player).deployment;
           player.forceState = createForceState();
@@ -16470,8 +16497,15 @@ import {
           }
           let batch = batches.get(unit.faction);
           if (!batch) {
-            batch = { infantry: new Path2D(), support: new Path2D(), vehicles: new Path2D(), commanders: new Path2D(), infantryCount: 0, supportCount: 0, vehicleCount: 0, commanderCount: 0 };
+            batch = { infantry: new Path2D(), support: new Path2D(), vehicles: new Path2D(), commanders: new Path2D(), infantryCount: 0, supportCount: 0, vehicleCount: 0, commanderCount: 0, glyphs: new Map() };
             batches.set(unit.faction, batch);
+          }
+          if (state.unitStyle !== "sprites") {
+            const kind = glyphKind(unit.role);
+            let path = batch.glyphs.get(kind);
+            if (!path) { path = new Path2D(); batch.glyphs.set(kind, path); }
+            traceGlyph(path, kind, unit.x, unit.y, unit.facing || 0, glyphScale(kind, unit.spriteScale || 1, state.camera.zoom));
+            continue;
           }
           if (unit.role === "vehicle") {
             batch.vehicles.rect(unit.x - 8, unit.y - 5, 16, 10);
@@ -16500,6 +16534,14 @@ import {
           ctx.fillStyle = playerColor(faction);
           ctx.strokeStyle = playerSecondaryColor(faction);
           ctx.globalAlpha = 0.94;
+          if (batch.glyphs.size) {
+            ctx.lineWidth = Math.min(3, 1.3 / state.camera.zoom);
+            ctx.lineJoin = "round";
+            const keep = ctx.strokeStyle;
+            ctx.strokeStyle = GLYPH_OUTLINE;
+            for (const path of batch.glyphs.values()) { ctx.fill(path); ctx.stroke(path); }
+            ctx.strokeStyle = keep;
+          }
           if (batch.infantryCount) ctx.fill(batch.infantry);
           if (batch.supportCount) { ctx.fill(batch.support); ctx.stroke(batch.support); }
           if (batch.vehicleCount) { ctx.fill(batch.vehicles); ctx.stroke(batch.vehicles); }
@@ -16564,7 +16606,15 @@ import {
           ctx.strokeStyle = unit.alive ? playerSecondaryColor(unit.faction) : colors.mutedForeground;
           ctx.fillStyle = unit.alive ? color : colors.mutedForeground;
           ctx.globalAlpha = unit.alive ? 0.96 : 0.42;
-          if (unit.alive) {
+          if (unit.alive && state.unitStyle !== "sprites") {
+            const kind = glyphKind(unit.role);
+            ctx.beginPath();
+            traceGlyph(ctx, kind, unit.x, unit.y, unit.facing || 0, glyphScale(kind, unit.spriteScale || 1, state.camera.zoom));
+            ctx.fill();
+            ctx.strokeStyle = GLYPH_OUTLINE;
+            ctx.lineWidth = Math.min(3, 1.3 / state.camera.zoom);
+            ctx.stroke();
+          } else if (unit.alive) {
             if (unit.role === "vehicle") {
               ctx.fillRect(unit.x - 8, unit.y - 5, 16, 10);
               ctx.strokeRect(unit.x - 8, unit.y - 5, 16, 10);
@@ -16598,7 +16648,7 @@ import {
             ctx.strokeStyle = colors.foreground;
             ctx.globalAlpha = 0.92;
             ctx.beginPath();
-            ctx.arc(unit.x, unit.y, unit.role === "vehicle" ? 14 : 10, 0, Math.PI * 2);
+            ctx.arc(unit.x, unit.y, unitRingRadius(unit), 0, Math.PI * 2);
             ctx.stroke();
           }
         }
@@ -16691,7 +16741,7 @@ import {
           const fadeDuration = Math.min(2, UNIT_CORPSE_LIFETIME_SECONDS * 0.35);
           const fade = 1 - clamp((deathAge - (UNIT_CORPSE_LIFETIME_SECONDS - fadeDuration)) / fadeDuration, 0, 1);
           ctx.globalAlpha = fade;
-          if (playerFor(unit.faction).race === "Orks" && orkSpriteForge?.hasUnit(unit.name)) {
+          if (state.unitStyle === "sprites" && playerFor(unit.faction).race === "Orks" && orkSpriteForge?.hasUnit(unit.name)) {
             const exactOrkBody = unitSpriteForge?.draw(ctx, { ...unit, ...view, alive: false }, { primary: color, secondary, accent: playerAccentColor(unit.faction) }, renderTime);
             if (exactOrkBody) {
               ctx.restore();
@@ -16700,7 +16750,7 @@ import {
           }
           ctx.rotate((unit.index % 2 ? 1 : -1) * deathProgress * 0.42);
           ctx.scale(1 + deathProgress * 0.18, 1 - deathProgress * 0.3);
-          const forgedBody = unitSpriteForge?.draw(ctx, { ...unit, alive: false }, { primary: color, secondary, tertiary: playerAccentColor(unit.faction), body: playerBodyColor(unit.faction) }, currentSnapshot()?.t ?? state.time);
+          const forgedBody = state.unitStyle === "sprites" ? unitSpriteForge?.draw(ctx, { ...unit, alive: false }, { primary: color, secondary, tertiary: playerAccentColor(unit.faction), body: playerBodyColor(unit.faction) }, currentSnapshot()?.t ?? state.time) : null;
           if (forgedBody) {
             ctx.fillStyle = colors.danger;
             ctx.globalAlpha = fade * 0.55;
@@ -16729,7 +16779,7 @@ import {
           ctx.globalAlpha = 0.88;
           ctx.lineWidth = 1;
           ctx.beginPath();
-          ctx.arc(0, 0, unit.role === "vehicle" ? 16 : 12, 0, Math.PI * 2);
+          ctx.arc(0, 0, unitRingRadius(unit), 0, Math.PI * 2);
           ctx.stroke();
           if (unit.range > 0) {
             ctx.globalAlpha = 0.14;
@@ -16761,7 +16811,14 @@ import {
         ctx.fillStyle = color;
         ctx.strokeStyle = color;
         ctx.globalAlpha = 0.96;
-        const forgedSprite = unitSpriteForge?.draw(ctx, unit, { primary: color, secondary, tertiary: playerAccentColor(unit.faction), body: playerBodyColor(unit.faction) }, currentSnapshot()?.t ?? state.time);
+        let forgedSprite = false;
+        if (state.unitStyle !== "sprites") {
+          const kind = glyphKind(unit.role);
+          drawGlyph(ctx, unit.role, 0, 0, { fill: color, stroke: GLYPH_OUTLINE, angle: view.facing ?? unit.facing ?? 0, scale: glyphScale(kind, 1, state.camera.zoom), lineWidth: Math.min(3, 1.3 / state.camera.zoom) / (unit.spriteScale || 1), alpha: 1 });
+          forgedSprite = true;
+        } else {
+          forgedSprite = unitSpriteForge?.draw(ctx, unit, { primary: color, secondary, tertiary: playerAccentColor(unit.faction), body: playerBodyColor(unit.faction) }, currentSnapshot()?.t ?? state.time);
+        }
         if (!forgedSprite && unit.role === "builder") {
           ctx.lineWidth = 2;
           ctx.beginPath();
@@ -17816,6 +17873,7 @@ import {
               drawSquads(snapshot, renderObjects.units);
               for (const unit of renderObjects.units) drawUnit(unit);
             }
+            drawUnitHighlights();
           }
           profiler.profile("render.projectiles", drawProjectiles);
         });
@@ -17824,6 +17882,163 @@ import {
         drawStrategicObjectives();
         drawEditorCursor();
         profiler.profile("render.minimap", drawMinimap);
+        if (state.cardUnitId) updateUnitCard();
+      }
+
+
+      // ---- unit markers, picking and the stat card -------------------------------------------
+      const GLYPH_OUTLINE = "rgba(6, 10, 8, 0.92)";
+      function unitRingRadius(unit) {
+        const kind = glyphKind(unit.role);
+        const scale = state.unitStyle === "sprites" ? 1 : glyphScale(kind, unit.spriteScale || 1, state.camera.zoom);
+        return glyphRadius(kind, scale) + 4 / Math.max(0.35, Math.min(1.5, state.camera.zoom));
+      }
+
+      // One CSS pixel expressed in world units, for pick radii that feel the same at any zoom.
+      function cssPixelsToWorld(pixels) {
+        const rect = canvas.getBoundingClientRect();
+        const renderedWidth = Math.max(1, Math.min(rect.width, rect.height * canvas.width / canvas.height));
+        return pixels * (VW / renderedWidth) / state.camera.zoom;
+      }
+
+      // The living, visible unit under a world point (or null). Nearest relative to its own size wins.
+      function pickUnitAtPoint(point, pixels = 16) {
+        const reach = cssPixelsToWorld(pixels);
+        const wide = reach + 40;
+        const candidates = [];
+        for (const unit of state.units) {
+          if (unit.embarkedInId) continue;
+          if (Math.abs(unit.x - point.x) > wide || Math.abs(unit.y - point.y) > wide) continue;
+          if (!objectVisibleToFog(unit)) continue;
+          const view = unitView(unit);
+          if (!view.alive) continue;
+          candidates.push({ unit, x: view.x, y: view.y, role: unit.role, spriteScale: state.unitStyle === "sprites" ? 1 : glyphScale(glyphKind(unit.role), unit.spriteScale || 1, state.camera.zoom) });
+        }
+        return pickGlyph(candidates, point, reach)?.unit || null;
+      }
+
+      function drawUnitHighlights() {
+        const ids = [...new Set([state.hoverUnitId, state.cardUnitId].filter(Boolean))];
+        if (!ids.length || state.camera.zoom < 0.15) return;
+        ctx.save();
+        for (const id of ids) {
+          const unit = unitById(id);
+          if (!unit) continue;
+          const view = unitView(unit);
+          if (!view.alive || unit.embarkedInId) continue;
+          const pinned = id === state.cardUnitId;
+          const radius = unitRingRadius(unit) + (pinned ? 2 : 0);
+          ctx.globalAlpha = pinned ? 0.95 : 0.7;
+          ctx.strokeStyle = pinned ? playerColor(unit.faction) : colors.foreground;
+          ctx.lineWidth = (pinned ? 3 : 1.5) / Math.max(0.5, state.camera.zoom);
+          ctx.beginPath();
+          ctx.arc(view.x, view.y, radius, 0, Math.PI * 2);
+          ctx.stroke();
+          if (pinned) {
+            ctx.strokeStyle = colors.foreground;
+            ctx.lineWidth = 1 / Math.max(0.5, state.camera.zoom);
+            ctx.beginPath();
+            ctx.arc(view.x, view.y, radius + 2 / Math.max(0.5, state.camera.zoom), 0, Math.PI * 2);
+            ctx.stroke();
+          }
+        }
+        ctx.restore();
+      }
+
+      const unitHoverTip = document.createElement("div");
+      unitHoverTip.className = "awt-unit-tip";
+      unitHoverTip.hidden = true;
+      const unitCard = document.createElement("div");
+      unitCard.className = "awt-unit-pop";
+      unitCard.hidden = true;
+      unitCard.setAttribute("role", "dialog");
+      unitCard.setAttribute("aria-label", "Selected unit");
+      canvas.parentNode.append(unitCard, unitHoverTip);
+      let unitCardStamp = 0;
+      const cardText = value => String(value ?? "").replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch]);
+      const pct = value => Math.round(clamp(value ?? 0, 0, 1) * 100);
+      const meter = (label, value, tone) => `<div class="awt-pop-bar"><span>${label}</span><i><b style="width:${pct(value)}%" data-tone="${tone}"></b></i><em>${pct(value)}</em></div>`;
+
+      function selectUnitForCard(unit) {
+        state.cardUnitId = unit ? unit.id : null;
+        if (unit) { state.selectedId = unit.id; state.selectedStructureId = null; }
+        unitCardStamp = 0;
+        updateUnitCard(true);
+        draw();
+      }
+
+      function updateUnitCard(force = false) {
+        const now = performance.now();
+        if (!force && now - unitCardStamp < 180) return;
+        unitCardStamp = now;
+        const unit = state.cardUnitId ? unitById(state.cardUnitId) : null;
+        if (!unit || state.mode === "menu" || state.mode === "editor") { unitCard.hidden = true; if (unit && state.mode === "menu") state.cardUnitId = null; return; }
+        const view = unitView(unit);
+        if (!view.alive) { state.cardUnitId = null; unitCard.hidden = true; return; }
+        if (!objectVisibleToFog(unit)) { unitCard.hidden = true; return; }
+        const player = playerFor(unit.faction);
+        const squad = unit.squadId ? squadFor(unit.squadId) : null;
+        const squadSize = squad ? squadMembers(squad.id, currentSnapshot()).length : 0;
+        const status = view.status || unit.status || "Ready";
+        const intent = view.combatIntent || unit.combatIntent;
+        unitCard.hidden = false;
+        unitCard.style.setProperty("--unit-color", playerColor(unit.faction));
+        unitCard.innerHTML = `
+          <header>
+            <canvas width="44" height="44" data-role="glyph"></canvas>
+            <div><strong>${cardText(unit.name)}</strong><small>${cardText(roleLabel(unit))} · ${cardText(player.race)} / ${cardText(player.subfaction)}</small></div>
+            <button type="button" data-act="close" aria-label="Close">&times;</button>
+          </header>
+          ${meter("Health", view.hp / Math.max(1, unit.maxHp), "hp")}
+          ${meter("Morale", view.morale, "morale")}
+          ${meter("Fatigue", view.fatigue, "fatigue")}
+          <dl>
+            <dt>Status</dt><dd>${cardText(status)}${intent ? ` · ${cardText(intent)}` : ""}</dd>
+            <dt>Weapon</dt><dd>${cardText(unit.weapon)}${unit.range ? ` · range ${Math.round(unit.range)}` : ""}</dd>
+            <dt>Armour</dt><dd>${cardText(unit.armor)}</dd>
+            <dt>Kills</dt><dd>${cardText(unit.kills)}${unit.experience != null ? ` · XP ${cardText(unit.experience)}` : ""}</dd>
+            <dt>Squad</dt><dd>${squad ? `${cardText(squad.name)} · ${squadSize} members · ${cardText(squad.orderType || "Advance")}` : "Independent"}</dd>
+            <dt>Doing</dt><dd>${cardText(state.replay ? view.lastAction : unit.lastAction) || "Idle"}</dd>
+          </dl>
+          <footer><button type="button" data-act="centre">Centre view</button><button type="button" data-act="report">Full report</button></footer>`;
+        const glyphCanvas = unitCard.querySelector("[data-role=glyph]");
+        const g = glyphCanvas.getContext("2d");
+        g.translate(22, 22);
+        const kind = glyphKind(unit.role);
+        drawGlyph(g, unit.role, 0, 0, { fill: playerColor(unit.faction), stroke: GLYPH_OUTLINE, angle: -0.5, scale: Math.min(2, 15 / glyphRadius(kind, 1)), lineWidth: 1.5 });
+      }
+
+      unitCard.addEventListener("click", event => {
+        const act = event.target.closest("[data-act]")?.dataset.act;
+        if (act === "close") { state.cardUnitId = null; unitCard.hidden = true; draw(); }
+        else if (act === "centre") {
+          const unit = state.cardUnitId ? unitById(state.cardUnitId) : null;
+          if (unit) { const view = unitView(unit); state.camera.x = view.x; state.camera.y = view.y; state.cameraFocus = { x: view.x, y: view.y }; clampCamera(); draw(); }
+        } else if (act === "report") { setInspector(true); updateUI(true); }
+      });
+      unitCard.addEventListener("pointerdown", event => event.stopPropagation());
+
+      let hoverPickQueued = false;
+      function queueHoverPick(event) {
+        state.hoverClient = { x: event.clientX, y: event.clientY };
+        if (hoverPickQueued) return;
+        hoverPickQueued = true;
+        requestAnimationFrame(() => {
+          hoverPickQueued = false;
+          const point = state.hover;
+          const unit = point && state.mode === "sim" && state.camera.zoom >= 0.15 ? pickUnitAtPoint(point, 14) : null;
+          const id = unit?.id || null;
+          if (id !== state.hoverUnitId) { state.hoverUnitId = id; if (state.paused) draw(); }
+          if (!unit || id === state.cardUnitId) { unitHoverTip.hidden = true; canvas.style.cursor = state.spaceHeld ? "grab" : "crosshair"; return; }
+          const view = unitView(unit);
+          const rect = canvas.parentNode.getBoundingClientRect();
+          unitHoverTip.hidden = false;
+          unitHoverTip.innerHTML = `<strong>${cardText(unit.name)}</strong><span>${cardText(roleLabel(unit))} · P${playerFor(unit.faction).index + 1}</span><span>HP ${pct(view.hp / Math.max(1, unit.maxHp))}% · ${cardText(view.status || "Ready")}</span><small>Click for stats</small>`;
+          const x = Math.min(rect.width - 190, Math.max(4, state.hoverClient.x - rect.left + 16));
+          const y = Math.min(rect.height - 80, Math.max(4, state.hoverClient.y - rect.top + 14));
+          unitHoverTip.style.transform = `translate(${x}px, ${y}px)`;
+          canvas.style.cursor = "pointer";
+        });
       }
 
       function updateSelectedUnit() {
@@ -19872,24 +20087,13 @@ import {
           }
           return;
         }
-        let best = null;
-        let bestDistance = 24 / state.camera.zoom;
-        for (const unit of state.units) {
-          if (!objectVisibleToFog(unit)) continue;
-          const view = unitView(unit);
-          const d = hypot2(view.x - point.x, view.y - point.y);
-          if (d < bestDistance) {
-            best = unit;
-            bestDistance = d;
-          }
-        }
+        const best = pickUnitAtPoint(point, 16);
         if (best) {
-          state.selectedId = best.id;
-          state.selectedStructureId = null;
-          setInspector(true);
+          selectUnitForCard(best);
           updateUI(true);
           return;
         }
+        if (state.cardUnitId) selectUnitForCard(null);
         const structure = state.structures
           .filter(item => item.progress >= 0.35 && objectVisibleToFog(item, state.fogPlayer, item.hitbox ? Math.max(item.hitbox.w, item.hitbox.h) / 2 : 0))
           .sort((a, b) => distance(a, point) - distance(b, point))
@@ -19911,8 +20115,9 @@ import {
           return;
         }
         state.hover = pointerPosition(event);
-        if (!state.hover) return;
+        if (!state.hover) { if (state.hoverUnitId) { state.hoverUnitId = null; unitHoverTip.hidden = true; } return; }
         state.cameraFocus = { ...state.hover };
+        queueHoverPick(event);
         if (state.mode === "editor") {
           if (state.editorTool === "terrain") {
             pixelProbe(state.hover);
@@ -20082,6 +20287,23 @@ import {
         if (window.lucide) lucide.createIcons({ attrs: { width: 16, height: 16 } });
         draw();
       });
+      els.unitStyleToggle = root.querySelector("#awt-unit-style-toggle");
+      const syncUnitStyleButton = () => {
+        const shapes = state.unitStyle !== "sprites";
+        els.unitStyleToggle.setAttribute("aria-pressed", String(shapes));
+        els.unitStyleToggle.innerHTML = `<i data-lucide="shapes" aria-hidden="true"></i>${shapes ? "Unit shapes" : "Unit sprites"}`;
+        if (window.lucide) lucide.createIcons({ attrs: { width: 16, height: 16 } });
+      };
+      syncUnitStyleButton();
+      els.unitStyleToggle.addEventListener("click", () => {
+        state.unitStyle = state.unitStyle === "sprites" ? "shapes" : "sprites";
+        try { localStorage.setItem("awt-unit-style", state.unitStyle); } catch { /* storage unavailable */ }
+        syncUnitStyleButton();
+        draw();
+      });
+      root.addEventListener("keydown", event => {
+        if (event.key === "Escape" && state.cardUnitId && !/^(INPUT|SELECT|TEXTAREA)$/.test(event.target.tagName)) selectUnitForCard(null);
+      });
       els.squadRoleToggle.addEventListener("click", () => {
         state.squadRoleOverlay = !state.squadRoleOverlay;
         els.squadRoleToggle.setAttribute("aria-pressed", String(state.squadRoleOverlay));
@@ -20120,6 +20342,11 @@ import {
         root.classList.add("is-configuring");
         els.mainActions.hidden = true;
         els.setupPanel.hidden = false;
+      });
+      root.querySelector("#awt-workshop-open").addEventListener("click", () => {
+        root.classList.add("is-configuring");
+        els.mainActions.hidden = true;
+        workshop.open();
       });
       root.querySelector("#awt-region-start").addEventListener("click", () => {
         root.classList.add("is-configuring");
