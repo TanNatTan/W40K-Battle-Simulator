@@ -305,6 +305,20 @@ export function generateRegion({ field, layers, seed = "REGION-1", width = field
   place(DEPOSIT.PROMETHIUM, deposits.promethium ?? 0, (h, slope) => (h < 14 && slope < 0.2 ? 1 - Math.abs(h - 4) * 0.05 : -1), 3, 1400);
   place(DEPOSIT.STONE, deposits.stone ?? 0, (h, slope, m) => (h > 18 ? 0.3 + m * 1.2 + slope : -1), 4, 1100);
 
+  // Prefer sites with plenty of open, dry, gentle land around them to farm.
+  for (const site of sites) {
+    let open = 0;
+    let total = 0;
+    layers.forEachInCircle(site.x, site.y, 140, (i, j) => {
+      if ((i + j) % 2) return;
+      total += 1;
+      if (layers.get("waterSurface", i, j) > -1e8 || layers.get("vegKind", i, j) === VEGETATION.FOREST) return;
+      if (field.slopeAt(i * SAMPLE_SPACING, j * SAMPLE_SPACING) > 0.14) return;
+      open += 1;
+    });
+    site.arable = total ? open / total : 0;
+    site.score += site.arable * 2.6 - (site.arable < 0.25 ? 1.5 : 0);
+  }
   sites.sort((a, b) => b.score - a.score);
   return { seed: String(seed), biome, palette: profile.palette, waterLevel, rivers, lakes, sites, deposits: placed, cols, rows };
 }

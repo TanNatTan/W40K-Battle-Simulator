@@ -20,6 +20,13 @@ export const WEATHER_STATES = Object.freeze({
   storm: { rain: 1, cloud: 1, label: "Storm" }
 });
 
+export const SEASONS = Object.freeze([
+  { name: "Spring", growth: 1.0, dry: 0.9, plant: true },
+  { name: "Summer", growth: 1.15, dry: 1.3, plant: true },
+  { name: "Autumn", growth: 0.55, dry: 1.0, plant: false },
+  { name: "Winter", growth: 0.04, dry: 0.5, plant: false }
+]);
+
 const TRANSITIONS = {
   clear: [["clear", 5], ["overcast", 3]],
   overcast: [["clear", 3], ["overcast", 2], ["rain", 3]],
@@ -28,7 +35,9 @@ const TRANSITIONS = {
 };
 
 export class EcosystemSimulator {
-  constructor({ layers, field, random = Math.random, timeScale = 14 } = {}) {
+  constructor({ layers, field, random = Math.random, timeScale = 14, seasonLength = 600, startSeason = 0 } = {}) {
+    this.seasonLength = seasonLength;
+    this.seasonOffset = startSeason * seasonLength;
     this.layers = layers;
     this.field = field;
     this.random = random;
@@ -42,6 +51,13 @@ export class EcosystemSimulator {
     this.chunkBudget = 6;
     this.listeners = new Set();
     this.stats = { burnedCells: 0, flooded: 0, harvests: 0 };
+  }
+
+  /** Current season, plus how far through the year we are (0..1). */
+  get season() {
+    const t = (this.time + this.seasonOffset) / this.seasonLength;
+    const index = Math.floor(t) % 4;
+    return { ...SEASONS[index], index, progress: (t % 4) / 4, year: Math.floor(t / 4) };
   }
 
   on(listener) { this.listeners.add(listener); return () => this.listeners.delete(listener); }
@@ -150,6 +166,11 @@ export class EcosystemSimulator {
     const field = this.field;
     const rain = this.weather.rain;
     const worldDt = elapsed * this.timeScale;
+    // Bytes can't hold fractions, so slow processes round stochastically; otherwise tiny per-visit changes would vanish.
+    const season = this.season;
+    const growth = season.growth;
+    const random = this.random;
+    const q = value => Math.floor(clamp(value, 0, 255) + random());
     const baseI = chunk.cx * CHUNK_SAMPLES;
     const baseJ = chunk.cy * CHUNK_SAMPLES;
     for (let lj = 0; lj < CHUNK_SAMPLES; lj += 1) {
@@ -167,9 +188,9 @@ export class EcosystemSimulator {
           for (const [di, dj] of NEIGHBORS4) { if (layers.get("waterSurface", i + di, j + dj) > NO_WATER) { nearWater = true; break; } }
         }
         // Soil moisture drifts toward a baseline that rain and nearby water raise.
-        const baseline = clamp(0.12 + fertility * 0.3 + (nearWater ? 0.4 : 0) + rain * 0.55, 0, 1);
+        const baseline = clamp(0.12 * season.dry + fertility * 0.3 + (nearWater ? 0.4 : 0) + rain * 0.55, 0, 1);
         moisture += (baseline - moisture) * clamp(0.0035 * worldDt, 0, 0.5);
-        chunk.moisture[n] = clamp(moisture, 0, 1) * 255;
+        chunk.moisture[n] = q(moisture * 255);
 
         // Mud forms on wet bare soil and dries back.
         const surface = chunk.surface[n];
@@ -202,16 +223,16 @@ export class EcosystemSimulator {
         }
 
         // Scorch heals, fertility recovers, trampling fades.
-        if (chunk.scorch[n] > 0 && !this.fires.has(`${i},${j}`)) chunk.scorch[n] = Math.max(0, chunk.scorch[n] - 0.00004 * worldDt * 255 * (0.4 + moisture));
-        if (chunk.trample[n] > 0) chunk.trample[n] = Math.max(0, chunk.trample[n] - 0.0004 * worldDt * 255);
-        if (chunk.scorch[n] < 40 && chunk.fertility[n] < 190) chunk.fertility[n] = Math.min(190, chunk.fertility[n] + 0.00003 * worldDt * 255 * moisture);
+        if (chunk.scorch[n] > 0 && !this.fires.has(`${i},${j}`)) chunk.scorch[n] = q(chunk.scorch[n] - 0.00004 * worldDt * 255 * (0.4 + moisture));
+        if (chunk.trample[n] > 0) chunk.trample[n] = q(chunk.trample[n] - 0.0004 * worldDt * 255);
+        if (chunk.scorch[n] < 40 && chunk.fertility[n] < 190) chunk.fertility[n] = Math.min(190, q(chunk.fertility[n] + 0.00003 * worldDt * 255 * moisture));
 
         const kind = chunk.vegKind[n];
         if (wetCell) continue;
         if (kind === VEGETATION.CROP) {
           const stage = chunk.cropStage[n];
-          if (moisture < 0.14 && stage > 0) chunk.cropStage[n] = Math.max(0, stage - 0.0002 * worldDt * 255);
-          else if (stage < 255) chunk.cropStage[n] = Math.min(255, stage + 0.00012 * worldDt * 255 * (0.3 + moisture) * (0.4 + fertility));
+          if (moisture < 0.14 && stage > 0) chunk.cropStage[n] = q(stage - 0.0002 * worldDt * 255);
+          else if (stage < 255) chunk.cropStage[n] = q(stage + 0.00035 * worldDt * growth * 255 * (0.3 + moisture) * (0.4 + fertility));
           chunk.vegetation[n] = Math.max(chunk.vegetation[n], 140);
           continue;
         }
@@ -221,8 +242,8 @@ export class EcosystemSimulator {
         let density = chunk.vegetation[n] / 255;
         if (kind === VEGETATION.NONE) {
           if (fertility > 0.28 && chunk.surface[n] !== SURFACE.STONE && moisture > 0.25 && this.random() < 0.0008 * worldDt) { chunk.vegKind[n] = VEGETATION.GRASS; density = Math.max(density, 0.12); }
-        } else if (density < target) density += 0.00006 * worldDt * moisture * (0.4 + fertility);
-        chunk.vegetation[n] = clamp(density, 0, 1) * 255;
+        } else if (density < target) density += 0.00006 * worldDt * growth * moisture * (0.4 + fertility);
+        chunk.vegetation[n] = q(density * 255);
         if (kind !== VEGETATION.FOREST && fertility > 0.5 && moisture > 0.45 && this.random() < 0.000004 * worldDt) {
           let forestNeighbours = 0;
           for (const [di, dj] of NEIGHBORS4) if (layers.get("vegKind", i + di, j + dj) === VEGETATION.FOREST) forestNeighbours += 1;

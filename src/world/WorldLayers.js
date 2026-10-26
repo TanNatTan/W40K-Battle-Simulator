@@ -130,7 +130,7 @@ export class WorldLayers {
     const j = Math.round(y / SAMPLE_SPACING);
     const spot = this._locate(i, j, false);
     if (!spot) {
-      return { fertility: this.defaults.fertility / 255, moisture: 0, vegetation: 0, vegKind: 0, scorch: 0, earthwork: 0, integrity: 1, owner: 0, surface: 0, deposit: 0, waterSurface: NO_WATER };
+      return { fertility: this.defaults.fertility / 255, moisture: 0, vegetation: 0, vegKind: 0, scorch: 0, fire: 0, earthwork: 0, integrity: 1, owner: 0, surface: 0, deposit: 0, waterSurface: NO_WATER };
     }
     const c = spot.chunk;
     const k = spot.index;
@@ -140,6 +140,7 @@ export class WorldLayers {
       vegetation: c.vegetation[k] / 255,
       vegKind: c.vegKind[k],
       scorch: c.scorch[k] / 255,
+      fire: c.fire[k] / 255,
       earthwork: c.earthwork[k],
       integrity: c.integrity[k] / 255,
       owner: c.owner[k],
