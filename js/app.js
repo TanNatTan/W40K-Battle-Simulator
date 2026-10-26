@@ -68,7 +68,6 @@ import {
   stepSettlement,
   unrestOutputMultiplier
 } from "../src/population/SettlementPopulation.js";
-import { PLANET_BIOME_INFO, advancePlanet, applyTacticalResult, buildRegionRaster, generatePlanet, planetSummary, tacticalSetupFor } from "../src/planet/PlanetCampaign.js";
 import { FEATURE_RELIEF, describeSlope, highGroundModifiers, lineOfSightModifiers, slopeMovementFactor } from "../src/terrain/ElevationEffects.js";
 import {
   createNavigationMonitor,
@@ -605,18 +604,6 @@ import {
         spritePlayer: root.querySelector("#awt-sprite-player"),
         spriteCanvas: root.querySelector("#awt-sprite-canvas"),
         spriteMaskLine: root.querySelector("#awt-sprite-mask-line"),
-        planetPanel: root.querySelector("#awt-planet-panel"),
-        planetCanvas: root.querySelector("#awt-planet-canvas"),
-        planetSeed: root.querySelector("#awt-planet-seed"),
-        planetRegions: root.querySelector("#awt-planet-regions"),
-        planetFactions: root.querySelector("#awt-planet-factions"),
-        planetSpeed: root.querySelector("#awt-planet-speed"),
-        planetPlay: root.querySelector("#awt-planet-play"),
-        planetFactionsList: root.querySelector("#awt-planet-factions-list"),
-        planetRegion: root.querySelector("#awt-planet-region"),
-        planetLog: root.querySelector("#awt-planet-log"),
-        planetDeploy: root.querySelector("#awt-planet-deploy"),
-        victoryPlanetButton: root.querySelector("#awt-victory-planet-button"),
         editorTool: root.querySelector("#awt-editor-tool"),
         editorMapDims: root.querySelector("#awt-editor-map-dims"),
         editorInspector: root.querySelector("#awt-editor-inspector"),
@@ -1661,9 +1648,6 @@ import {
       window.awtDebugState = state;
       // Test/diagnostic hooks. They call the same functions the simulation does.
       root.awtDebugTools = {
-        planetState: () => state.planet,
-        planetBattle: () => state.planetBattle,
-        resolvePlanetBattle: (winnerIndex = null) => resolvePlanetBattle(winnerIndex == null ? null : state.planetBattle?.sides[winnerIndex], true),
         captureSettlement(nodeId, factionId) {
           const node = state.economicNodes.find(item => item.id === nodeId);
           if (!node) return null;
@@ -14527,10 +14511,6 @@ import {
           profiler.profile("population.settlements", () => updateSettlements(state.settlementAccumulator));
           state.settlementAccumulator = 0;
         }
-        if (state.planetBattle && !state.planetBattle.resolved) {
-          state.planetCheckAccumulator = (state.planetCheckAccumulator || 0) + dt;
-          if (state.planetCheckAccumulator >= 1) { state.planetCheckAccumulator = 0; checkPlanetBattleOutcome(); }
-        }
         state.armyAIAccumulator += dt;
         if (state.armyAIAccumulator >= 5 && heavySystemAvailable()) {
           profiler.profile("ai.strategic", updateArmyAI);
@@ -17949,338 +17929,9 @@ import {
         updateUI(true);
       }
 
-      // ---- Planet campaign (strategic layer) -------------------------------
-      const PLANET_AGGRESSION = { Orks: 0.9, Tyranids: 0.95, Chaos: 0.85, Necrons: 0.7, "T'au": 0.55, Imperium: 0.65 };
-      state.planet = null;
-      state.planetBattle = null;
-      state.planetSelected = null;
-      state.planetPlaying = false;
-      state.planetTimer = null;
-      state.planetRaster = null;
-      state.planetLayer = null;
-      state.planetLayerVersion = -1;
-      state.planetVersion = 0;
-
-      function planetCtx() { return els.planetCanvas.getContext("2d"); }
-
-      function generatePlanetFromControls() {
-        const count = clamp(Number(els.planetFactions.value) || 3, 2, 6);
-        const factions = setupPlayers.slice(0, count).map((player, index) => ({
-          id: player.id,
-          name: `${player.subfaction}`,
-          race: player.race,
-          faction: player.faction,
-          subfaction: player.subfaction,
-          color: player.color,
-          aggression: PLANET_AGGRESSION[player.race] ?? 0.6
-        }));
-        const seed = els.planetSeed.value.trim() || "TERRA-01";
-        state.planet = generatePlanet({ seed, regionCount: Number(els.planetRegions.value) || 64, factions });
-        state.planetRaster = buildRegionRaster(state.planet, 320, 160);
-        state.planetSelected = null;
-        state.planetLayerVersion = -1;
-        state.planetVersion += 1;
-        setPlanetPlaying(false);
-        refreshPlanetUI();
-      }
-
-      function setPlanetPlaying(playing) {
-        state.planetPlaying = Boolean(playing) && Boolean(state.planet) && !state.planet.winner;
-        els.planetPlay.textContent = state.planetPlaying ? "Pause" : "Play";
-        if (state.planetTimer) { clearInterval(state.planetTimer); state.planetTimer = null; }
-        if (state.planetPlaying) {
-          state.planetTimer = setInterval(() => {
-            if (els.planetPanel.hidden || !state.planet) { setPlanetPlaying(false); return; }
-            advancePlanet(state.planet, 0.25 * (Number(els.planetSpeed.value) || 1));
-            state.planetVersion += 1;
-            refreshPlanetUI();
-            if (state.planet.winner) setPlanetPlaying(false);
-          }, 250);
-        }
-      }
-
-      function planetRegionColor(planet, region) {
-        const faction = planet.factions[region.owner];
-        if (faction) return faction.color;
-        return region.owner ? "#9a9a9a" : "#3b4350";
-      }
-
-      function hexToRgb(hex) {
-        const value = String(hex || "#888").replace("#", "");
-        const full = value.length === 3 ? value.split("").map(c => c + c).join("") : value.padEnd(6, "8");
-        return [parseInt(full.slice(0, 2), 16) || 0, parseInt(full.slice(2, 4), 16) || 0, parseInt(full.slice(4, 6), 16) || 0];
-      }
-
-      const PLANET_BIOME_TINT = { frozen: [220, 232, 244], balanced: [120, 156, 96], forest: [60, 110, 70], desert: [214, 190, 120], volcanic: [120, 60, 50], archipelago: [70, 130, 170], urban: [140, 140, 150] };
-
-      function renderPlanetLayer() {
-        const planet = state.planet;
-        const raster = state.planetRaster;
-        if (!planet || !raster) return null;
-        if (!state.planetLayer) { state.planetLayer = document.createElement("canvas"); state.planetLayer.width = 320; state.planetLayer.height = 160; }
-        if (state.planetLayerVersion === state.planetVersion) return state.planetLayer;
-        const layer = state.planetLayer;
-        const lctx = layer.getContext("2d");
-        const image = lctx.createImageData(320, 160);
-        const colors = planet.regions.map(region => {
-          const owner = hexToRgb(planetRegionColor(planet, region));
-          const tint = PLANET_BIOME_TINT[region.biome] || [128, 128, 128];
-          const mix = region.owner ? 0.62 : 0.0;
-          return owner.map((c, i) => Math.round(c * mix + tint[i] * (1 - mix)));
-        });
-        for (let y = 0; y < 160; y += 1) {
-          for (let x = 0; x < 320; x += 1) {
-            const index = y * 320 + x;
-            const region = raster[index];
-            const edge = (x < 319 && raster[index + 1] !== region) || (y < 159 && raster[index + 320] !== region);
-            const color = colors[region];
-            const k = edge ? 0.45 : 1;
-            image.data[index * 4] = color[0] * k;
-            image.data[index * 4 + 1] = color[1] * k;
-            image.data[index * 4 + 2] = color[2] * k;
-            image.data[index * 4 + 3] = 255;
-          }
-        }
-        lctx.putImageData(image, 0, 0);
-        state.planetLayerVersion = state.planetVersion;
-        return layer;
-      }
-
-      function drawPlanetMap() {
-        const planet = state.planet;
-        const ctx = planetCtx();
-        const width = els.planetCanvas.width;
-        const height = els.planetCanvas.height;
-        ctx.clearRect(0, 0, width, height);
-        const layer = renderPlanetLayer();
-        if (!layer) return;
-        ctx.imageSmoothingEnabled = false;
-        ctx.drawImage(layer, 0, 0, width, height);
-        // recent movements
-        for (const move of planet.moves.slice(-10)) {
-          const age = planet.time - move.at;
-          if (age > 12) continue;
-          const from = planet.byId.get(move.from);
-          const to = planet.byId.get(move.to);
-          ctx.globalAlpha = clamp(1 - age / 12, 0.1, 1);
-          ctx.strokeStyle = move.orbital ? "#fff" : planetRegionColor(planet, { owner: move.factionId });
-          ctx.lineWidth = 2;
-          ctx.setLineDash(move.orbital ? [3, 4] : []);
-          ctx.beginPath();
-          ctx.moveTo(from.x * width, from.y * height);
-          ctx.lineTo(to.x * width, to.y * height);
-          ctx.stroke();
-        }
-        ctx.setLineDash([]);
-        ctx.globalAlpha = 1;
-        ctx.font = "10px sans-serif";
-        ctx.textAlign = "center";
-        for (const region of planet.regions) {
-          const px = region.x * width;
-          const py = region.y * height;
-          if (region.capitalOf) {
-            ctx.fillStyle = "#fff";
-            ctx.fillRect(px - 4, py - 4, 8, 8);
-            ctx.strokeStyle = "#000";
-            ctx.strokeRect(px - 4, py - 4, 8, 8);
-          } else if (region.spaceport) {
-            ctx.fillStyle = "#fff";
-            ctx.beginPath(); ctx.arc(px, py, 2.5, 0, Math.PI * 2); ctx.fill();
-          }
-          const troops = totalPlanetForces(region);
-          if (troops >= 10 && planet.regions.length <= 128) {
-            ctx.fillStyle = "rgba(0,0,0,.75)";
-            ctx.fillText(String(Math.round(troops)), px, py + 13);
-          }
-          if (Object.keys(region.forces).length > 1) {
-            ctx.strokeStyle = "#ff5a3c"; ctx.lineWidth = 2;
-            ctx.beginPath(); ctx.arc(px, py, 8, 0, Math.PI * 2); ctx.stroke();
-          }
-        }
-        const selected = state.planetSelected && planet.byId.get(state.planetSelected);
-        if (selected) {
-          ctx.strokeStyle = "#ffe14d"; ctx.lineWidth = 2;
-          ctx.beginPath(); ctx.arc(selected.x * width, selected.y * height, 11, 0, Math.PI * 2); ctx.stroke();
-        }
-      }
-
-      function totalPlanetForces(region) {
-        let total = 0;
-        for (const value of Object.values(region.forces)) total += value;
-        return total;
-      }
-
-      function refreshPlanetUI() {
-        const planet = state.planet;
-        if (!planet) {
-          els.planetFactionsList.textContent = "Generate a world to begin.";
-          els.planetDeploy.disabled = true;
-          return;
-        }
-        drawPlanetMap();
-        els.planetFactionsList.textContent = "";
-        for (const row of planetSummary(planet)) {
-          const div = document.createElement("div");
-          div.className = `awt-planet-faction${row.eliminated ? " is-out" : ""}`;
-          const swatch = document.createElement("i");
-          swatch.style.background = row.color;
-          const label = document.createElement("span");
-          label.textContent = `${row.name} · ${row.regions} regions · ${row.troops} troops · ${Math.round(row.populationShare * 100)}% pop · +${row.income}/turn`;
-          div.append(swatch, label);
-          els.planetFactionsList.append(div);
-        }
-        if (planet.winner) {
-          const div = document.createElement("div");
-          div.textContent = `Winner: ${planet.factions[planet.winner]?.name || planet.winner}`;
-          div.style.fontWeight = "700";
-          els.planetFactionsList.append(div);
-        }
-        const region = state.planetSelected && planet.byId.get(state.planetSelected);
-        if (region) {
-          const forces = Object.entries(region.forces).filter(([, value]) => value >= 1).map(([id, value]) => `${planet.factions[id]?.name || id}: ${Math.round(value)}`).join(", ") || "none";
-          const owner = planet.factions[region.owner]?.name || (region.owner ? "Rebels" : "Unclaimed");
-          const resources = Object.entries(region.resources).map(([k, v]) => `${k} ${v}`).join(", ") || "none";
-          els.planetRegion.textContent = `${region.name} · ${PLANET_BIOME_INFO[region.biome]?.label || region.biome}\nOwner: ${owner}${region.capitalOf ? " (capital)" : ""}${region.spaceport ? " · spaceport" : ""}\nForces: ${forces}\nPopulation ${Math.round(region.population)}/${region.maxPopulation} · unrest ${Math.round(region.unrest * 100)}% · fortification ${Math.round(region.fortification * 100)}%\nResources: ${resources}`;
-          els.planetRegion.style.whiteSpace = "pre-line";
-        } else els.planetRegion.textContent = "Select a region on the map.";
-        els.planetLog.textContent = "";
-        for (const entry of planet.log.slice(-30).reverse()) {
-          const li = document.createElement("li");
-          li.dataset.kind = entry.kind;
-          li.textContent = `T${entry.turn} · ${entry.text}`;
-          els.planetLog.append(li);
-        }
-        els.planetDeploy.disabled = !region || Object.keys(region.forces).length < 1 && !region.owner || Boolean(planet.winner);
-      }
-
-      function openPlanetPanel() {
-        root.classList.add("is-configuring");
-        els.mainActions.hidden = true;
-        els.setupPanel.hidden = true;
-        els.loadPanel.hidden = true;
-        els.spritePanel.hidden = true;
-        els.planetPanel.hidden = false;
-        els.overlay.hidden = false;
-        if (!state.planet) generatePlanetFromControls();
-        else refreshPlanetUI();
-      }
-
-      function closePlanetPanel() {
-        setPlanetPlaying(false);
-        root.classList.remove("is-configuring");
-        els.planetPanel.hidden = true;
-        els.mainActions.hidden = false;
-      }
-
-      function planetRegionAt(event) {
-        const planet = state.planet;
-        if (!planet) return null;
-        const rect = els.planetCanvas.getBoundingClientRect();
-        const u = (event.clientX - rect.left) / rect.width;
-        const v = (event.clientY - rect.top) / rect.height;
-        const px = clamp(Math.floor(u * 320), 0, 319);
-        const py = clamp(Math.floor(v * 160), 0, 159);
-        return planet.regions[state.planetRaster[py * 320 + px]] || null;
-      }
-
-      function deployPlanetBattle() {
-        const planet = state.planet;
-        const region = state.planetSelected && planet?.byId.get(state.planetSelected);
-        if (!region) return;
-        const setup = tacticalSetupFor(planet, region.id, { maxSides: 4 });
-        if (!setup || setup.sides.length < 2) { els.planetRegion.textContent = "Not enough opposing forces here for a tactical battle."; return; }
-        setPlanetPlaying(false);
-        const sides = setup.sides.map((side, index) => ({ ...side, playerId: ids[index] }));
-        const peak = Math.max(...sides.map(side => side.strength));
-        state.players = sides.map((side, index) => {
-          const template = setupPlayers.find(player => player.id === side.factionId) || setupPlayers[index];
-          return {
-            ...template,
-            id: ids[index],
-            index,
-            team: String(index + 1),
-            name: side.faction.name,
-            battleObjective: "annihilation",
-            base: deploymentPosition(index, sides.length, state.world)
-          };
-        });
-        setWorldSize(TEST_MAP_WIDTH, TEST_MAP_HEIGHT);
-        state.scenario = "custom";
-        resetBattle("custom", []);
-        els.randomBiome.value = [...els.randomBiome.options].some(option => option.value === setup.biome) ? setup.biome : "balanced";
-        els.randomSeed.value = String(setup.seedText).slice(0, 24);
-        randomizeMap();
-        state.planetBattle = { regionId: region.id, sides, peak: {}, resolved: false, returned: false, startedAt: state.time };
-        els.planetPanel.hidden = true;
-        startSimulation();
-        els.battleName.textContent = `${setup.regionName} / planetary battle`;
-        incident(`Planetary battle for ${setup.regionName}: ${sides.map(side => side.faction.name).join(" vs ")}.`, null, "critical");
-      }
-
-      function planetBattleSideStates() {
-        const battle = state.planetBattle;
-        return battle.sides.map(side => {
-          const living = state.units.filter(unit => unit.faction === side.playerId && unit.alive && unit.role !== "builder").length;
-          battle.peak[side.playerId] = Math.max(battle.peak[side.playerId] || 0, living);
-          const outcome = state.strategicOutcomes[side.playerId];
-          return { side, living, defeated: Boolean(outcome?.defeated) || (battle.peak[side.playerId] >= 6 && living === 0), fraction: battle.peak[side.playerId] ? living / battle.peak[side.playerId] : 1 };
-        });
-      }
-
-      function checkPlanetBattleOutcome() {
-        const battle = state.planetBattle;
-        if (!battle || battle.resolved || state.mode !== "sim") return;
-        const states = planetBattleSideStates();
-        if (state.time - battle.startedAt < 30) return;
-        const standing = states.filter(entry => !entry.defeated);
-        let winner = null;
-        if (state.ended && state.victoriousTeam) winner = states.find(entry => battle.sides.indexOf(entry.side) + 1 === Number(state.victoriousTeam))?.side || null;
-        else if (standing.length === 1) winner = standing[0].side;
-        else if (standing.length === 0) winner = states.sort((a, b) => b.fraction - a.fraction)[0]?.side || null;
-        else return;
-        resolvePlanetBattle(winner, true);
-      }
-
-      function resolvePlanetBattle(winnerSide, showScreen = false) {
-        const battle = state.planetBattle;
-        if (!battle || battle.resolved) return;
-        const states = planetBattleSideStates();
-        battle.resolved = true;
-        const survivors = {};
-        for (const entry of states) survivors[entry.side.factionId] = clamp(entry.fraction, 0, 1);
-        applyTacticalResult(state.planet, battle.regionId, { winnerId: winnerSide?.factionId || null, survivors });
-        state.planetVersion += 1;
-        if (showScreen) {
-          const name = winnerSide ? winnerSide.faction.name : "No side";
-          state.ended = true;
-          state.paused = true;
-          els.victoryTitle.textContent = `${name} wins the battle for ${state.planet.byId.get(battle.regionId)?.name || "the region"}`;
-          els.victoryCopy.textContent = "The planetary front has been updated with the result.";
-          els.victoryScreen.hidden = false;
-          els.victoryPlanetButton.hidden = false;
-          els.rematchButton.hidden = true;
-          updatePauseButton();
-        }
-      }
-
-      function returnToPlanet() {
-        els.victoryPlanetButton.hidden = true;
-        els.rematchButton.hidden = false;
-        if (state.planetBattle && !state.planetBattle.resolved) resolvePlanetBattle(null, false);
-        els.victoryScreen.hidden = true;
-        state.planetBattle.returned = true;
-        showMainMenu();
-        openPlanetPanel();
-      }
-
       function showMainMenu() {
-        if (state.planetBattle && !state.planetBattle.resolved) resolvePlanetBattle(null, false);
-        els.victoryPlanetButton.hidden = true;
-        els.rematchButton.hidden = false;
         root.classList.remove("is-configuring", "is-editing");
         els.victoryScreen.hidden = true;
-        els.planetPanel.hidden = true;
-        setPlanetPlaying(false);
         state.paused = true;
         state.mode = "menu";
         state.replay = false;
@@ -20013,23 +19664,6 @@ import {
         populateSpritePlayers();
         drawSpritePreview();
       });
-      root.querySelector("#awt-open-planet").addEventListener("click", openPlanetPanel);
-      root.querySelector("#awt-planet-back").addEventListener("click", closePlanetPanel);
-      root.querySelector("#awt-planet-generate").addEventListener("click", generatePlanetFromControls);
-      els.planetPlay.addEventListener("click", () => setPlanetPlaying(!state.planetPlaying));
-      root.querySelector("#awt-planet-step").addEventListener("click", () => {
-        if (!state.planet) return;
-        advancePlanet(state.planet, state.planet.turnSeconds);
-        state.planetVersion += 1;
-        refreshPlanetUI();
-      });
-      els.planetCanvas.addEventListener("click", event => {
-        const region = planetRegionAt(event);
-        state.planetSelected = region?.id || null;
-        refreshPlanetUI();
-      });
-      els.planetDeploy.addEventListener("click", deployPlanetBattle);
-      els.victoryPlanetButton.addEventListener("click", returnToPlanet);
       root.querySelector("#awt-sprite-back").addEventListener("click", () => {
         root.classList.remove("is-configuring");
         els.spritePanel.hidden = true;

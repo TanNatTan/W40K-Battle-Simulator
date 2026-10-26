@@ -468,10 +468,6 @@
                 <i data-lucide="palette" aria-hidden="true"></i>
                 Sprite lab
               </button>
-              <button type="button" class="btn btn-block" id="awt-open-planet">
-                <i data-lucide="globe" aria-hidden="true"></i>
-                Planet campaign
-              </button>
               <button type="button" class="btn btn-ghost btn-block" id="awt-quit">
                 <i data-lucide="log-out" aria-hidden="true"></i>
                 Quit
@@ -506,35 +502,6 @@
               </div>
               <div class="text-small" id="awt-sprite-mask-line">Primary #FF00FF · secondary #00FFFF · three-shade ramps</div>
               <button type="button" class="btn btn-ghost btn-block" id="awt-sprite-back">Back</button>
-            </div>
-            <div id="awt-planet-panel" hidden>
-              <div class="awt-panel-title">Planet campaign</div>
-              <p class="awt-panel-copy text-small">A whole world fought region by region. Garrisons, supply lines, rebellions and orbital landings resolve automatically. Open any region as a full tactical battle.</p>
-              <div class="awt-planet-controls">
-                <label class="form-label text-small" for="awt-planet-seed">Seed<input class="form-control" id="awt-planet-seed" value="TERRA-01" maxlength="24"></label>
-                <label class="form-label text-small" for="awt-planet-regions">Regions
-                  <select class="form-select" id="awt-planet-regions"><option value="32">32</option><option value="64" selected>64</option><option value="128">128</option><option value="256">256</option></select>
-                </label>
-                <label class="form-label text-small" for="awt-planet-factions">Factions
-                  <select class="form-select" id="awt-planet-factions"><option value="2">2</option><option value="3" selected>3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option></select>
-                </label>
-                <label class="form-label text-small" for="awt-planet-speed">Speed
-                  <select class="form-select" id="awt-planet-speed"><option value="1">1×</option><option value="2">2×</option><option value="4" selected>4×</option><option value="10">10×</option></select>
-                </label>
-              </div>
-              <div class="awt-planet-buttons">
-                <button type="button" class="btn btn-primary" id="awt-planet-generate">Generate world</button>
-                <button type="button" class="btn" id="awt-planet-play">Play</button>
-                <button type="button" class="btn" id="awt-planet-step">Step</button>
-              </div>
-              <canvas id="awt-planet-canvas" width="640" height="320" tabindex="0" role="img" aria-label="Planet map. Click a region to inspect it."></canvas>
-              <div class="awt-planet-columns">
-                <div id="awt-planet-factions-list" class="text-small" aria-live="polite"></div>
-                <div id="awt-planet-region" class="text-small" aria-live="polite">Select a region on the map.</div>
-              </div>
-              <ul id="awt-planet-log" class="awt-planet-log text-small" aria-live="polite"></ul>
-              <button type="button" class="btn btn-primary btn-block" id="awt-planet-deploy" disabled>Deploy tactical battle here</button>
-              <button type="button" class="btn btn-ghost btn-block" id="awt-planet-back">Back</button>
             </div>
             <div id="awt-setup-panel" hidden>
               <div class="awt-panel-title">World parameters</div>
@@ -830,7 +797,6 @@
         <h2 id="awt-victory-title">Victory</h2>
         <p class="text-muted" id="awt-victory-copy">One force controls the theater.</p>
         <div class="viz-row">
-          <button type="button" class="btn btn-primary" id="awt-victory-planet-button" hidden>Return to planet</button>
           <button type="button" class="btn btn-primary" id="awt-rematch-button">Rematch</button>
           <button type="button" class="btn" id="awt-victory-menu-button">Main menu</button>
         </div>
