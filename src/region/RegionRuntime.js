@@ -440,6 +440,62 @@ export function createRegionRuntime(api) {
 
   const farEnough = (zoom, minZoom) => zoom >= minZoom;
 
+  // ---- citizens: picking and a plain-data stat report --------------------------------------
+  /** The living citizen (or refugee) nearest a world point, within `reach`. Ignores the dead. */
+  rt.citizenAt = (x, y, reach = 8) => {
+    if (!rt.active || !rt.living) return null;
+    let best = null; let bestD = reach;
+    const consider = agent => {
+      if (!agent?.alive) return;
+      const d = Math.hypot(agent.x - x, agent.y - y);
+      if (d < bestD) { bestD = d; best = agent; }
+    };
+    for (const settlement of rt.living.settlements.values()) {
+      if (Math.abs(settlement.x - x) > settlement.radius * 1.3 + reach || Math.abs(settlement.y - y) > settlement.radius * 1.3 + reach) continue;
+      for (const id of settlement.agentIds) consider(rt.living.agents.get(id));
+    }
+    for (const agent of rt.living.refugees) consider(agent);
+    return best;
+  };
+
+  rt.roleColor = role => ROLE_COLORS[role] || "#dddddd";
+
+  rt.citizenById = id => {
+    const agent = id && rt.living ? rt.living.agents.get(id) : null;
+    return agent && agent.alive ? agent : null;
+  };
+
+  const ACTIVITY_LABELS = { idle: "Idle", sow: "Sowing a field", tend: "Tending crops", harvest: "Harvesting", mine: "Mining ore", build: "Building", dig: "Digging a trench", repair: "Repairing", chop: "Felling trees", eat: "Eating", rest: "Resting", wander: "Wandering", flee: "Fleeing danger", patrol: "On patrol", guard: "Standing guard", fire: "Fighting a fire", advance: "Advancing on the enemy", deliver: "Carrying goods", travel: "Travelling", held: "Held captive", settling: "Heading to a new settlement" };
+  const level = (value, words) => words[Math.min(words.length - 1, Math.max(0, Math.floor((value ?? 0) * words.length)))];
+
+  /** Everything the stat card shows about one person, as plain values. */
+  rt.citizenReport = agent => {
+    if (!agent) return null;
+    const home = agent.settlementId ? rt.living.settlements.get(agent.settlementId) : rt.living.settlements.get(agent.originId) || null;
+    const clampUnit = value => Math.min(1, Math.max(0, Number(value) || 0));
+    return {
+      id: agent.id,
+      name: agent.name,
+      role: agent.role,
+      workRole: agent.workRole || null,
+      age: Math.round(agent.age),
+      rebel: Boolean(agent.rebel),
+      hp: agent.hp, maxHp: agent.maxHp,
+      hunger: clampUnit(agent.needs?.hunger), fatigue: clampUnit(agent.needs?.fatigue), fear: clampUnit(agent.needs?.fear),
+      morale: agent.morale != null ? clampUnit(agent.morale) : null,
+      skills: Object.fromEntries(Object.entries(agent.skills || {}).map(([key, value]) => [key, clampUnit(value)])),
+      traits: Object.fromEntries(Object.entries(agent.traits || {}).map(([key, value]) => [key, clampUnit(value)])),
+      loyalty: Math.round((agent.loyalty?.settlement ?? 0) * 100) / 100,
+      activity: agent.task?.settling ? ACTIVITY_LABELS.settling : ACTIVITY_LABELS[agent.task?.type] || ACTIVITY_LABELS[agent.activity] || "Idle",
+      carrying: { food: Math.round((agent.carrying?.food || 0) * 10) / 10, materials: Math.round((agent.carrying?.materials || 0) * 10) / 10 },
+      temperament: `${level(agent.traits?.courage, ["timid", "wary", "steady", "bold"])}, ${level(agent.traits?.diligence, ["idle", "casual", "hardworking", "tireless"])}`,
+      settlement: home ? { id: home.id, name: home.name, owner: home.owner || null, status: home.status, population: home.agentIds.length, radius: Math.round(home.radius), posture: home.posture } : null,
+      refugeeFrom: agent.role === "refugee" ? agent.originName || null : null,
+      history: (agent.history || []).slice(-5)
+    };
+  };
+
+
   rt.drawSettlements = (ctx, bounds, zoom, now = 0) => {
     if (!rt.active || !rt.living) return;
     const s = state();

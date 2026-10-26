@@ -3,7 +3,8 @@
 // do which work, what to build and dig, where fields go, how to stand against
 // danger, and how to change doctrine after being hurt.
 
-import { VEGETATION, SURFACE } from "../world/WorldLayers.js";
+import { VEGETATION, SURFACE, EARTHWORK } from "../world/WorldLayers.js";
+import { plantCrop } from "../world/Ecosystem.js";
 import { BUILDING_TYPES, DAY, FOOD_PER_DAY, ADULT_AGE, bearing, bedCapacity, canAfford, clamp, distance, isAdult, operationalBuildings, spend, storageCapacity } from "./Settlement.js";
 
 const FIELD_CELLS_PER_PERSON = 0.95;
@@ -348,4 +349,122 @@ export function considerTribute(world, s, threat, now) {
       world.log(s, `${world.nameOf(faction)} rejects ${s.name}'s offer of tribute.`, "warning", "diplomacy");
     }
   }
+}
+
+// ---- expansion --------------------------------------------------------------------------
+// A settlement that fills up does two things: its reach (the ring it farms, patrols and
+// defends) widens, and once crowded it sends settlers to found a daughter settlement.
+export const EXPANSION = Object.freeze({
+  maxRadiusFactor: 2.1,    // reach never grows past this multiple of the founding radius
+  crowdedPopulation: 55,   // people needed before settlers are sent out
+  settlers: 9,
+  colonyCooldown: DAY * 5, // simulated seconds between colonies from one settlement
+  minSpacing: 230
+});
+
+export function baseRadiusOf(s) { return s.baseRadius ?? s.radius; }
+
+/** Widen (or, after losses, narrow) the settlement's reach to match the people it supports. */
+export function updateReach(world, s, agents, now) {
+  const base = s.baseRadius ??= s.radius;
+  const pop = agents.length;
+  const fieldPull = Math.max(0, s.fields.length - 30) * 0.35;
+  const target = clamp(base + Math.max(0, pop - 24) * 1.15 + fieldPull, base, base * EXPANSION.maxRadiusFactor);
+  const before = s.radius;
+  if (target > s.radius + 0.5) s.radius = Math.min(target, s.radius + 3);
+  else if (target < s.radius - 12) s.radius = Math.max(target, s.radius - 1.5);
+  const grewPast = Math.floor((s.radius - base) / (base * 0.25));
+  if (grewPast > (s._reachStep ?? 0) && s.radius > before) {
+    s._reachStep = grewPast;
+    world.log(s, `${s.name} spreads out: farms and homesteads now reach ${Math.round(s.radius)} paces.`, "info", "expanded");
+    world.pathfinder.invalidateAround(s.x, s.y, s.radius * 2);
+  } else if (grewPast < (s._reachStep ?? 0)) s._reachStep = grewPast;
+}
+
+function siteScore(world, x, y) {
+  const L = world.layers; const F = world.field;
+  if (x < 80 || y < 80 || x > world.width - 80 || y > world.height - 80) return -Infinity;
+  const i = Math.round(x / 16); const j = Math.round(y / 16);
+  if (L.get("waterSurface", i, j) > -1e8) return -Infinity;
+  if (F.slopeAt(x, y) > 0.13) return -Infinity;
+  const info = L.surfaceInfo(x, y);
+  if (info.surface === SURFACE.STONE || info.scorch > 0.5) return -Infinity;
+  let water = 0;
+  for (const [di, dj] of [[4, 0], [-4, 0], [0, 4], [0, -4], [7, 0], [-7, 0], [0, 7], [0, -7]]) if (L.get("waterSurface", i + di, j + dj) > -1e8) water = 1;
+  let fertile = 0; let samples = 0;
+  for (let dj = -4; dj <= 4; dj += 2) for (let di = -4; di <= 4; di += 2) { fertile += L.surfaceInfo((i + di) * 16, (j + dj) * 16).fertility; samples += 1; }
+  return info.fertility * 1.2 + fertile / samples * 1.6 + info.moisture * 0.4 + water * 0.5 - (info.vegKind === VEGETATION.FOREST ? 0.9 : 0);
+}
+
+/** Best open ground within reach of a parent settlement for a daughter settlement, or null. */
+export function findColonySite(world, s) {
+  const base = baseRadiusOf(s);
+  let best = null; let bestScore = -Infinity;
+  for (let ring = 0; ring < 3; ring += 1) {
+    const dist = s.radius * 1.5 + base * (0.5 + ring * 0.55);
+    for (let step = 0; step < 18; step += 1) {
+      const angle = (step / 18) * Math.PI * 2 + world.random() * 0.2;
+      const x = s.x + Math.cos(angle) * dist; const y = s.y + Math.sin(angle) * dist;
+      let blocked = false;
+      for (const other of world.settlements.values()) {
+        if (Math.hypot(other.x - x, other.y - y) < Math.max(EXPANSION.minSpacing, (other.radius + base * 0.6) * 1.1)) { blocked = true; break; }
+      }
+      if (blocked) continue;
+      const score = siteScore(world, x, y) - dist / (base * 9);
+      if (score > bestScore) { bestScore = score; best = { x, y, score }; }
+    }
+  }
+  return best && best.score > 0.35 ? best : null;
+}
+
+/** Send settlers to found a daughter settlement when the home settlement is crowded, fed and calm. */
+export function planColony(world, s, agents, threat, now) {
+  if (s.posture !== "calm" || threat.count || s.occupation?.by || s.status === "occupied" || s.status === "abandoned") return null;
+  if (now < (s.nextColonyAt ?? DAY * 3)) return null;
+  const pop = agents.length;
+  if (pop < EXPANSION.crowdedPopulation) return null;
+  if (world.settlements.size >= world.limits.maxSettlements) return null;
+  const food = foodStatus(world, s, pop);
+  if (food.days < s.doctrine.reserveDays * 0.9) return null;
+  const crowded = pop >= bedCapacity(s) - 2 || s.fields.length < Math.min(300, pop * FIELD_CELLS_PER_PERSON) * 0.8;
+  if (!crowded) return null;
+  s.nextColonyAt = now + EXPANSION.colonyCooldown;
+  const site = findColonySite(world, s);
+  if (!site) return null;
+  const pool = agents.filter(a => isAdult(a) && a.role !== "militia" && a.role !== "captive" && a.role !== "enslaved" && a.id !== s.leaderId && a.hp > a.maxHp * 0.6);
+  if (pool.length < EXPANSION.settlers + 8) return null;
+  pool.sort((a, b) => (b.traits.diligence + b.skills.building + b.skills.farming) - (a.traits.diligence + a.skills.building + a.skills.farming));
+  const settlers = pool.slice(0, EXPANSION.settlers);
+  const colony = world.addSettlement({ x: site.x, y: site.y, population: 0, empty: true, owner: s.owner, culture: s.culture, radius: Math.max(90, Math.round(baseRadiusOf(s) * 0.8)), mine: true, buildings: false });
+  if (!colony) return null;
+  colony.parentId = s.id;
+  colony.doctrine = { ...colony.doctrine, ...s.doctrine, towerTarget: 1 };
+  colony.memory.lessons.push({ time: Math.round(now), text: `Founded from ${s.name}, which had grown too crowded.` });
+  const hall = world.addCompletedBuilding(colony, "hall", { x: site.x, y: site.y });
+  const house = world.addCompletedBuilding(colony, "house");
+  for (const person of settlers) {
+    s.agentIds = s.agentIds.filter(id => id !== person.id);
+    person.settlementId = colony.id; person.task = null; person.activity = "wander"; person.roleSince = now;
+    person.role = "farmer"; person.home = { x: (house || hall).x, y: (house || hall).y };
+    person.loyalty = { settlement: 0.7 };
+    person.history.push(`Left ${s.name} to found ${colony.name}`);
+    if (person.history.length > 12) person.history.shift();
+    person.task = { type: "wander", x: site.x + (world.random() - 0.5) * 30, y: site.y + (world.random() - 0.5) * 30, t: 0, path: null, pi: 0, settling: true };
+    colony.agentIds.push(person.id);
+  }
+  // Settlers carry a fortnight of food and seed grain with them, and start with a few fields.
+  const pack = Math.min(s.storage.food * 0.2, settlers.length * FOOD_PER_DAY * 14); s.storage.food -= pack; colony.storage.food += pack;
+  const seed = Math.min(s.storage.seed, 6); s.storage.seed -= seed; colony.storage.seed += seed + 4;
+  const wood = Math.min(s.storage.materials, 14); s.storage.materials -= wood; colony.storage.materials += wood + 10;
+  colony._startPopulation = settlers.length;
+  colony._agents = world.agentsOf(colony);
+  planFields(world, colony, settlers.length * 1.6);
+  for (const [i, j] of colony.fields) {
+    if (world.random() < 0.5) { plantCrop(world.layers, i, j); world.layers.set("cropStage", i, j, 40 + world.random() * 80); }
+    else world.layers.set("earthwork", i, j, EARTHWORK.FIELD);
+  }
+  s.stats.colonies = (s.stats.colonies || 0) + 1;
+  world.log(s, `${settlers.length} settlers leave ${s.name} to found ${colony.name}.`, "info", "colony");
+  world.host.onColony?.(colony, s);
+  return colony;
 }

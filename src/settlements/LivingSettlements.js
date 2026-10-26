@@ -11,7 +11,7 @@ import { plantCrop } from "../world/Ecosystem.js";
 import { personName, placeName } from "./Names.js";
 import { stepCitizen, walk } from "./CitizenBrain.js";
 import {
-  allocateRoles, assessThreat, chooseMine, considerTribute, freeSite, manageStores, planConstruction, planFields, updatePosture, learnFromAttack, foodStatus, compass
+  allocateRoles, assessThreat, chooseMine, considerTribute, freeSite, manageStores, planColony, planConstruction, planFields, updateReach, updatePosture, learnFromAttack, foodStatus, compass
 } from "./SettlementPlanner.js";
 import {
   DEFAULT_POLICY, captureSettlement, collectTribute, refugeeArrivedAt, resolveCaptives, rollResistance, stepCamps, stepRefugee, updateRebellion
@@ -527,6 +527,8 @@ export class LivingSettlements {
     if (s.lod === "abstract") this.abstractProduce(s, agents, dt);
     if (!(s._fieldTick = ((s._fieldTick || 0) + 1) % 5)) planFields(this, s, pop);
     planConstruction(this, s, agents, threat, now);
+    updateReach(this, s, agents, now);
+    planColony(this, s, agents, threat, now);
     manageStores(this, s, pop);
     considerTribute(this, s, threat, now);
     this.mineHazards(s, dt);

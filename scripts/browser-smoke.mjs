@@ -517,7 +517,20 @@ try {
   }
   const lifecycle = { runningStart, runningEnd, pausedStart, pausedEnd, resumedStart, resumedEnd, faultStart, faultEnd, retryStart, retryEnd };
 
-  console.log(JSON.stringify({ startup, playerSetup, editor: { ...editor, cameraAfter, terrainVisibilityProbe }, simulation, spawnRelocationProbe, combatBehaviorProbe, builderHealth, repairProbe, carrierHarvestProbe, squadRoleProbe, phase20to23, replayTransport: { replayBefore, replayAfter, liveAfterReplay }, lifecycle }, null, 2));
+    // Every AI keeps learning from what it sees: each army has a matchup memory that fills up as the battle runs.
+  const learningProbe = await evaluate(`(() => {
+    const root = document.querySelector('#autonomous-war-theater');
+    const state = root.awtDebugState;
+    root.awtDebugTools.advance(60, 1 / 15);
+    return state.players.map(player => {
+      const memory = state.factionLearning[player.id];
+      return { id: player.id, key: memory?.matchupKey || null, observations: memory?.observations?.length || 0, weights: Object.keys(memory?.learnedWeights || {}).length };
+    });
+  })()`);
+  if (!learningProbe.length || learningProbe.some(row => !row.key || row.observations < 1 || row.weights < 5)) {
+    throw new Error(`Faction learning is not running for every army: ${JSON.stringify(learningProbe)}`);
+  }
+console.log(JSON.stringify({ startup, playerSetup, editor: { ...editor, cameraAfter, terrainVisibilityProbe }, simulation, spawnRelocationProbe, combatBehaviorProbe, builderHealth, repairProbe, carrierHarvestProbe, squadRoleProbe, phase20to23, replayTransport: { replayBefore, replayAfter, liveAfterReplay }, lifecycle }, null, 2));
 } finally {
   socket?.close();
   if (browser && browser.exitCode === null) {

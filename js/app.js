@@ -1345,6 +1345,8 @@ import {
         unitStyle: (() => { try { return localStorage.getItem("awt-unit-style") === "sprites" ? "sprites" : "shapes"; } catch { return "shapes"; } })(),
         hoverUnitId: null,
         cardUnitId: null,
+        cardCitizenId: null,
+        hoverCitizenId: null,
         lightweightRendering: true,
         squadRoleOverlay: true,
         dayNight: {
@@ -3960,6 +3962,8 @@ import {
       function resetBattle(presetKey = "iron", customFeatures = null) {
         const preset = presets[presetKey] || presets.iron;
         state.scenario = presetKey;
+        state.cardCitizenId = null;
+        state.hoverCitizenId = null;
         state.time = 0;
         state.clock.elapsedSeconds = 0;
         state.startMinute = preset.startMinute;
@@ -17101,7 +17105,35 @@ import {
         return pickGlyph(candidates, point, reach)?.unit || null;
       }
 
+      function drawCitizenHighlights() {
+        if (!regionRuntime.active || state.camera.zoom < 0.42) return;
+        const ids = [...new Set([state.hoverCitizenId, state.cardCitizenId].filter(Boolean))];
+        if (!ids.length) return;
+        ctx.save();
+        for (const id of ids) {
+          const citizen = regionRuntime.citizenById(id);
+          if (!citizen) continue;
+          const pinned = id === state.cardCitizenId;
+          const zoom = Math.max(0.5, state.camera.zoom);
+          ctx.globalAlpha = pinned ? 0.95 : 0.7;
+          ctx.strokeStyle = pinned ? regionRuntime.roleColor(citizen.role) : colors.foreground;
+          ctx.lineWidth = (pinned ? 2.5 : 1.5) / zoom;
+          ctx.beginPath();
+          ctx.arc(citizen.x, citizen.y, 5 / Math.sqrt(zoom) + (pinned ? 2 : 0), 0, Math.PI * 2);
+          ctx.stroke();
+          if (pinned) {
+            ctx.strokeStyle = colors.foreground;
+            ctx.lineWidth = 1 / zoom;
+            ctx.beginPath();
+            ctx.arc(citizen.x, citizen.y, 5 / Math.sqrt(zoom) + 4 / zoom, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+        }
+        ctx.restore();
+      }
+
       function drawUnitHighlights() {
+        drawCitizenHighlights();
         const ids = [...new Set([state.hoverUnitId, state.cardUnitId].filter(Boolean))];
         if (!ids.length || state.camera.zoom < 0.15) return;
         ctx.save();
@@ -17143,7 +17175,57 @@ import {
       const pct = value => Math.round(clamp(value ?? 0, 0, 1) * 100);
       const meter = (label, value, tone) => `<div class="awt-pop-bar"><span>${label}</span><i><b style="width:${pct(value)}%" data-tone="${tone}"></b></i><em>${pct(value)}</em></div>`;
 
+      function selectCitizenForCard(citizen) {
+        state.cardUnitId = null;
+        state.cardCitizenId = citizen ? citizen.id : null;
+        unitCardStamp = 0;
+        updateUnitCard(true);
+        draw();
+      }
+
+      function renderCitizenCard() {
+        const citizen = regionRuntime.citizenById(state.cardCitizenId);
+        if (!citizen || state.mode === "menu") { state.cardCitizenId = null; unitCard.hidden = true; return; }
+        const report = regionRuntime.citizenReport(citizen);
+        const home = report.settlement;
+        const ownerPlayer = home?.owner ? playerFor(home.owner) : null;
+        const color = regionRuntime.roleColor(report.role);
+        const skillRows = Object.entries(report.skills).map(([name, value]) => `${cardText(name)} ${pct(value)}%`).join(" · ");
+        const roleName = report.role === "enslaved" && report.workRole ? `enslaved ${report.workRole}` : report.role;
+        unitCard.hidden = false;
+        unitCard.style.setProperty("--unit-color", color);
+        unitCard.innerHTML = `
+          <header>
+            <canvas width="44" height="44" data-role="glyph"></canvas>
+            <div><strong>${cardText(report.name)}</strong><small>${cardText(roleName)} · age ${report.age}${report.rebel ? " · rebel" : ""}</small></div>
+            <button type="button" data-act="close" aria-label="Close">&times;</button>
+          </header>
+          ${meter("Health", report.hp / Math.max(1, report.maxHp), "hp")}
+          ${meter("Hunger", report.hunger, "fatigue")}
+          ${meter("Fatigue", report.fatigue, "fatigue")}
+          ${meter("Fear", report.fear, "morale")}
+          <dl>
+            <dt>Doing</dt><dd>${cardText(report.activity)}</dd>
+            <dt>Home</dt><dd>${home ? `${cardText(home.name)} · ${home.population} people · reach ${home.radius}${ownerPlayer ? ` · ${cardText(ownerPlayer.subfaction || ownerPlayer.faction)}` : " · independent"}` : report.refugeeFrom ? `Refugee from ${cardText(report.refugeeFrom)}` : "None"}</dd>
+            <dt>Skills</dt><dd>${skillRows}</dd>
+            <dt>Nature</dt><dd>${cardText(report.temperament)} · loyalty ${Math.round(report.loyalty * 100)}%</dd>
+            <dt>Carrying</dt><dd>${report.carrying.food || report.carrying.materials ? `${report.carrying.food} food · ${report.carrying.materials} materials` : "Nothing"}</dd>
+            ${report.history.length ? `<dt>Recent</dt><dd>${report.history.map(cardText).join(" · ")}</dd>` : ""}
+          </dl>
+          <footer><button type="button" data-act="centre">Centre view</button></footer>`;
+        const g = unitCard.querySelector("[data-role=glyph]").getContext("2d");
+        g.translate(22, 22);
+        g.fillStyle = color;
+        g.strokeStyle = GLYPH_OUTLINE;
+        g.lineWidth = 2;
+        g.beginPath();
+        g.arc(0, 0, 11, 0, Math.PI * 2);
+        g.fill();
+        g.stroke();
+      }
+
       function selectUnitForCard(unit) {
+        state.cardCitizenId = null;
         state.cardUnitId = unit ? unit.id : null;
         if (unit) { state.selectedId = unit.id; state.selectedStructureId = null; }
         unitCardStamp = 0;
@@ -17155,6 +17237,7 @@ import {
         const now = performance.now();
         if (!force && now - unitCardStamp < 180) return;
         unitCardStamp = now;
+        if (state.cardCitizenId) { renderCitizenCard(); return; }
         const unit = state.cardUnitId ? unitById(state.cardUnitId) : null;
         if (!unit || state.mode === "menu" || state.mode === "editor") { unitCard.hidden = true; if (unit && state.mode === "menu") state.cardUnitId = null; return; }
         const view = unitView(unit);
@@ -17194,8 +17277,11 @@ import {
 
       unitCard.addEventListener("click", event => {
         const act = event.target.closest("[data-act]")?.dataset.act;
-        if (act === "close") { state.cardUnitId = null; unitCard.hidden = true; draw(); }
-        else if (act === "centre") {
+        if (act === "close") { state.cardUnitId = null; state.cardCitizenId = null; unitCard.hidden = true; draw(); }
+        else if (act === "centre" && state.cardCitizenId) {
+          const citizen = regionRuntime.citizenById(state.cardCitizenId);
+          if (citizen) { state.camera.x = citizen.x; state.camera.y = citizen.y; state.cameraFocus = { x: citizen.x, y: citizen.y }; clampCamera(); draw(); }
+        } else if (act === "centre") {
           const unit = state.cardUnitId ? unitById(state.cardUnitId) : null;
           if (unit) { const view = unitView(unit); state.camera.x = view.x; state.camera.y = view.y; state.cameraFocus = { x: view.x, y: view.y }; clampCamera(); draw(); }
         } else if (act === "report") { setInspector(true); updateUI(true); }
@@ -17213,6 +17299,18 @@ import {
           const unit = point && state.mode === "sim" && state.camera.zoom >= 0.15 ? pickUnitAtPoint(point, 14) : null;
           const id = unit?.id || null;
           if (id !== state.hoverUnitId) { state.hoverUnitId = id; if (state.paused) draw(); }
+          const citizen = !unit && point && regionRuntime.active && state.mode === "sim" && state.camera.zoom >= 0.42 ? regionRuntime.citizenAt(point.x, point.y, cssPixelsToWorld(10)) : null;
+          const citizenId = citizen?.id || null;
+          if (citizenId !== state.hoverCitizenId) { state.hoverCitizenId = citizenId; if (state.paused) draw(); }
+          if (citizen && citizenId !== state.cardCitizenId) {
+            const report = regionRuntime.citizenReport(citizen);
+            const rect = canvas.parentNode.getBoundingClientRect();
+            unitHoverTip.hidden = false;
+            unitHoverTip.innerHTML = `<strong>${cardText(report.name)}</strong><span>${cardText(report.role)} · age ${report.age}${report.settlement ? ` · ${cardText(report.settlement.name)}` : ""}</span><span>${cardText(report.activity)}</span><small>Click for stats</small>`;
+            unitHoverTip.style.transform = `translate(${Math.min(rect.width - 190, Math.max(4, state.hoverClient.x - rect.left + 16))}px, ${Math.min(rect.height - 80, Math.max(4, state.hoverClient.y - rect.top + 14))}px)`;
+            canvas.style.cursor = "pointer";
+            return;
+          }
           if (!unit || id === state.cardUnitId) { unitHoverTip.hidden = true; canvas.style.cursor = state.spaceHeld ? "grab" : "crosshair"; return; }
           const view = unitView(unit);
           const rect = canvas.parentNode.getBoundingClientRect();
@@ -18074,7 +18172,12 @@ import {
           updateUI(true);
           return;
         }
-        if (state.cardUnitId) selectUnitForCard(null);
+        const citizen = regionRuntime.active && state.camera.zoom >= 0.42 ? regionRuntime.citizenAt(point.x, point.y, cssPixelsToWorld(12)) : null;
+        if (citizen) {
+          selectCitizenForCard(citizen);
+          return;
+        }
+        if (state.cardUnitId || state.cardCitizenId) selectUnitForCard(null);
         const structure = state.structures
           .filter(item => item.progress >= 0.35 && objectVisibleToFog(item, state.fogPlayer, item.hitbox ? Math.max(item.hitbox.w, item.hitbox.h) / 2 : 0))
           .sort((a, b) => distance(a, point) - distance(b, point))
@@ -18234,7 +18337,7 @@ import {
         draw();
       });
       root.addEventListener("keydown", event => {
-        if (event.key === "Escape" && state.cardUnitId && !/^(INPUT|SELECT|TEXTAREA)$/.test(event.target.tagName)) selectUnitForCard(null);
+        if (event.key === "Escape" && (state.cardUnitId || state.cardCitizenId) && !/^(INPUT|SELECT|TEXTAREA)$/.test(event.target.tagName)) selectUnitForCard(null);
       });
       els.squadRoleToggle.addEventListener("click", () => {
         state.squadRoleOverlay = !state.squadRoleOverlay;

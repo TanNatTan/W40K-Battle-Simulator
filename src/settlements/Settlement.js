@@ -35,7 +35,7 @@ export function emptyStorage() { return { food: 0, seed: 0, materials: 0, fuel: 
 
 export function createSettlement({ id, name, x, y, owner = null, culture = "frontier", radius = 120, nodeId = null, ideology = "pragmatic" }) {
   return {
-    id, name, x, y, radius, owner, culture, ideology, nodeId,
+    id, name, x, y, radius, baseRadius: radius, owner, culture, ideology, nodeId, parentId: null,
     status: "thriving",
     storage: emptyStorage(),
     hidden: emptyStorage(),
