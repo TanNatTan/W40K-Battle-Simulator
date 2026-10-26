@@ -26,7 +26,7 @@ const NO_WATER = -1e9;
 const keyOf = (cx, cy) => (cx + 1024) * 4096 + (cy + 1024);
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
-const BYTE_LAYERS = ["fertility", "moisture", "vegetation", "vegKind", "scorch", "trample", "fire", "deposit", "cover", "integrity", "owner", "surface", "earthwork", "cropStage"];
+const BYTE_LAYERS = ["fertility", "moisture", "vegetation", "vegKind", "scorch", "trample", "fire", "deposit", "cover", "integrity", "owner", "surface", "earthwork", "cropStage", "dig"];
 
 function createChunk(cx, cy, defaults) {
   const chunk = { cx, cy, rev: 0, waterSurface: new Float32Array(CELLS).fill(NO_WATER), depositAmount: new Uint16Array(CELLS) };
